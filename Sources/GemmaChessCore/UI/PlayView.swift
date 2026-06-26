@@ -65,6 +65,7 @@ public struct PlayView: View {
     @Bindable var vm: PlayViewModel
     var onNewGame: () -> Void
     @State private var settings = PlayDisplaySettings()
+    @State private var showChat = false
 
     public init(vm: PlayViewModel, onNewGame: @escaping () -> Void) {
         self.vm = vm; self.onNewGame = onNewGame
@@ -287,11 +288,16 @@ public struct PlayView: View {
                 if let v = vm.lastVerdict { verdictChip(v) }
                 Spacer(minLength: 4)
                 if vm.isCoaching {
-                    HStack(spacing: 5) {
-                        ProgressView().controlSize(.small)
-                        Text("Analyzing…")
-                            .font(.caption2).foregroundStyle(.white.opacity(0.6))
+                    ProgressView().controlSize(.small)
+                }
+                if vm.coachEnabled {
+                    Button { showChat = true } label: {
+                        Label("Ask", systemImage: "bubble.left.and.bubble.right.fill")
+                            .font(.caption2.weight(.semibold))
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(GemmaTheme.accent)
                     }
+                    .buttonStyle(PressableStyle())
                 }
             }
             // The focus line scrolls within the card's bounds so a long note never
@@ -302,6 +308,7 @@ public struct PlayView: View {
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
         .gemmaGlass(cornerRadius: 18)
+        .sheet(isPresented: $showChat) { PlayCoachChatView(vm: vm) }
     }
 
     @ViewBuilder
@@ -377,6 +384,100 @@ struct PieSlice: Shape {
                  clockwise: false)
         p.closeSubpath()
         return p
+    }
+}
+
+/// A chat sheet for asking the coach free-form questions during a game. Answers
+/// stream in and are grounded in engine facts for the position you're viewing.
+struct PlayCoachChatView: View {
+    @Bindable var vm: PlayViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = ""
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 10) {
+                            if vm.chat.isEmpty {
+                                Text("Ask anything about this position — \"why was that a mistake?\", \"what's my plan?\", \"is my king safe?\"")
+                                    .font(.footnote).foregroundStyle(.white.opacity(0.55))
+                                    .padding(.top, 8)
+                            }
+                            ForEach(Array(vm.chat.enumerated()), id: \.offset) { i, msg in
+                                bubble(msg).id(i)
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .onChange(of: vm.chat.count) { _, _ in
+                        withAnimation { proxy.scrollTo(vm.chat.count - 1, anchor: .bottom) }
+                    }
+                }
+                inputRow
+            }
+            .background(GemmaTheme.Background().ignoresSafeArea())
+            .navigationTitle("Ask the coach")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailingCompat) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+
+    @ViewBuilder private func bubble(_ msg: (role: String, text: String)) -> some View {
+        let isUser = msg.role == "user"
+        HStack {
+            if isUser { Spacer(minLength: 32) }
+            Group {
+                if msg.text.isEmpty {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(isUser ? AttributedString(msg.text) : msg.text.asCoachMarkdown)
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(isUser ? 0.95 : 0.92))
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(
+                (isUser ? GemmaTheme.accent.opacity(0.22) : Color.white.opacity(0.08)),
+                in: RoundedRectangle(cornerRadius: 14))
+            if !isUser { Spacer(minLength: 32) }
+        }
+    }
+
+    private var inputRow: some View {
+        HStack(spacing: 8) {
+            TextField("Ask the coach…", text: $draft, axis: .vertical)
+                .lineLimit(1...4)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(Color.white.opacity(0.08), in: Capsule())
+                .onSubmit(send)
+            Button(action: send) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(canSend ? GemmaTheme.accent : .white.opacity(0.3))
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+
+    private var canSend: Bool {
+        !draft.trimmingCharacters(in: .whitespaces).isEmpty && !vm.isAsking
+    }
+
+    private func send() {
+        guard canSend else { return }
+        let q = draft
+        draft = ""
+        Task { await vm.ask(q) }
     }
 }
 

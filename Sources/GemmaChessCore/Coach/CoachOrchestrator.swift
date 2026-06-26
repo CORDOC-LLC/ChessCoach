@@ -41,6 +41,8 @@ public final class CoachOrchestrator: Sendable {
         lastMove: String? = nil,
         moveFen: String? = nil,
         playerSide: CoachSide? = nil,
+        currentFacts: String? = nil,
+        moveFacts: String? = nil,
         profileFacts: String? = nil,
         speedContext: String? = nil,
         sessionID: String? = nil,
@@ -49,33 +51,75 @@ public final class CoachOrchestrator: Sendable {
         guard let backend = active else {
             throw CoachError("The on-device coach isn't available on this device. The engine review still works.")
         }
-
-        let moveAtCurrent = (lastMove != nil) && (moveFen == nil || moveFen == fen)
-
-        var currentFacts: String?
-        if let fen {
-            let report = try? await EngineLine.evaluate(
-                fen: fen, move: moveAtCurrent ? lastMove : nil, depth: depth, multipv: 3, engine: engine
-            )
-            currentFacts = report.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo) }
-        }
-
-        var moveFacts: String?
-        if let lastMove, !moveAtCurrent, let moveFen {
-            let report = try? await EngineLine.evaluate(
-                fen: moveFen, move: lastMove, depth: depth, multipv: 3, engine: engine
-            )
-            moveFacts = report.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo) }
-        }
-
-        let prompt = CoachPromptBuilder.chatPrompt(
-            question: question, fen: fen, lastMove: lastMove, moveFen: moveFen,
-            playerSide: playerSide,
+        let prompt = try await composePrompt(
+            question: question, fen: fen, lastMove: lastMove, moveFen: moveFen, playerSide: playerSide,
             currentFacts: currentFacts, moveFacts: moveFacts,
             profileFacts: profileFacts, speedContext: speedContext, depth: depth
         )
         return try await backend.generate(
             system: CoachPromptBuilder.chatInstructions, prompt: prompt, sessionID: sessionID
+        )
+    }
+
+    /// Streaming variant of `answer`: yields the cumulative text so the UI can show
+    /// the answer fill in. Pass `currentFacts`/`moveFacts` to reuse engine analysis
+    /// the caller already ran (skips the engine work here).
+    public func answerStream(
+        question: String,
+        fen: String? = nil,
+        lastMove: String? = nil,
+        moveFen: String? = nil,
+        playerSide: CoachSide? = nil,
+        currentFacts: String? = nil,
+        moveFacts: String? = nil,
+        profileFacts: String? = nil,
+        speedContext: String? = nil,
+        sessionID: String? = nil,
+        depth: Int = GCConfig.defaultDepth
+    ) async throws -> AsyncThrowingStream<String, Error> {
+        guard let backend = active else {
+            throw CoachError("The on-device coach isn't available on this device. The engine review still works.")
+        }
+        let prompt = try await composePrompt(
+            question: question, fen: fen, lastMove: lastMove, moveFen: moveFen, playerSide: playerSide,
+            currentFacts: currentFacts, moveFacts: moveFacts,
+            profileFacts: profileFacts, speedContext: speedContext, depth: depth
+        )
+        return backend.stream(
+            system: CoachPromptBuilder.chatInstructions, prompt: prompt, sessionID: sessionID
+        )
+    }
+
+    /// Build the grounded prompt. Computes engine facts only for the parts the caller
+    /// didn't already supply (`currentFacts`/`moveFacts` overrides).
+    private func composePrompt(
+        question: String, fen: String?, lastMove: String?, moveFen: String?,
+        playerSide: CoachSide?, currentFacts: String?, moveFacts: String?,
+        profileFacts: String?, speedContext: String?, depth: Int
+    ) async throws -> String {
+        let moveAtCurrent = (lastMove != nil) && (moveFen == nil || moveFen == fen)
+
+        var current = currentFacts
+        if current == nil, let fen {
+            let report = try? await EngineLine.evaluate(
+                fen: fen, move: moveAtCurrent ? lastMove : nil, depth: depth, multipv: 3, engine: engine
+            )
+            current = report.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo) }
+        }
+
+        var move = moveFacts
+        if move == nil, let lastMove, !moveAtCurrent, let moveFen {
+            let report = try? await EngineLine.evaluate(
+                fen: moveFen, move: lastMove, depth: depth, multipv: 3, engine: engine
+            )
+            move = report.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo) }
+        }
+
+        return CoachPromptBuilder.chatPrompt(
+            question: question, fen: fen, lastMove: lastMove, moveFen: moveFen,
+            playerSide: playerSide,
+            currentFacts: current, moveFacts: move,
+            profileFacts: profileFacts, speedContext: speedContext, depth: depth
         )
     }
 

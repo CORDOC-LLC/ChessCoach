@@ -244,6 +244,8 @@ public final class PlayViewModel {
         lastVerdict = nil
         lastCoachNote = nil
         hint = nil
+        chat = []
+        isAsking = false
         coachAvailability = coach.availability
         refreshDests()
         refreshEval()
@@ -292,15 +294,23 @@ public final class PlayViewModel {
         if checkGameOver(youMoved: true) { return }
         status = "Engine is thinking…"
         // Show the coach as busy from the instant you move (it used to look idle
-        // until the engine had already replied), and grade the move right away so
-        // the verdict chip appears fast — decoupled from the slower written note.
+        // until the engine had already replied).
         isCoaching = true
         lastVerdict = nil
         lastCoachNote = nil
-        Task { await gradeUserMove(fromFEN: fromFEN, uci: uci) }
         Task {
+            // ONE analysis serves both the verdict chip and the coach's move facts
+            // (this used to be analysed twice). The chip appears right away.
+            let moveReport = try? await EngineLine.evaluate(
+                fen: fromFEN, move: uci, depth: GCConfig.liveDepth, multipv: 2)
+            if let mv = moveReport?.move {
+                let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
+                lastVerdict = MoveVerdict(
+                    moveSAN: san, classification: mv.classification,
+                    isBest: mv.isEngineBest, betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN)
+            }
             await engineReply()
-            await coachNote(fromFEN: fromFEN, uci: uci)
+            await streamCoachNote(fromFEN: fromFEN, uci: uci, moveReport: moveReport)
             isCoaching = false
         }
     }
@@ -329,40 +339,66 @@ public final class PlayViewModel {
         if !gameOver { status = "Your move" }
     }
 
-    /// Fast engine verdict on the move you just played (drives the coach card's
-    /// colour-coded chip). Runs at `liveDepth` — the same depth the best-move arrow
-    /// and hint use — so a move the app suggested is graded "best" once you play it.
-    private func gradeUserMove(fromFEN: String, uci: String) async {
+    /// The short written coach note for the move you just played. Streams in after
+    /// the verdict chip so the user sees text appear instead of waiting for the whole
+    /// paragraph. Reuses `moveReport` (no re-analysis) and runs one analysis of the
+    /// live position; both are passed to the coach so it does NO engine work itself.
+    ///
+    /// Runs after the engine's reply, so `fen` is the live position with you to move
+    /// again — every engine number the coach sees is then from YOUR perspective, and
+    /// `playerSide` tells it which colour "you" are so it never confuses you with the
+    /// engine.
+    private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?) async {
+        guard coachEnabled else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
-        if let report = try? await EngineLine.evaluate(fen: fromFEN, move: uci, depth: GCConfig.liveDepth, multipv: 1),
-           let mv = report.move {
-            lastVerdict = MoveVerdict(
-                moveSAN: san,
-                classification: mv.classification,
-                isBest: mv.isEngineBest,
-                betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN
-            )
+        let moveFacts = moveReport.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo) }
+        let currentReport = try? await EngineLine.evaluate(fen: fen, depth: GCConfig.liveDepth, multipv: 2)
+        let currentFacts = currentReport.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo) }
+        do {
+            let stream = try await coach.answerStream(
+                question: "I just played \(san). Briefly: how was it, and what should I focus on now?",
+                fen: fen, lastMove: uci, moveFen: fromFEN,
+                playerSide: playerIsWhite ? .white : .black,
+                currentFacts: currentFacts, moveFacts: moveFacts, depth: GCConfig.liveDepth)
+            for try await partial in stream { lastCoachNote = partial }
+        } catch {
+            // Leave the note empty; the engine verdict chip still stands on its own.
         }
     }
 
-    /// The short written coach note for the move you just played. Slower (it runs the
-    /// on-device language model), so it streams in after the verdict chip; the caller
-    /// keeps `isCoaching` true until it lands so the card shows a "thinking" state.
-    ///
-    /// Runs after the engine's reply, so `fen` is the live position with you to move
-    /// again — feeding that (rather than the position right after your move) means the
-    /// engine numbers the coach sees are all from YOUR perspective, and `playerSide`
-    /// tells it which colour "you" are so it never confuses you with the engine.
-    private func coachNote(fromFEN: String, uci: String) async {
-        guard coachEnabled else { return }
-        let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
-        if let reply = try? await coach.answer(
-            question: "I just played \(san). Briefly: how was it, and what should I focus on now?",
-            fen: fen, lastMove: uci, moveFen: fromFEN,
-            playerSide: playerIsWhite ? .white : .black,
-            sessionID: nil, depth: GCConfig.liveDepth
-        ) {
-            lastCoachNote = reply.answer
+    // MARK: Ask the coach (free-form chat)
+
+    /// Transcript of the Play-mode coach chat (role: "user"/"coach").
+    public var chat: [(role: String, text: String)] = []
+    /// True while a chat answer is being generated.
+    public var isAsking: Bool = false
+
+    /// Ask the coach a free-form question about the position you're looking at. The
+    /// answer streams into the transcript. Grounded in engine facts and your colour.
+    public func ask(_ question: String) async {
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, coachEnabled, !isAsking else { return }
+        chat.append((role: "user", text: q))
+        chat.append((role: "coach", text: ""))       // placeholder to stream into
+        let idx = chat.count - 1
+        isAsking = true
+        defer { isAsking = false }
+        let position = displayFEN
+        do {
+            let stream = try await coach.answerStream(
+                question: q, fen: position,
+                playerSide: playerIsWhite ? .white : .black,
+                depth: GCConfig.liveDepth)
+            for try await partial in stream where chat.indices.contains(idx) {
+                chat[idx].text = partial
+            }
+        } catch let e as CoachError {
+            if chat.indices.contains(idx) { chat[idx].text = e.message }
+        } catch {
+            if chat.indices.contains(idx) { chat[idx].text = error.localizedDescription }
+        }
+        if chat.indices.contains(idx), chat[idx].text.isEmpty {
+            chat[idx].text = "I couldn't answer that one — try rephrasing."
         }
     }
 
