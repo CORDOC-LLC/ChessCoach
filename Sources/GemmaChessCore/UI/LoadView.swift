@@ -25,7 +25,8 @@ public struct LoadView: View {
             lichessSection
             historySection
         }
-        .navigationTitle("GemmaChess")
+        .scrollContentBackground(.hidden)
+        .navigationTitle("Review")
         .overlay { if vm.isAnalyzing { analyzingOverlay } }
         .onAppear { history = HistoryStore().historyRows() }
         .alert("Couldn't analyze", isPresented: Binding(

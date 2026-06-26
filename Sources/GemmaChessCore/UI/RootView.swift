@@ -30,6 +30,7 @@ public struct GemmaRootView: View {
                 reviewFlow
             }
         }
+        .gemmaChrome()
     }
 
     @ViewBuilder
@@ -52,35 +53,49 @@ struct HomeView: View {
     var onReview: () -> Void
 
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: 0) {
             Spacer()
-            Image(systemName: "checkerboard.rectangle")
-                .font(.system(size: 56))
-                .foregroundStyle(.tint)
-            Text("GemmaChess").font(.largeTitle.bold())
-            Text("Play a game with an on-device coach, or review one of yours.")
-                .font(.subheadline).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-
+            VStack(spacing: 18) {
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 60, weight: .semibold))
+                    .foregroundStyle(GemmaTheme.accentGradient)
+                    .shadow(color: GemmaTheme.accent.opacity(0.5), radius: 18)
+                VStack(spacing: 8) {
+                    Text("GemmaChess")
+                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("Play with an on-device coach,\nor review one of your games.")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.65))
+                        .multilineTextAlignment(.center)
+                }
+            }
+            Spacer()
             VStack(spacing: 14) {
                 Button(action: onPlay) {
                     Label("Play a game", systemImage: "play.fill")
-                        .frame(maxWidth: .infinity)
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 30)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
 
                 Button(action: onReview) {
                     Label("Review a game", systemImage: "magnifyingglass")
-                        .frame(maxWidth: .infinity)
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 30)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                .tint(.white)
             }
-            .padding(.horizontal, 40)
-            Spacer()
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
         }
-        .navigationTitle("GemmaChess")
+        .frame(maxWidth: 460)
+        .frame(maxWidth: .infinity)
+        #if os(iOS)
+        .toolbar(.hidden, for: .navigationBar)
+        #endif
     }
 }

@@ -141,9 +141,9 @@ public struct ChessBoardView: View {
         self.onTapSquare = onTapSquare
     }
 
-    private let light = Color(red: 0.93, green: 0.85, blue: 0.71)
-    private let dark = Color(red: 0.71, green: 0.53, blue: 0.39)
-    private let highlight = Color.yellow.opacity(0.45)
+    private let light = GemmaTheme.boardLight
+    private let dark = GemmaTheme.boardDark
+    private let highlight = GemmaTheme.gold.opacity(0.45)
 
     public var body: some View {
         GeometryReader { geo in
@@ -173,15 +173,17 @@ public struct ChessBoardView: View {
                         if let ch = placement[(rank - 1) * 8 + (file - 1)],
                            let glyph = BoardGeometry.glyph(for: ch) {
                             Text(glyph)
-                                .font(.system(size: sq * 0.78))
-                                .foregroundStyle(ch.isUppercase ? Color.white : Color.black)
-                                .shadow(color: .black.opacity(0.25), radius: 0.5)
+                                .font(.system(size: sq * 0.80))
+                                .foregroundStyle(ch.isUppercase ? GemmaTheme.pieceWhite : GemmaTheme.pieceBlack)
+                                .shadow(color: .black.opacity(ch.isUppercase ? 0.35 : 0.20), radius: 1, y: 0.5)
                         }
                         if isDot {
                             Circle()
-                                .fill(Color.green.opacity(0.55))
-                                .frame(width: sq * 0.28, height: sq * 0.28)
+                                .fill(GemmaTheme.accent.opacity(0.70))
+                                .frame(width: sq * 0.30, height: sq * 0.30)
+                                .shadow(color: GemmaTheme.accent.opacity(0.5), radius: 3)
                         }
+                        coordinateLabel(file: file, rank: rank, col: col, row: row, sq: sq, isLight: isLight)
                     }
                     .frame(width: sq, height: sq)
                     .position(x: CGFloat(col) * sq + sq / 2, y: CGFloat(row) * sq + sq / 2)
@@ -195,10 +197,35 @@ public struct ChessBoardView: View {
                     .allowsHitTesting(false)
             }
             .frame(width: side, height: side)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.black.opacity(0.35), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .aspectRatio(1, contentMode: .fit)
+    }
+
+    /// Small file letters along the bottom row and rank numbers down the left column.
+    @ViewBuilder
+    private func coordinateLabel(file: Int, rank: Int, col: Int, row: Int, sq: CGFloat, isLight: Bool) -> some View {
+        let labelColor = (isLight ? dark : light).opacity(0.9)
+        if row == 7, (1...8).contains(file) {
+            Text(String(Square.File.allCases[file - 1].rawValue))
+                .font(.system(size: sq * 0.18, weight: .semibold))
+                .foregroundStyle(labelColor)
+                .padding(3)
+                .frame(width: sq, height: sq, alignment: .bottomTrailing)
+        }
+        if col == 0, (1...8).contains(rank) {
+            Text("\(rank)")
+                .font(.system(size: sq * 0.18, weight: .semibold))
+                .foregroundStyle(labelColor)
+                .padding(3)
+                .frame(width: sq, height: sq, alignment: .topLeading)
+        }
     }
 
     private func isHighlighted(file: Int, rank: Int) -> Bool {
