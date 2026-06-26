@@ -46,6 +46,7 @@ public struct PlayContainerView: View {
                 .buttonStyle(.borderedProminent)
             }
         }
+        .scrollContentBackground(.hidden)
         .navigationTitle("Play")
         .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home", action: onExit) } }
     }
@@ -96,10 +97,12 @@ public struct PlayView: View {
             if vm.engineThinking || vm.isCoaching { ProgressView().controlSize(.small) }
             Text(vm.status)
                 .font(.headline)
-                .foregroundStyle(vm.gameOver ? Color.accentColor : .primary)
+                .foregroundStyle(vm.gameOver ? GemmaTheme.accent : .white)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 4)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .gemmaGlassPill()
+        .padding(.top, 6)
     }
 
     private var controls: some View {
@@ -150,7 +153,7 @@ public struct PlayView: View {
             }
         }
         .frame(maxHeight: 200)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .gemmaGlass(cornerRadius: 18)
         .padding(.horizontal)
         .padding(.bottom, 8)
     }
