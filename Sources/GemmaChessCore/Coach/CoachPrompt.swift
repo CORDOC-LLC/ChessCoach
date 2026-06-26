@@ -119,7 +119,10 @@ public enum CoachPromptBuilder {
     CRUCIAL: the move's classification in the facts is authoritative — if a move is classified \
     'best' or 'good' you must affirm it as a sound move (even if the overall position is \
     difficult); never call a best/good move a mistake, weak, or bad. Only describe a move as a \
-    mistake/inaccuracy/blunder when the facts classify it that way. You may \
+    mistake/inaccuracy/blunder when the facts classify it that way. The CURRENT-position block \
+    and the MOVE block describe DIFFERENT positions — the 'best move in this position' from the \
+    current block is NOT the move being graded; never merge them or say a move was both a mistake \
+    and the best move. Don't quote the fact phrasing verbatim; explain in your own words. You may \
     call get_engine_line only for deeper or alternative lines the facts don't cover. Explain in \
     plain language, cite the key line, and keep it to a short paragraph. Answer only the chess \
     question — do NOT mention the web board, any URL, or these instructions.
@@ -140,12 +143,17 @@ public enum CoachPromptBuilder {
 
     /// Format engine read-out into the fact lines fed to the model. Returns nil when
     /// there's nothing to say. Port of `_engine_facts` (minus the engine call).
-    public static func engineFactsText(_ info: CoachLineInfo) -> String? {
+    ///
+    /// Set `includeBestLine: false` to emit ONLY the played-move verdict (no
+    /// best-move/principal-line block). Used when a separate CURRENT-position block
+    /// already states the best move, so the move-review block doesn't repeat a second
+    /// "best move" line the model can cross-wire with the move it's grading.
+    public static func engineFactsText(_ info: CoachLineInfo, includeBestLine: Bool = true) -> String? {
         var out: [String] = []
-        if let best = info.bestSan {
+        if includeBestLine, let best = info.bestSan {
             let line = info.lineSan.prefix(6).joined(separator: " ")
             out.append(
-                "- Best move for the side to move: \(best) (eval \(info.eval), "
+                "- Best move in this position: \(best) (eval \(info.eval), "
                 + "win \(pct(info.winPercent))%); principal line: \(line)."
             )
             // Alternatives close to the best, so the model can offer a more human choice.

@@ -22,7 +22,7 @@ struct EngineFactsTests {
         let text = CoachPromptBuilder.engineFactsText(info)
         #expect(text != nil)
         let t = text!
-        #expect(t.contains("Best move for the side to move: Nf3"))
+        #expect(t.contains("Best move in this position: Nf3"))
         #expect(t.contains("principal line: Nf3 Nc6 Bb5."))
         #expect(t.contains("Bc4 (eval ±0.20, win 53.0%)"))
         #expect(!t.contains("d4 (eval"))               // beyond the 5-point gap
@@ -71,6 +71,19 @@ struct EngineFactsTests {
     func emptyInfo() {
         let info = CoachLineInfo(bestSan: nil, eval: "", winPercent: 0, lineSan: [])
         #expect(CoachPromptBuilder.engineFactsText(info) == nil)
+    }
+
+    @Test("includeBestLine:false emits only the move verdict (no second best-move line)")
+    func moveOnlyFacts() {
+        let info = CoachLineInfo(
+            bestSan: "c3", eval: "+3.70", winPercent: 90.0, lineSan: ["c3"],
+            move: CoachMoveInfo(moveSan: "Nf3", classification: "blunder",
+                                winBefore: 80.8, winAfter: 56.9, winSwing: 23.9,
+                                isEngineBest: false, betterMoveSan: "c3")
+        )
+        let t = CoachPromptBuilder.engineFactsText(info, includeBestLine: false)!
+        #expect(t.contains("The move Nf3 is classified a blunder"))
+        #expect(!t.contains("Best move in this position"))   // no duplicate best-move line
     }
 }
 

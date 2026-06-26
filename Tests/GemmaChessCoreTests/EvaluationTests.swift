@@ -59,7 +59,9 @@ struct ClassifyTests {
 
     @Test("best by isBest flag or tiny drop")
     func bestCases() {
-        #expect(Evaluation.classify(winBefore: 100, winAfter: 80, isBest: true) == .blunder) // big drop wins over isBest
+        // The engine's top choice is ALWAYS best — search noise between the two
+        // analyses must not downgrade it to a mistake/blunder.
+        #expect(Evaluation.classify(winBefore: 100, winAfter: 80, isBest: true) == .best)
         #expect(Evaluation.classify(winBefore: 50, winAfter: 49, isBest: true) == .best)
         #expect(Evaluation.classify(winBefore: 50, winAfter: 48.5) == .best)   // drop 1.5 <= bestEps(2)
         #expect(Evaluation.classify(winBefore: 50, winAfter: 47.5) == .good)   // drop 2.5 > bestEps, < inacc
