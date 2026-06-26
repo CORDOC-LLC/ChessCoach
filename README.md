@@ -32,5 +32,6 @@ speed bucketing). See the plan in `docs/plans/` for the full unit breakdown.
 
 ## License
 
-To be determined — note the Stockfish (GPLv3) obligation discussed in the plan's
-risks before publishing.
+**GPLv3.** The app embeds Stockfish (GPLv3), so the whole app is GPLv3-obligated
+(source offered). This was a deliberate decision — see the plan's risks/open
+questions. A `LICENSE` file will be added with the first engine unit (U5).
