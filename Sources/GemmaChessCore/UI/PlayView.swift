@@ -74,7 +74,7 @@ public struct PlayView: View {
         VStack(spacing: 8) {
             header
             board
-            infoStrip
+            if settings.showCaptured { capturedRow }
             if vm.hint != nil { hintCard }
             if settings.showMoveList {
                 MoveListView(vm: vm)
@@ -158,87 +158,91 @@ public struct PlayView: View {
         return arrows
     }
 
-    // MARK: Header + toggle bar
+    // MARK: Header
+    //
+    // One dense row: back, a status pill that now also carries the win-probability
+    // pie + eval (so the old advantage chip no longer costs a row of its own), the
+    // hint button, and a "⋯" menu that holds Resign and the show/hide toggles.
 
     private var header: some View {
         HStack(spacing: 10) {
             Button(action: onNewGame) {
-                Label("New game", systemImage: "chevron.left")
-                    .labelStyle(.iconOnly)
+                Image(systemName: "chevron.left")
                     .font(.subheadline.weight(.semibold))
+                    .frame(width: 30, height: 30)
+                    .gemmaGlassPill()
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
             .foregroundStyle(GemmaTheme.accent)
-            HStack(spacing: 6) {
-                if vm.engineThinking || vm.isCoaching { ProgressView().controlSize(.small) }
-                Text(vm.status)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(vm.gameOver ? GemmaTheme.accent : .white)
-                    .lineLimit(1).minimumScaleFactor(0.8)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .gemmaGlassPill()
-            Spacer()
-            toggleBar
+
+            statusPill
+            Spacer(minLength: 4)
+            hintButton
+            menuButton
         }
         .padding(.horizontal, 14)
         .padding(.top, 8)
     }
 
-    private var toggleBar: some View {
-        HStack(spacing: 6) {
-            toggleButton("scope", on: settings.showBestMove) { settings.showBestMove.toggle() }
-            toggleButton("trophy", on: settings.showCaptured) { settings.showCaptured.toggle() }
-            toggleButton("list.bullet", on: settings.showMoveList) { settings.showMoveList.toggle() }
-            toggleButton("bubble.left.fill", on: settings.showCoach) { settings.showCoach.toggle() }
+    /// Status text + a compact black/white win-probability pie + the eval number.
+    private var statusPill: some View {
+        HStack(spacing: 8) {
+            if vm.engineThinking || vm.isCoaching { ProgressView().controlSize(.small) }
+            Text(vm.status)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(vm.gameOver ? GemmaTheme.accent : .white)
+                .lineLimit(1).minimumScaleFactor(0.7)
+            WinPie(winWhite: vm.winWhite)
+            Text(vm.evalText)
+                .font(.subheadline.weight(.bold)).monospacedDigit()
+                .foregroundStyle(.white)
         }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .gemmaGlassPill()
     }
 
-    private func toggleButton(_ icon: String, on: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(on ? GemmaTheme.accent : .white.opacity(0.5))
+    private var menuButton: some View {
+        @Bindable var settings = settings
+        return Menu {
+            Section("Show") {
+                Toggle(isOn: $settings.showBestMove) { Label("Best-move arrow", systemImage: "scope") }
+                Toggle(isOn: $settings.showCaptured) { Label("Captured pieces", systemImage: "trophy") }
+                Toggle(isOn: $settings.showMoveList) { Label("Move list", systemImage: "list.bullet") }
+                Toggle(isOn: $settings.showCoach) { Label("Coach", systemImage: "bubble.left.fill") }
+            }
+            Section {
+                Button { onNewGame() } label: { Label("New game", systemImage: "arrow.counterclockwise") }
+                if !vm.gameOver {
+                    Button(role: .destructive) { vm.resign() } label: { Label("Resign", systemImage: "flag") }
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.white.opacity(0.8))
                 .frame(width: 30, height: 30)
                 .gemmaGlassPill()
         }
         .buttonStyle(PressableStyle())
     }
 
-    // MARK: Info strip
+    // MARK: Captured row
     //
-    // A single dense row: the advantage chip, the two sides' captured material
-    // flanking it (so the trays no longer cost two full rows above/below the board),
-    // a Hint button, and Resign / New game.
+    // A single slim row under the board: your captures at the leading edge, the
+    // opponent's at the trailing edge (replaces the two flanking trays).
 
-    private var infoStrip: some View {
+    private var capturedRow: some View {
         let cap = vm.capturedMaterial
         let playerCaptures = vm.playerIsWhite ? cap.capturedByWhite : cap.capturedByBlack
         let opponentCaptures = vm.playerIsWhite ? cap.capturedByBlack : cap.capturedByWhite
         let playerAdvantage = vm.playerIsWhite ? cap.delta : -cap.delta
-        return HStack(spacing: 10) {
-            AdvantageChip(winWhite: vm.winWhite, eval: vm.evalText)
-            if settings.showCaptured {
-                CapturedTrayView(pieces: playerCaptures, advantage: playerAdvantage)
-                    .layoutPriority(-1)
-            }
-            Spacer(minLength: 4)
-            if settings.showCaptured {
-                CapturedTrayView(pieces: opponentCaptures, advantage: -playerAdvantage)
-                    .layoutPriority(-1)
-            }
-            hintButton
-            if vm.gameOver {
-                Button("New game", action: onNewGame)
-                    .buttonStyle(.borderedProminent).controlSize(.small)
-                    .fixedSize()
-            } else {
-                Button("Resign", role: .destructive) { vm.resign() }
-                    .buttonStyle(.bordered).controlSize(.small)
-                    .fixedSize()
-            }
+        return HStack(spacing: 8) {
+            CapturedTrayView(pieces: playerCaptures, advantage: playerAdvantage)
+            Spacer(minLength: 8)
+            CapturedTrayView(pieces: opponentCaptures, advantage: -playerAdvantage)
         }
-        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
     }
 
     private var hintButton: some View {
@@ -295,7 +299,13 @@ public struct PlayView: View {
                 Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 if let v = vm.lastVerdict { verdictChip(v) }
                 Spacer(minLength: 4)
-                if vm.isCoaching { ProgressView().controlSize(.small) }
+                if vm.isCoaching {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.small)
+                        Text("Analyzing…")
+                            .font(.caption2).foregroundStyle(.white.opacity(0.6))
+                    }
+                }
             }
             // The focus line scrolls within the card's bounds so a long note never
             // pushes the layout or clips.
@@ -303,7 +313,7 @@ public struct PlayView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
         .gemmaGlass(cornerRadius: 18)
     }
 
@@ -314,6 +324,10 @@ public struct PlayView: View {
                 .font(.callout)
                 .foregroundStyle(.white.opacity(0.92))
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        } else if vm.isCoaching {
+            Text("Reading the position…")
+                .font(.footnote).foregroundStyle(.white.opacity(0.6))
         } else if !vm.coachEnabled {
             Text("Engine review only on this device. I'll still grade your moves.")
                 .font(.footnote).foregroundStyle(.white.opacity(0.6))
@@ -343,38 +357,39 @@ public struct PlayView: View {
     }
 }
 
-/// A compact advantage read-out: a mini win-bar + eval number + who's ahead.
-struct AdvantageChip: View {
+/// A compact win-probability read-out as a black/white pie: the white wedge is
+/// White's win %, the rest is Black's. Replaces the old horizontal advantage bar so
+/// the eval/win read-out fits inside the status pill instead of costing a row.
+struct WinPie: View {
     let winWhite: Double
-    let eval: String
+    var size: CGFloat = 20
 
     var body: some View {
-        let whiteAhead = winWhite >= 50
-        let pct = whiteAhead ? Int(winWhite.rounded()) : Int((100 - winWhite).rounded())
-        HStack(spacing: 9) {
-            miniBar
-            Text(eval)
-                .font(.subheadline.weight(.bold)).monospacedDigit()
-                .foregroundStyle(.white)
-            Text("\(whiteAhead ? "White" : "Black") \(pct)%")
-                .font(.caption).foregroundStyle(.white.opacity(0.75))
+        let frac = max(0, min(1, winWhite / 100))
+        return ZStack {
+            Circle().fill(GemmaTheme.pieceBlack)
+            PieSlice(fraction: frac).fill(GemmaTheme.pieceWhite)
         }
-        .lineLimit(1)
-        .fixedSize()
-        .padding(.horizontal, 12).padding(.vertical, 7)
-        .gemmaGlassPill()
+        .frame(width: size, height: size)
+        .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 0.5))
+        .accessibilityLabel("White win probability \(Int(winWhite.rounded())) percent")
     }
+}
 
-    private var miniBar: some View {
-        GeometryReader { g in
-            let wf = max(0, min(1, winWhite / 100))
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.black.opacity(0.55))
-                Capsule().fill(Color.white).frame(width: g.size.width * wf)
-            }
-        }
-        .frame(width: 54, height: 8)
-        .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
+/// A pie wedge starting at 12 o'clock, sweeping clockwise for `fraction` of a turn.
+struct PieSlice: Shape {
+    var fraction: Double
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        let r = min(rect.width, rect.height) / 2
+        p.move(to: c)
+        p.addArc(center: c, radius: r,
+                 startAngle: .degrees(-90),
+                 endAngle: .degrees(-90 + 360 * fraction),
+                 clockwise: false)
+        p.closeSubpath()
+        return p
     }
 }
 

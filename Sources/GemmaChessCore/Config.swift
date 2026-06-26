@@ -10,6 +10,11 @@ public enum GCConfig {
     public static let defaultDepth = 18
     /// Depth for the full-game sweep (lower, to keep long games fast).
     public static let sweepDepth = 16
+    /// Depth used for ALL live Play surfaces (best-move arrow, hint, move verdict,
+    /// and the coach note). Kept identical across them so the move the app suggests
+    /// is graded the same way once you play it — otherwise the hint can recommend a
+    /// move that a deeper verdict then calls sub-optimal.
+    public static let liveDepth = 14
     /// Signed-cp magnitude used to represent a forced mate.
     public static let mateScoreCp = 10_000
     /// Engine search threads.
