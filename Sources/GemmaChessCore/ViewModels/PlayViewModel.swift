@@ -210,7 +210,8 @@ public final class PlayViewModel {
             let reply = try? await coach.answer(
                 question: "Give a quick hint: the best move and a good alternative here, "
                     + "and one short reason for each. Two sentences max.",
-                fen: position
+                fen: position, playerSide: playerIsWhite ? .white : .black,
+                depth: GCConfig.liveDepth
             )
             guard position == fen else { return }
             hint?.rationale = reply?.answer
@@ -299,7 +300,7 @@ public final class PlayViewModel {
         Task { await gradeUserMove(fromFEN: fromFEN, uci: uci) }
         Task {
             await engineReply()
-            await coachNote(fromFEN: fromFEN, uci: uci, afterFEN: afterFEN)
+            await coachNote(fromFEN: fromFEN, uci: uci)
             isCoaching = false
         }
     }
@@ -347,12 +348,19 @@ public final class PlayViewModel {
     /// The short written coach note for the move you just played. Slower (it runs the
     /// on-device language model), so it streams in after the verdict chip; the caller
     /// keeps `isCoaching` true until it lands so the card shows a "thinking" state.
-    private func coachNote(fromFEN: String, uci: String, afterFEN: String) async {
+    ///
+    /// Runs after the engine's reply, so `fen` is the live position with you to move
+    /// again — feeding that (rather than the position right after your move) means the
+    /// engine numbers the coach sees are all from YOUR perspective, and `playerSide`
+    /// tells it which colour "you" are so it never confuses you with the engine.
+    private func coachNote(fromFEN: String, uci: String) async {
         guard coachEnabled else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
         if let reply = try? await coach.answer(
             question: "I just played \(san). Briefly: how was it, and what should I focus on now?",
-            fen: afterFEN, lastMove: uci, moveFen: fromFEN, sessionID: nil, depth: GCConfig.liveDepth
+            fen: fen, lastMove: uci, moveFen: fromFEN,
+            playerSide: playerIsWhite ? .white : .black,
+            sessionID: nil, depth: GCConfig.liveDepth
         ) {
             lastCoachNote = reply.answer
         }

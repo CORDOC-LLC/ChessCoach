@@ -40,6 +40,7 @@ public final class CoachOrchestrator: Sendable {
         fen: String? = nil,
         lastMove: String? = nil,
         moveFen: String? = nil,
+        playerSide: CoachSide? = nil,
         profileFacts: String? = nil,
         speedContext: String? = nil,
         sessionID: String? = nil,
@@ -69,6 +70,7 @@ public final class CoachOrchestrator: Sendable {
 
         let prompt = CoachPromptBuilder.chatPrompt(
             question: question, fen: fen, lastMove: lastMove, moveFen: moveFen,
+            playerSide: playerSide,
             currentFacts: currentFacts, moveFacts: moveFacts,
             profileFacts: profileFacts, speedContext: speedContext, depth: depth
         )

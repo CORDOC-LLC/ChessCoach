@@ -158,6 +158,7 @@ public final class ReviewViewModel {
                 fen: currentFEN,
                 lastMove: node?.moveUCI,
                 moveFen: currentFEN,
+                playerSide: session.map { $0.player == "white" ? .white : .black },
                 profileFacts: personalize ? profileFacts() : nil,
                 speedContext: session.map { "This game's time control is \($0.speed)." },
                 sessionID: coachSessionID)
