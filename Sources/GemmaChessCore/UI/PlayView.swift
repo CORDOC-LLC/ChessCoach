@@ -231,9 +231,11 @@ public struct PlayView: View {
             if vm.gameOver {
                 Button("New game", action: onNewGame)
                     .buttonStyle(.borderedProminent).controlSize(.small)
+                    .fixedSize()
             } else {
                 Button("Resign", role: .destructive) { vm.resign() }
                     .buttonStyle(.bordered).controlSize(.small)
+                    .fixedSize()
             }
         }
         .padding(.horizontal, 14)
