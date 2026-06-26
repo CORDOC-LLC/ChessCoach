@@ -1,83 +1,86 @@
 //  RootView.swift
-//  The shared app entry. Both app shells embed `GemmaRootView()`. It owns the single
-//  ReviewViewModel and switches between the load screen and the review. The layout
-//  adapts to the requested style: a single navigation stack (iPhone, board-first) or
-//  a split view (macOS / iPad), with `.automatic` choosing by size class on iOS.
+//  The shared app entry. Both app shells embed `GemmaRootView()`. A Home screen
+//  routes to Play mode (new game vs the engine, with live coaching) or Review mode
+//  (paste/import a game and study it). Each mode runs in the navigation stack.
 
 import SwiftUI
 
-/// How the root lays out its load + review surfaces.
+/// Retained for source compatibility with the app shells; the root is stack-based.
 public enum GemmaLayoutStyle: Sendable {
-    /// Pick automatically (split on regular width, stack on compact).
-    case automatic
-    /// Single-column navigation stack (board-first).
-    case column
-    /// Two-column NavigationSplitView.
-    case split
+    case automatic, column, split
 }
 
 public struct GemmaRootView: View {
-    @State private var vm = ReviewViewModel()
-    private let style: GemmaLayoutStyle
+    @State private var review = ReviewViewModel()
+    @State private var play = PlayViewModel()
+    @State private var mode: Mode = .home
 
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    #endif
+    private enum Mode { case home, play, review }
 
-    public init(style: GemmaLayoutStyle = .automatic) {
-        self.style = style
-    }
+    public init(style: GemmaLayoutStyle = .automatic) {}
 
     public var body: some View {
-        if resolvedUsesSplit {
-            splitLayout
-        } else {
-            stackLayout
-        }
-    }
-
-    private var resolvedUsesSplit: Bool {
-        switch style {
-        case .split: return true
-        case .column: return false
-        case .automatic:
-            #if os(macOS)
-            return true
-            #elseif os(iOS)
-            return horizontalSizeClass == .regular
-            #else
-            return false
-            #endif
-        }
-    }
-
-    // MARK: Layouts
-
-    private var stackLayout: some View {
         NavigationStack {
-            if vm.session == nil {
-                LoadView(vm: vm)
-            } else {
-                ReviewScreen(vm: vm, onNewGame: { vm.session = nil })
+            switch mode {
+            case .home:
+                HomeView(onPlay: { mode = .play }, onReview: { mode = .review })
+            case .play:
+                PlayContainerView(vm: play, onExit: { mode = .home })
+            case .review:
+                reviewFlow
             }
         }
     }
 
-    private var splitLayout: some View {
-        NavigationSplitView {
-            LoadView(vm: vm)
-                .frame(minWidth: 280)
-        } detail: {
-            NavigationStack {
-                if vm.session == nil {
-                    ContentUnavailableView(
-                        "No game loaded",
-                        systemImage: "checkerboard.rectangle",
-                        description: Text("Paste a PGN, import from Lichess, or open a past game."))
-                } else {
-                    ReviewScreen(vm: vm, onNewGame: { vm.session = nil })
-                }
-            }
+    @ViewBuilder
+    private var reviewFlow: some View {
+        if review.session == nil {
+            LoadView(vm: review)
+                .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
+        } else {
+            ReviewScreen(vm: review, onNewGame: { review.session = nil })
+                .toolbar { ToolbarItem(placement: .topBarLeadingCompat) {
+                    Button("Home") { review.session = nil; mode = .home }
+                } }
         }
+    }
+}
+
+/// Landing screen: choose Play or Review.
+struct HomeView: View {
+    var onPlay: () -> Void
+    var onReview: () -> Void
+
+    var body: some View {
+        VStack(spacing: 22) {
+            Spacer()
+            Image(systemName: "checkerboard.rectangle")
+                .font(.system(size: 56))
+                .foregroundStyle(.tint)
+            Text("GemmaChess").font(.largeTitle.bold())
+            Text("Play a game with an on-device coach, or review one of yours.")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            VStack(spacing: 14) {
+                Button(action: onPlay) {
+                    Label("Play a game", systemImage: "play.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button(action: onReview) {
+                    Label("Review a game", systemImage: "magnifyingglass")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            }
+            .padding(.horizontal, 40)
+            Spacer()
+        }
+        .navigationTitle("GemmaChess")
     }
 }

@@ -63,6 +63,24 @@ public enum BoardGeometry {
         center(file: square.file.number, rank: square.rank.value, side: side, whiteAtBottom: whiteAtBottom)
     }
 
+    /// The square at a display point within a board of side `side`, or nil if outside.
+    public static func square(atPoint p: CGPoint, side: CGFloat, whiteAtBottom: Bool) -> Square? {
+        guard side > 0, p.x >= 0, p.y >= 0, p.x < side, p.y < side else { return nil }
+        let sq = side / 8
+        let col = Int(p.x / sq), row = Int(p.y / sq)
+        let file = whiteAtBottom ? (col + 1) : (8 - col)
+        let rank = whiteAtBottom ? (8 - row) : (row + 1)
+        guard (1...8).contains(file), (1...8).contains(rank) else { return nil }
+        let letter = Square.File.allCases[file - 1].rawValue
+        return square("\(letter)\(rank)")
+    }
+
+    /// `Square` for a file/rank pair (1...8 each), or nil.
+    public static func square(file: Int, rank: Int) -> Square? {
+        guard (1...8).contains(file), (1...8).contains(rank) else { return nil }
+        return square("\(Square.File.allCases[file - 1].rawValue)\(rank)")
+    }
+
     /// Unicode glyph for a FEN piece character ("K","q",...), or nil for empties.
     public static func glyph(for piece: Character) -> String? {
         switch piece {
@@ -102,15 +120,25 @@ public struct ChessBoardView: View {
     public var orientation: BoardOrientation
     public var arrows: [BoardArrow]
     public var lastMove: (from: Square, to: Square)?
+    /// Interaction (Play mode): the selected origin square, the legal destinations to
+    /// dot, and a tap handler. When `onTapSquare` is nil the board is display-only.
+    public var selectedSquare: Square?
+    public var legalDots: [Square]
+    public var onTapSquare: ((Square) -> Void)?
 
     public init(
         fen: String,
         orientation: BoardOrientation = .white,
         arrows: [BoardArrow] = [],
-        lastMove: (from: Square, to: Square)? = nil
+        lastMove: (from: Square, to: Square)? = nil,
+        selectedSquare: Square? = nil,
+        legalDots: [Square] = [],
+        onTapSquare: ((Square) -> Void)? = nil
     ) {
         self.fen = fen; self.orientation = orientation
         self.arrows = arrows; self.lastMove = lastMove
+        self.selectedSquare = selectedSquare; self.legalDots = legalDots
+        self.onTapSquare = onTapSquare
     }
 
     private let light = Color(red: 0.93, green: 0.85, blue: 0.71)
@@ -133,10 +161,15 @@ public struct ChessBoardView: View {
                     let rank = whiteBottom ? (8 - row) : (row + 1)
                     let isLight = (file + rank) % 2 == 1
                     let highlighted = isHighlighted(file: file, rank: rank)
+                    let cellSquare = BoardGeometry.square(file: file, rank: rank)
+                    let isSelected = selectedSquare != nil && cellSquare == selectedSquare
+                    let isDot = cellSquare.map { legalDots.contains($0) } ?? false
 
                     ZStack {
                         Rectangle().fill(isLight ? light : dark)
-                        if highlighted { Rectangle().fill(highlight) }
+                        if highlighted || isSelected {
+                            Rectangle().fill(isSelected ? Color.green.opacity(0.40) : highlight)
+                        }
                         if let ch = placement[(rank - 1) * 8 + (file - 1)],
                            let glyph = BoardGeometry.glyph(for: ch) {
                             Text(glyph)
@@ -144,9 +177,17 @@ public struct ChessBoardView: View {
                                 .foregroundStyle(ch.isUppercase ? Color.white : Color.black)
                                 .shadow(color: .black.opacity(0.25), radius: 0.5)
                         }
+                        if isDot {
+                            Circle()
+                                .fill(Color.green.opacity(0.55))
+                                .frame(width: sq * 0.28, height: sq * 0.28)
+                        }
                     }
                     .frame(width: sq, height: sq)
                     .position(x: CGFloat(col) * sq + sq / 2, y: CGFloat(row) * sq + sq / 2)
+                    .onTapGesture {
+                        if let onTapSquare, let cellSquare { onTapSquare(cellSquare) }
+                    }
                 }
 
                 ArrowsOverlay(arrows: arrows, side: side, whiteAtBottom: whiteBottom)
