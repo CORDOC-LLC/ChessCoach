@@ -1,0 +1,19 @@
+[Event "Fixture Multi A"]
+[Site "GemmaChess tests"]
+[Date "2026.06.25"]
+[White "tester"]
+[Black "alice"]
+[Result "1-0"]
+[TimeControl "600+5"]
+
+1. e4 {[%clk 0:10:00]} e5 {[%clk 0:10:00]} 2. Nf3 {[%clk 0:09:58]} Nc6 {[%clk 0:09:57]} 3. Bc4 {[%clk 0:09:55]} Bc5 {[%clk 0:09:54]} 4. b4 {[%clk 0:09:50]} Bxb4 {[%clk 0:09:48]} 5. c3 {[%clk 0:09:45]} Ba5 {[%clk 0:09:43]} 1-0
+
+[Event "Fixture Multi B"]
+[Site "GemmaChess tests"]
+[Date "2026.06.25"]
+[White "bob"]
+[Black "tester"]
+[Result "0-1"]
+[TimeControl "180+0"]
+
+1. d4 {[%clk 0:03:00]} d5 {[%clk 0:03:00]} 2. c4 {[%clk 0:02:55]} e6 {[%clk 0:02:54]} 3. Nc3 {[%clk 0:02:50]} Nf6 {[%clk 0:02:48]} 0-1
