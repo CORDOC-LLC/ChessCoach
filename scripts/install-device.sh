@@ -14,7 +14,8 @@ APP_PATH="$ARCHIVE_PATH/Products/Applications/$APP_NAME"
 # Resolve the connected device id (first "connected" iPhone), or honor DEVICE_ID env.
 if [ -z "$DEVICE_ID" ]; then
   DEVICE_ID=$(xcrun devicectl list devices 2>/dev/null \
-    | awk '/iPhone/ && /connected/ {print $(NF-3)}' | head -1)
+    | awk '/iPhone/ && /connected/ {for (i=1;i<=NF;i++) if ($i ~ /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-/) print $i}' \
+    | head -1)
 fi
 if [ -z "$DEVICE_ID" ]; then
   echo "!! No connected iPhone found. Plug in + trust the device, or set DEVICE_ID." >&2
