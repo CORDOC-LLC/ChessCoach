@@ -31,6 +31,7 @@ let package = Package(
             path: "Sources/GemmaChessCore",
             resources: [
                 .copy("Resources/eco"),
+                .copy("Resources/nnue"),
             ]
         ),
         .testTarget(
