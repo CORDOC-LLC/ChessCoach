@@ -351,17 +351,18 @@ public final class PlayViewModel {
     private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?) async {
         guard coachEnabled else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
-        // Move block = ONLY the verdict of the move played (no second "best move"
-        // line); the current block carries the best move for the live position.
+        // Grade ONLY the move just played. We pass the move verdict as the sole fact
+        // block and no current position, so the model has exactly one move to talk
+        // about — it can't cross-wire two "best move" facts or two positions. (For
+        // "what should I do now?" the user taps the hint or asks the coach.)
         let moveFacts = moveReport.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo, includeBestLine: false) }
-        let currentReport = try? await EngineLine.evaluate(fen: fen, depth: GCConfig.liveDepth, multipv: 2)
-        let currentFacts = currentReport.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo) }
+        guard moveFacts != nil else { return }
         do {
             let stream = try await coach.answerStream(
-                question: "I just played \(san). Briefly: how was it, and what should I focus on now?",
-                fen: fen, lastMove: uci, moveFen: fromFEN,
+                question: "I just played \(san). In one or two sentences, how was that move?",
+                lastMove: uci, moveFen: fromFEN,
                 playerSide: playerIsWhite ? .white : .black,
-                currentFacts: currentFacts, moveFacts: moveFacts, depth: GCConfig.liveDepth)
+                moveFacts: moveFacts, depth: GCConfig.liveDepth)
             for try await partial in stream { lastCoachNote = partial }
         } catch {
             // Leave the note empty; the engine verdict chip still stands on its own.
