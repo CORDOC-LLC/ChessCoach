@@ -44,6 +44,29 @@ public protocol CoachLLM: Sendable {
     /// `prompt` is the engine-grounded facts + the user's question. `sessionID`
     /// continues a prior thread when the backend supports it.
     func generate(system: String, prompt: String, sessionID: String?) async throws -> CoachReply
+
+    /// Stream the answer as it's produced, yielding the *cumulative* text so far on
+    /// each step (so the UI can show it filling in). Backends that can't stream get
+    /// a default that emits the whole answer once.
+    func stream(system: String, prompt: String, sessionID: String?) -> AsyncThrowingStream<String, Error>
+}
+
+public extension CoachLLM {
+    /// Default: fall back to a single non-streaming call, emitted as one chunk.
+    func stream(system: String, prompt: String, sessionID: String?) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let reply = try await generate(system: system, prompt: prompt, sessionID: sessionID)
+                    continuation.yield(reply.answer)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 }
 
 /// Raised with a user-facing message when a coach call can't complete.

@@ -43,6 +43,29 @@ public final class FoundationModelsCoach: CoachLLM {
         throw CoachError("Foundation Models is unavailable on this device.")
     }
 
+    public func stream(system: String, prompt: String, sessionID: String?) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            #if canImport(FoundationModels)
+            if #available(iOS 26, macOS 26, *) {
+                let task = Task {
+                    let session = LanguageModelSession(instructions: system)
+                    do {
+                        for try await partial in session.streamResponse(to: prompt) {
+                            continuation.yield(partial.content)   // cumulative snapshot
+                        }
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: CoachError(Self.friendly(error)))
+                    }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+                return
+            }
+            #endif
+            continuation.finish(throwing: CoachError("Foundation Models is unavailable on this device."))
+        }
+    }
+
     // MARK: helpers
 
     #if canImport(FoundationModels)
