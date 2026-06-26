@@ -72,17 +72,20 @@ public struct PlayView: View {
     public var body: some View {
         VStack(spacing: 10) {
             header
-            HStack(alignment: .top, spacing: 10) {
+            // Eval bar is a leading overlay so its height tracks the board exactly
+            // (an HStack sibling stretched greedily and left a big gap).
+            ChessBoardView(
+                fen: vm.fen,
+                orientation: vm.orientation,
+                lastMove: vm.lastMove,
+                selectedSquare: vm.selected,
+                legalDots: vm.legalDots,
+                onTapSquare: { vm.tap($0) }
+            )
+            .padding(.leading, 22)
+            .overlay(alignment: .leading) {
                 EvalBarView(winWhite: vm.winWhite, whiteAtBottom: vm.playerIsWhite)
-                    .frame(width: 18)
-                ChessBoardView(
-                    fen: vm.fen,
-                    orientation: vm.orientation,
-                    lastMove: vm.lastMove,
-                    selectedSquare: vm.selected,
-                    legalDots: vm.legalDots,
-                    onTapSquare: { vm.tap($0) }
-                )
+                    .frame(width: 14)
             }
             .padding(.horizontal, 12)
             infoStrip
@@ -163,7 +166,7 @@ public struct PlayView: View {
                 }
             }
         }
-        .frame(maxHeight: 176)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .gemmaGlass(cornerRadius: 18)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
@@ -200,6 +203,8 @@ struct AdvantageChip: View {
             Text("\(whiteAhead ? "White" : "Black") \(pct)%")
                 .font(.caption).foregroundStyle(.white.opacity(0.75))
         }
+        .lineLimit(1)
+        .fixedSize()
         .padding(.horizontal, 12).padding(.vertical, 7)
         .gemmaGlassPill()
     }
