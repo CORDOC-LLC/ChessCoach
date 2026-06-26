@@ -1,0 +1,16 @@
+# Swift / SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# macOS
+.DS_Store
+
+# Agent worktrees (ce-work parallel isolation)
+.claude/worktrees/
