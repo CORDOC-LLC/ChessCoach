@@ -178,7 +178,7 @@ public struct PlayView: View {
                 .font(.caption)
                 .foregroundStyle(note.role == "engine" ? GemmaTheme.gold : GemmaTheme.accent)
                 .frame(width: 18)
-            Text(note.text)
+            Text(note.text.asCoachMarkdown)
                 .font(.callout)
                 .foregroundStyle(.white.opacity(0.92))
                 .frame(maxWidth: .infinity, alignment: .leading)

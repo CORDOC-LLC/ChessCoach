@@ -85,6 +85,17 @@ struct GemmaGlass: ViewModifier {
     }
 }
 
+public extension String {
+    /// Render coach/LLM markdown (**bold**, *italic*, lists) inline while preserving
+    /// line breaks — the on-device coach replies in light Markdown.
+    var asCoachMarkdown: AttributedString {
+        (try? AttributedString(
+            markdown: self,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )) ?? AttributedString(self)
+    }
+}
+
 /// Subtle tactile press feedback (mirrors HypeBlitz's PressableStyle).
 public struct PressableStyle: ButtonStyle {
     public init() {}
