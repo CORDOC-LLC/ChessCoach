@@ -68,6 +68,17 @@ public enum BoardGeometry {
         center(file: square.file.number, rank: square.rank.value, side: side, whiteAtBottom: whiteAtBottom)
     }
 
+    /// Linear interpolation between two scalars (`t` in 0...1). Used to slide a moving
+    /// piece from its origin to its destination.
+    public static func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat {
+        a + (b - a) * t
+    }
+
+    /// Linear interpolation between two points.
+    public static func lerp(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
+        CGPoint(x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t))
+    }
+
     /// The square at a display point within a board of side `side`, or nil if outside.
     public static func square(atPoint p: CGPoint, side: CGFloat, whiteAtBottom: Bool) -> Square? {
         guard side > 0, p.x >= 0, p.y >= 0, p.x < side, p.y < side else { return nil }
@@ -159,6 +170,27 @@ public struct ChessBoardView: View {
     private let dark = GemmaTheme.boardDark
     private let highlight = GemmaTheme.gold.opacity(0.45)
 
+    // MARK: Last-move slide animation
+    // We animate ONLY the piece that just moved, as an overlay sliding from `from`
+    // to `to` — never the whole position (pieces have no stable identity across a
+    // FEN change, so a position-wide animation would cross-fade). The static end
+    // state always renders every piece, so tests/screenshots are unaffected.
+    private struct Slide: Equatable {
+        var piece: Character
+        var from: Square
+        var to: Square
+    }
+    @State private var slide: Slide?
+    @State private var slideProgress: CGFloat = 0
+    @State private var slideToken = 0
+
+    /// A stable key for the current last move, so `.onChange` fires only on a NEW
+    /// move (not on orientation flips or unrelated re-renders).
+    private var lastMoveKey: String {
+        guard let lm = lastMove else { return "" }
+        return "\(lm.from.file.number)\(lm.from.rank.value)-\(lm.to.file.number)\(lm.to.rank.value)"
+    }
+
     public var body: some View {
         GeometryReader { geo in
             let side = min(geo.size.width, geo.size.height)
@@ -185,7 +217,12 @@ public struct ChessBoardView: View {
                             Rectangle().fill(isSelected ? Color.green.opacity(0.40) : highlight)
                         }
                         if let ch = placement[(rank - 1) * 8 + (file - 1)] {
-                            BoardPiece(ch: ch, size: sq * 0.88)
+                            // While a piece is sliding in, skip its static copy on the
+                            // destination square so it isn't drawn twice.
+                            let isSlidingTarget = slide.map { $0.to == cellSquare } ?? false
+                            if !isSlidingTarget {
+                                BoardPiece(ch: ch, size: sq * 0.88)
+                            }
                         }
                         if isDot {
                             Circle()
@@ -205,6 +242,15 @@ public struct ChessBoardView: View {
                 ArrowsOverlay(arrows: arrows, side: side, whiteAtBottom: whiteBottom)
                     .frame(width: side, height: side)
                     .allowsHitTesting(false)
+
+                // The single in-flight piece, drawn at the interpolated point.
+                if let slide {
+                    let p0 = BoardGeometry.center(slide.from, side: side, whiteAtBottom: whiteBottom)
+                    let p1 = BoardGeometry.center(slide.to, side: side, whiteAtBottom: whiteBottom)
+                    BoardPiece(ch: slide.piece, size: sq * 0.88)
+                        .position(BoardGeometry.lerp(p0, p1, slideProgress))
+                        .allowsHitTesting(false)
+                }
             }
             .frame(width: side, height: side)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -216,6 +262,25 @@ public struct ChessBoardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .aspectRatio(1, contentMode: .fit)
+        // Start a slide whenever a genuinely new last move arrives. Animation timing
+        // is verified manually on device (untestable in unit tests).
+        .onChange(of: lastMoveKey) { _, newKey in
+            guard !newKey.isEmpty, let lm = lastMove else { slide = nil; return }
+            // The FEN has already advanced, so the moved piece now sits on `to`.
+            let placement = BoardGeometry.placement(fromFEN: fen)
+            let idx = (lm.to.rank.value - 1) * 8 + (lm.to.file.number - 1)
+            guard let piece = placement[idx] else { slide = nil; return }
+            slide = Slide(piece: piece, from: lm.from, to: lm.to)
+            slideProgress = 0
+            slideToken += 1
+            let token = slideToken
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                slideProgress = 1
+            } completion: {
+                // Only clear if no newer slide superseded this one.
+                if token == slideToken { slide = nil }
+            }
+        }
     }
 
     /// File letters inside the bottom-row cells (bottom-trailing) and rank numbers
