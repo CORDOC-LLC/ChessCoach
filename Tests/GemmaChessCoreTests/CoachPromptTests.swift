@@ -86,7 +86,7 @@ struct ChatPromptTests {
             depth: 18
         )
         #expect(p.contains("Current position the user is viewing (FEN): 8/8/8/8/8/8/8/8 w - - 0 1"))
-        #expect(p.contains("Engine analysis of the CURRENT position (Stockfish depth 18):"))
+        #expect(p.contains("Engine analysis of the CURRENT position the user now faces (Stockfish depth 18):"))
         #expect(p.contains("- Best move for the side to move: Re1"))
         #expect(p.hasSuffix("User question: What should I do here?"))
     }
@@ -100,9 +100,23 @@ struct ChatPromptTests {
             moveFen: "origin-fen",
             moveFacts: "- The move Nf3 is classified a blunder"
         )
-        #expect(p.contains("The user reached this position by playing Nf3 (from FEN origin-fen)."))
+        #expect(p.contains("The move under review is Nf3, which the user played from the position FEN origin-fen"))
         #expect(p.contains("Engine analysis of the move Nf3:"))
         #expect(p.contains("- The move Nf3 is classified a blunder"))
+    }
+
+    @Test("player side framing names the user's colour and the engine opponent")
+    func playerSideFraming() {
+        let white = CoachPromptBuilder.chatPrompt(question: "q", playerSide: .white)
+        #expect(white.contains("The user is playing the White pieces against a computer opponent (Black)."))
+        #expect(white.contains("'You'/'your' always refers to the White player"))
+
+        let black = CoachPromptBuilder.chatPrompt(question: "q", playerSide: .black)
+        #expect(black.contains("The user is playing the Black pieces against a computer opponent (White)."))
+
+        // Absent by default, so non-Play callers are unaffected.
+        let none = CoachPromptBuilder.chatPrompt(question: "q")
+        #expect(!none.contains("against a computer opponent"))
     }
 
     @Test("move available at the current board uses the 'available in the current position' phrasing")

@@ -182,6 +182,7 @@ public enum CoachPromptBuilder {
         fen: String? = nil,
         lastMove: String? = nil,
         moveFen: String? = nil,
+        playerSide: CoachSide? = nil,
         currentFacts: String? = nil,
         moveFacts: String? = nil,
         profileFacts: String? = nil,
@@ -189,6 +190,19 @@ public enum CoachPromptBuilder {
         depth: Int = 18
     ) -> String {
         var parts: [String] = []
+        // Who is "you": without this, the model can't tell the human player from the
+        // engine opponent, and misreads the (side-to-move-relative) eval/win% numbers.
+        if let playerSide {
+            let me = playerSide == .white ? "White" : "Black"
+            let them = playerSide == .white ? "Black" : "White"
+            parts.append(
+                "The user is playing the \(me) pieces against a computer opponent (\(them)). "
+                + "'You'/'your' always refers to the \(me) player; the opponent's moves are the "
+                + "computer's, not the user's. In every engine block below, the eval and win% are "
+                + "from the perspective of whichever side is to move in that position — so in a "
+                + "position where it is \(me) to move, a higher win% is good for the user."
+            )
+        }
         if let speedContext { parts.append(speedContext) }
         if let profileFacts {
             parts.append(
@@ -203,12 +217,13 @@ public enum CoachPromptBuilder {
         if let fen { parts.append("Current position the user is viewing (FEN): \(fen)") }
         if let currentFacts {
             parts.append(
-                "Engine analysis of the CURRENT position (Stockfish depth \(depth)):\n\(currentFacts)"
+                "Engine analysis of the CURRENT position the user now faces (Stockfish depth \(depth)):\n\(currentFacts)"
             )
         }
         if let lastMove {
             if let moveFen, moveFen != fen {
-                parts.append("The user reached this position by playing \(lastMove) (from FEN \(moveFen)).")
+                parts.append("The move under review is \(lastMove), which the user played from the "
+                    + "position FEN \(moveFen); the current position above may be a few plies later.")
             } else {
                 parts.append("The move in question is \(lastMove), available in the current position.")
             }
