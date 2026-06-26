@@ -81,13 +81,17 @@ public enum BoardGeometry {
         return square("\(Square.File.allCases[file - 1].rawValue)\(rank)")
     }
 
-    /// Unicode glyph for a FEN piece character ("K","q",...), or nil for empties.
-    public static func glyph(for piece: Character) -> String? {
-        switch piece {
-        case "K": return "\u{2654}"; case "Q": return "\u{2655}"; case "R": return "\u{2656}"
-        case "B": return "\u{2657}"; case "N": return "\u{2658}"; case "P": return "\u{2659}"
-        case "k": return "\u{265A}"; case "q": return "\u{265B}"; case "r": return "\u{265C}"
-        case "b": return "\u{265D}"; case "n": return "\u{265E}"; case "p": return "\u{265F}"
+    /// True if a FEN char names a piece.
+    public static func glyph(for piece: Character) -> String? { filledGlyph(for: piece) }
+
+    /// A chess glyph for a piece char of either colour, or nil. We use the OUTLINE
+    /// set (U+2654–2659) for BOTH colours because the filled set (U+265A–F) is
+    /// missing from the system UI font (renders as tofu); colour + a drawn outline
+    /// at the call site distinguishes white from black.
+    public static func filledGlyph(for piece: Character) -> String? {
+        switch Character(piece.lowercased()) {
+        case "k": return "\u{2654}"; case "q": return "\u{2655}"; case "r": return "\u{2656}"
+        case "b": return "\u{2657}"; case "n": return "\u{2658}"; case "p": return "\u{2659}"
         default: return nil
         }
     }
@@ -171,11 +175,8 @@ public struct ChessBoardView: View {
                             Rectangle().fill(isSelected ? Color.green.opacity(0.40) : highlight)
                         }
                         if let ch = placement[(rank - 1) * 8 + (file - 1)],
-                           let glyph = BoardGeometry.glyph(for: ch) {
-                            Text(glyph)
-                                .font(.system(size: sq * 0.80))
-                                .foregroundStyle(ch.isUppercase ? GemmaTheme.pieceWhite : GemmaTheme.pieceBlack)
-                                .shadow(color: .black.opacity(ch.isUppercase ? 0.35 : 0.20), radius: 1, y: 0.5)
+                           let glyph = BoardGeometry.filledGlyph(for: ch) {
+                            PieceGlyph(glyph: glyph, isWhite: ch.isUppercase, size: sq * 0.82)
                         }
                         if isDot {
                             Circle()
@@ -234,6 +235,24 @@ public struct ChessBoardView: View {
         let letter = Square.File.allCases[file - 1].rawValue
         guard let sq = BoardGeometry.square("\(letter)\(rank)") else { return false }
         return sq == lm.from || sq == lm.to
+    }
+}
+
+/// A chess piece rendered from a filled glyph with a drawn outline, so white pieces
+/// stay legible on light squares and black pieces on dark squares.
+struct PieceGlyph: View {
+    let glyph: String
+    let isWhite: Bool
+    let size: CGFloat
+
+    var body: some View {
+        let fill = isWhite ? GemmaTheme.pieceWhite : GemmaTheme.pieceBlack
+        let outline = isWhite ? Color.black.opacity(0.85) : Color.white.opacity(0.50)
+        ZStack {
+            Text(glyph).font(.system(size: size)).foregroundStyle(outline).scaleEffect(1.10)
+            Text(glyph).font(.system(size: size)).foregroundStyle(fill)
+        }
+        .shadow(color: .black.opacity(0.28), radius: 1, y: 0.5)
     }
 }
 
