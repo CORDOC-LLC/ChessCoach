@@ -43,7 +43,7 @@ public struct CoachChatView: View {
         if let summary = vm.summaryText {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Game summary").font(.subheadline).fontWeight(.semibold)
-                Text(summary).font(.footnote)
+                Text(summary.asCoachMarkdown).font(.footnote)
             }
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -53,7 +53,7 @@ public struct CoachChatView: View {
         ForEach(Array(vm.chat.enumerated()), id: \.offset) { _, message in
             HStack {
                 if message.role == "user" { Spacer(minLength: 24) }
-                Text(message.text)
+                Text(message.role == "user" ? AttributedString(message.text) : message.text.asCoachMarkdown)
                     .font(.footnote)
                     .padding(8)
                     .background(
