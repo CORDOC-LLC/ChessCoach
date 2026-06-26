@@ -83,11 +83,16 @@ public enum Evaluation {
         thresholds: Thresholds? = nil
     ) -> Classification {
         let (inacc, mist, blund) = thresholds ?? defaultThresholds
+        // The engine's own top choice is always "best": you literally could not have
+        // played better, so it must never be flagged a mistake/blunder. (Two separate
+        // searches can report a few points of win% "drop" even for the best move; that
+        // noise must not outrank the fact that it WAS the best move.)
+        if isBest { return .best }
         let drop = winBefore - winAfter
         if drop >= blund { return .blunder }
         if drop >= mist { return .mistake }
         if drop >= inacc { return .inaccuracy }
-        if isBest || drop <= bestEps { return .best }
+        if drop <= bestEps { return .best }
         return .good
     }
 

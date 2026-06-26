@@ -351,7 +351,9 @@ public final class PlayViewModel {
     private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?) async {
         guard coachEnabled else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
-        let moveFacts = moveReport.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo) }
+        // Move block = ONLY the verdict of the move played (no second "best move"
+        // line); the current block carries the best move for the live position.
+        let moveFacts = moveReport.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo, includeBestLine: false) }
         let currentReport = try? await EngineLine.evaluate(fen: fen, depth: GCConfig.liveDepth, multipv: 2)
         let currentFacts = currentReport.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo) }
         do {
