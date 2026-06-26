@@ -73,10 +73,9 @@ public struct PlayView: View {
     public var body: some View {
         VStack(spacing: 8) {
             header
-            if settings.showCaptured { capturedTray(forOpponent: true) }
             board
-            if settings.showCaptured { capturedTray(forOpponent: false) }
             infoStrip
+            if vm.hint != nil { hintCard }
             if settings.showMoveList {
                 MoveListView(vm: vm)
                     .frame(maxHeight: 132)
@@ -145,6 +144,17 @@ public struct PlayView: View {
                   let a = BoardArrow(uci: best, color: GemmaTheme.accent, thick: true) {
             arrows.append(a)
         }
+        // On-demand hint arrows: best (accent, thick) + alternative (gold, thin),
+        // composed alongside any best-move/played arrows. Only on the live board.
+        if let hint = vm.hint, !vm.isViewingHistory {
+            if let a = BoardArrow(uci: hint.bestUCI, color: GemmaTheme.accent, thick: true) {
+                arrows.append(a)
+            }
+            if let second = hint.secondUCI,
+               let a = BoardArrow(uci: second, color: GemmaTheme.gold.opacity(0.9), thick: false) {
+                arrows.append(a)
+            }
+        }
         return arrows
     }
 
@@ -195,31 +205,29 @@ public struct PlayView: View {
         .buttonStyle(PressableStyle())
     }
 
-    // MARK: Captured trays
+    // MARK: Info strip
+    //
+    // A single dense row: the advantage chip, the two sides' captured material
+    // flanking it (so the trays no longer cost two full rows above/below the board),
+    // a Hint button, and Resign / New game.
 
-    @ViewBuilder
-    private func capturedTray(forOpponent: Bool) -> some View {
+    private var infoStrip: some View {
         let cap = vm.capturedMaterial
         let playerCaptures = vm.playerIsWhite ? cap.capturedByWhite : cap.capturedByBlack
         let opponentCaptures = vm.playerIsWhite ? cap.capturedByBlack : cap.capturedByWhite
         let playerAdvantage = vm.playerIsWhite ? cap.delta : -cap.delta
-        if forOpponent {
-            CapturedTrayView(pieces: opponentCaptures, advantage: -playerAdvantage)
-                .padding(.horizontal, 14)
-        } else {
-            CapturedTrayView(pieces: playerCaptures, advantage: playerAdvantage)
-                .padding(.horizontal, 14)
-        }
-    }
-
-    // MARK: Info strip
-
-    private var infoStrip: some View {
-        HStack(spacing: 12) {
+        return HStack(spacing: 10) {
             AdvantageChip(winWhite: vm.winWhite, eval: vm.evalText)
-            Spacer()
-            Text("You: \(vm.playerIsWhite ? "White" : "Black")")
-                .font(.caption).foregroundStyle(.white.opacity(0.7))
+            if settings.showCaptured {
+                CapturedTrayView(pieces: playerCaptures, advantage: playerAdvantage)
+                    .layoutPriority(-1)
+            }
+            Spacer(minLength: 4)
+            if settings.showCaptured {
+                CapturedTrayView(pieces: opponentCaptures, advantage: -playerAdvantage)
+                    .layoutPriority(-1)
+            }
+            hintButton
             if vm.gameOver {
                 Button("New game", action: onNewGame)
                     .buttonStyle(.borderedProminent).controlSize(.small)
@@ -231,23 +239,68 @@ public struct PlayView: View {
         .padding(.horizontal, 14)
     }
 
+    private var hintButton: some View {
+        Button { vm.requestHint() } label: {
+            Image(systemName: "lightbulb")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(vm.hint != nil ? GemmaTheme.gold : .white.opacity(0.7))
+                .frame(width: 30, height: 30)
+                .gemmaGlassPill()
+        }
+        .buttonStyle(PressableStyle())
+        .disabled(!vm.userToMove || vm.isViewingHistory || vm.gameOver)
+    }
+
+    // MARK: Hint card (best + alternative + rationale, dismissible)
+
+    @ViewBuilder
+    private var hintCard: some View {
+        if let hint = vm.hint {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "lightbulb.fill").foregroundStyle(GemmaTheme.gold).font(.footnote)
+                    Text(hint.summaryLabel)
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    Spacer(minLength: 4)
+                    if hint.isLoading { ProgressView().controlSize(.small) }
+                    Button { vm.clearHint() } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.6))
+                            .frame(width: 22, height: 22)
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let rationale = hint.rationale, !rationale.isEmpty {
+                    Text(rationale.asCoachMarkdown)
+                        .font(.footnote).foregroundStyle(.white.opacity(0.9))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .gemmaGlass(cornerRadius: 16)
+            .padding(.horizontal, 12)
+        }
+    }
+
     // MARK: Coach card (verdict + focus line)
 
     private var coachCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: "graduationcap.fill").foregroundStyle(GemmaTheme.accent)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "graduationcap.fill").foregroundStyle(GemmaTheme.accent).font(.footnote)
                 Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
-                Spacer()
+                if let v = vm.lastVerdict { verdictChip(v) }
+                Spacer(minLength: 4)
                 if vm.isCoaching { ProgressView().controlSize(.small) }
             }
-            if let v = vm.lastVerdict {
-                verdictLine(v)
-            }
-            focusLine
-            Spacer(minLength: 0)
+            // The focus line scrolls within the card's bounds so a long note never
+            // pushes the layout or clips.
+            ScrollView { focusLine }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(14)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .gemmaGlass(cornerRadius: 18)
     }
@@ -268,22 +321,23 @@ public struct PlayView: View {
         }
     }
 
-    private func verdictLine(_ v: MoveVerdict) -> some View {
-        HStack(spacing: 8) {
+    /// Compact color-coded verdict chip ("Qh5 · Blunder", plus "best Nf3" when not
+    /// the top move), sized to sit inline in the coach card header.
+    private func verdictChip(_ v: MoveVerdict) -> some View {
+        let color = MoveVerdict.color(for: v.classification)
+        return HStack(spacing: 5) {
             Text("\(v.moveSAN) · \(v.classification.capitalized)")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(
-                    Capsule().fill(MoveVerdict.color(for: v.classification).opacity(0.22))
-                )
-                .overlay(Capsule().stroke(MoveVerdict.color(for: v.classification).opacity(0.6), lineWidth: 1))
+                .font(.caption.weight(.bold))
             if let better = v.betterMoveSAN, !v.isBest {
-                Text("best was \(better)")
-                    .font(.footnote).foregroundStyle(.white.opacity(0.75))
+                Text("best \(better)")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.75))
             }
-            Spacer()
         }
+        .foregroundStyle(.white)
+        .lineLimit(1).minimumScaleFactor(0.7)
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(Capsule().fill(color.opacity(0.22)))
+        .overlay(Capsule().stroke(color.opacity(0.6), lineWidth: 1))
     }
 }
 

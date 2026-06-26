@@ -30,6 +30,30 @@ public struct MoveVerdict: Equatable, Sendable {
     }
 }
 
+/// An on-demand hint: the engine's best move plus a good alternative, with an
+/// optional one-line coach rationale. Distinct from the always-on best-move toggle —
+/// it is requested explicitly and dismissed by the user.
+public struct HintInfo: Equatable, Sendable {
+    public var bestUCI: String
+    public var secondUCI: String?
+    public var bestSAN: String
+    public var secondSAN: String?
+    public var rationale: String?
+    public var isLoading: Bool
+    public init(bestUCI: String, secondUCI: String?, bestSAN: String,
+                secondSAN: String?, rationale: String?, isLoading: Bool) {
+        self.bestUCI = bestUCI; self.secondUCI = secondUCI
+        self.bestSAN = bestSAN; self.secondSAN = secondSAN
+        self.rationale = rationale; self.isLoading = isLoading
+    }
+
+    /// One-line summary for the hint card header, e.g. "Best: Nf3 · Alt: e4".
+    public var summaryLabel: String {
+        if let alt = secondSAN { return "Best: \(bestSAN) · Alt: \(alt)" }
+        return "Best: \(bestSAN)"
+    }
+}
+
 @MainActor
 @Observable
 public final class PlayViewModel {
@@ -76,6 +100,11 @@ public final class PlayViewModel {
     public var lastVerdict: MoveVerdict?
     /// The coach's short "what to focus on" note for the latest move.
     public var lastCoachNote: String?
+
+    // MARK: On-demand hint
+    /// The current hint, or nil when none is shown. Set by `requestHint`, cleared by
+    /// `clearHint`, a new move, or a new game.
+    public var hint: HintInfo?
 
     private var dests: [Square: [Square]] = [:]
     private let coach: CoachOrchestrator
@@ -148,6 +177,50 @@ public final class PlayViewModel {
         }
     }
 
+    // MARK: On-demand hint
+
+    /// Analyse the live position at multipv 2 for the best move + a good alternative,
+    /// then (if a coach is available) attach a short rationale. Only valid at the
+    /// user's live turn — ignored while browsing history or after game over.
+    public func requestHint() {
+        guard !isViewingHistory, !gameOver, userToMove else { return }
+        let position = fen
+        hint = HintInfo(bestUCI: "", secondUCI: nil, bestSAN: "", secondSAN: nil,
+                        rationale: nil, isLoading: true)
+        Task {
+            guard let report = try? await EngineLine.evaluate(fen: position, depth: 12, multipv: 2) else {
+                if position == fen { hint = nil }
+                return
+            }
+            guard position == fen else { return }   // board moved on; drop stale result
+            let lines = report.lines
+            guard let bestUCI = lines.first?.lineUCI.first ?? report.lineUCI.first else {
+                hint = nil; return
+            }
+            let bestSAN = lines.first?.lineSAN.first ?? report.bestSAN ?? bestUCI
+            let secondUCI = lines.count > 1 ? lines[1].lineUCI.first : nil
+            let secondSAN = lines.count > 1 ? lines[1].lineSAN.first : nil
+            hint = HintInfo(
+                bestUCI: bestUCI, secondUCI: secondUCI,
+                bestSAN: bestSAN, secondSAN: secondSAN,
+                rationale: nil, isLoading: coachEnabled
+            )
+
+            guard coachEnabled else { return }
+            let reply = try? await coach.answer(
+                question: "Give a quick hint: the best move and a good alternative here, "
+                    + "and one short reason for each. Two sentences max.",
+                fen: position
+            )
+            guard position == fen else { return }
+            hint?.rationale = reply?.answer
+            hint?.isLoading = false
+        }
+    }
+
+    /// Dismiss the current hint.
+    public func clearHint() { hint = nil }
+
     // MARK: Game lifecycle
 
     public func newGame(asWhite: Bool) {
@@ -169,6 +242,7 @@ public final class PlayViewModel {
         bestMoveAnalysisCount = 0
         lastVerdict = nil
         lastCoachNote = nil
+        hint = nil
         coachAvailability = coach.availability
         refreshDests()
         refreshEval()
@@ -200,6 +274,7 @@ public final class PlayViewModel {
 
     private func makeUserMove(from: Square, to: Square) {
         returnToLive()   // a move only happens on the live board
+        hint = nil       // a fresh position invalidates any showing hint
         let fromFEN = fen
         let uci = uci(from: from, to: to, in: fromFEN)
         guard let afterFEN = ChessLogic.fen(afterMove: uci, fromFEN: fromFEN) else { return }
@@ -234,6 +309,7 @@ public final class PlayViewModel {
                 sanMoves.append(ChessLogic.san(fromUCI: reply, inFEN: fromFEN) ?? reply)
                 fenHistory.append(next)
                 lastMove = squares(fromUCI: reply)
+                hint = nil   // the position changed under any showing hint
                 refreshDests()
                 refreshEval()
                 _ = checkGameOver(youMoved: false)

@@ -50,4 +50,23 @@ struct BoardGeometryTests {
         #expect(a1.y < side / 2)
         #expect(BoardGeometry.square(atPoint: a1, side: side, whiteAtBottom: false) == .a1)
     }
+
+    // The piece-slide interpolation used by the last-move animation: endpoints are
+    // exact, the midpoint is the average, and a point interpolates per-axis.
+    @Test func lerpScalarEndpointsAndMidpoint() {
+        #expect(BoardGeometry.lerp(0, 10, 0) == 0)
+        #expect(BoardGeometry.lerp(0, 10, 1) == 10)
+        #expect(BoardGeometry.lerp(0, 10, 0.5) == 5)
+        #expect(BoardGeometry.lerp(4, 8, 0.25) == 5)
+    }
+
+    @Test func lerpPointInterpolatesEachAxis() {
+        let a = CGPoint(x: 0, y: 20)
+        let b = CGPoint(x: 100, y: 0)
+        #expect(BoardGeometry.lerp(a, b, 0) == a)
+        #expect(BoardGeometry.lerp(a, b, 1) == b)
+        let mid = BoardGeometry.lerp(a, b, 0.5)
+        #expect(mid.x == 50)
+        #expect(mid.y == 10)
+    }
 }
