@@ -90,9 +90,6 @@ public struct PlayView: View {
             }
         }
         .padding(.bottom, 8)
-        .task(id: bestMoveTargetFEN) {
-            if let f = bestMoveTargetFEN { vm.requestBestMove(forFEN: f) }
-        }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
@@ -118,34 +115,22 @@ public struct PlayView: View {
         .padding(.horizontal, 12)
     }
 
-    // MARK: Best-move arrows
-
-    /// The FEN whose best move we need analysed right now, or nil if the hint is off.
-    private var bestMoveTargetFEN: String? {
-        guard settings.showBestMove else { return nil }
-        if vm.isViewingHistory { return vm.displayFEN }
-        if vm.userToMove, !vm.gameOver { return vm.fen }
-        return nil
-    }
+    // MARK: Board arrows
+    //
+    // Best-move recommendation graphics are shown ONLY while a hint is active (the
+    // lightbulb). There is no separate always-on best-move arrow — turning the hint
+    // off removes every recommendation arrow from the board.
 
     private var boardArrows: [BoardArrow] {
         var arrows: [BoardArrow] = []
+        // Neutral arrow for the move that was played, when browsing history.
         if let viewing = vm.viewingPly {
             let playedUCI = vm.moves.indices.contains(viewing) ? vm.moves[viewing] : nil
             if let uci = playedUCI, let a = BoardArrow(uci: uci, color: .gray, thick: false) {
                 arrows.append(a)
             }
-            if settings.showBestMove, let best = vm.bestMove(forFEN: vm.displayFEN),
-               best != playedUCI, let a = BoardArrow(uci: best, color: GemmaTheme.accent, thick: true) {
-                arrows.append(a)
-            }
-        } else if settings.showBestMove, vm.userToMove, !vm.gameOver,
-                  let best = vm.bestMove(forFEN: vm.fen),
-                  let a = BoardArrow(uci: best, color: GemmaTheme.accent, thick: true) {
-            arrows.append(a)
         }
-        // On-demand hint arrows: best (accent, thick) + alternative (gold, thin),
-        // composed alongside any best-move/played arrows. Only on the live board.
+        // Hint arrows: best (accent, thick) + alternative (gold, thin). Live board only.
         if let hint = vm.hint, !vm.isViewingHistory {
             if let a = BoardArrow(uci: hint.bestUCI, color: GemmaTheme.accent, thick: true) {
                 arrows.append(a)
@@ -205,7 +190,6 @@ public struct PlayView: View {
         @Bindable var settings = settings
         return Menu {
             Section("Show") {
-                Toggle(isOn: $settings.showBestMove) { Label("Best-move arrow", systemImage: "scope") }
                 Toggle(isOn: $settings.showCaptured) { Label("Captured pieces", systemImage: "trophy") }
                 Toggle(isOn: $settings.showMoveList) { Label("Move list", systemImage: "list.bullet") }
                 Toggle(isOn: $settings.showCoach) { Label("Coach", systemImage: "bubble.left.fill") }
@@ -245,11 +229,14 @@ public struct PlayView: View {
         .padding(.horizontal, 16)
     }
 
+    /// The lightbulb is the single switch for best-move graphics: tap to show the
+    /// hint (best + alternative arrows + rationale), tap again to hide them.
     private var hintButton: some View {
-        Button { vm.requestHint() } label: {
-            Image(systemName: "lightbulb")
+        let on = vm.hint != nil
+        return Button { on ? vm.clearHint() : vm.requestHint() } label: {
+            Image(systemName: on ? "lightbulb.fill" : "lightbulb")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(vm.hint != nil ? GemmaTheme.gold : .white.opacity(0.7))
+                .foregroundStyle(on ? GemmaTheme.gold : .white.opacity(0.7))
                 .frame(width: 30, height: 30)
                 .gemmaGlassPill()
         }
