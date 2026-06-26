@@ -6,6 +6,11 @@
 
 import SwiftUI
 import ChessKit
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// Which colour sits at the bottom of the board.
 public enum BoardOrientation: Sendable, Equatable {
@@ -96,6 +101,11 @@ public enum BoardGeometry {
         }
     }
 
+    /// Asset name for a FEN piece char, e.g. 'K' → "wK", 'n' → "bN".
+    public static func pieceCode(for ch: Character) -> String {
+        (ch.isUppercase ? "w" : "b") + ch.uppercased()
+    }
+
     /// Parse a FEN's placement field into `[index: piece]` keyed by `(rank-1)*8 + (file-1)`.
     public static func placement(fromFEN fen: String) -> [Int: Character] {
         var out: [Int: Character] = [:]
@@ -174,9 +184,8 @@ public struct ChessBoardView: View {
                         if highlighted || isSelected {
                             Rectangle().fill(isSelected ? Color.green.opacity(0.40) : highlight)
                         }
-                        if let ch = placement[(rank - 1) * 8 + (file - 1)],
-                           let glyph = BoardGeometry.filledGlyph(for: ch) {
-                            PieceGlyph(glyph: glyph, isWhite: ch.isUppercase, size: sq * 0.82)
+                        if let ch = placement[(rank - 1) * 8 + (file - 1)] {
+                            BoardPiece(ch: ch, size: sq * 0.88)
                         }
                         if isDot {
                             Circle()
@@ -235,6 +244,35 @@ public struct ChessBoardView: View {
         let letter = Square.File.allCases[file - 1].rawValue
         guard let sq = BoardGeometry.square("\(letter)\(rank)") else { return false }
         return sq == lm.from || sq == lm.to
+    }
+}
+
+/// A board piece: real cburnett vector artwork when the asset is available,
+/// falling back to an outlined glyph (e.g. in pure-SPM previews/tests).
+struct BoardPiece: View {
+    let ch: Character
+    let size: CGFloat
+
+    var body: some View {
+        if let image = Self.art(BoardGeometry.pieceCode(for: ch)) {
+            image
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .shadow(color: .black.opacity(0.28), radius: 0.8, y: 0.6)
+        } else if let glyph = BoardGeometry.filledGlyph(for: ch) {
+            PieceGlyph(glyph: glyph, isWhite: ch.isUppercase, size: size)
+        }
+    }
+
+    /// Load a piece image from the package's asset catalog, or nil if absent.
+    static func art(_ name: String) -> Image? {
+        #if canImport(UIKit)
+        if let ui = UIImage(named: name, in: .module, compatibleWith: nil) { return Image(uiImage: ui) }
+        #elseif canImport(AppKit)
+        if let ns = Bundle.module.image(forResource: name) { return Image(nsImage: ns) }
+        #endif
+        return nil
     }
 }
 

@@ -1,7 +1,7 @@
 //  PlayView.swift
-//  Play mode UI: a pre-game setup (pick side + engine strength), then the live
-//  board with tap-to-move, a status line, and a running coach panel that comments
-//  on each of your moves.
+//  Play mode UI: a compact pre-game setup (side + engine strength), then a
+//  space-efficient live board — eval bar, advantage read-out, tap-to-move board,
+//  and a running coach panel that grades each of your moves.
 
 import SwiftUI
 
@@ -60,7 +60,7 @@ public struct PlayContainerView: View {
     }
 }
 
-/// The live game: board + status + coach feed.
+/// The live game.
 public struct PlayView: View {
     @Bindable var vm: PlayViewModel
     var onNewGame: () -> Void
@@ -71,65 +71,76 @@ public struct PlayView: View {
 
     public var body: some View {
         VStack(spacing: 10) {
-            statusBar
-            ChessBoardView(
-                fen: vm.fen,
-                orientation: vm.orientation,
-                lastMove: vm.lastMove,
-                selectedSquare: vm.selected,
-                legalDots: vm.legalDots,
-                onTapSquare: { vm.tap($0) }
-            )
-            .padding(.horizontal, 8)
-            controls
+            header
+            HStack(alignment: .top, spacing: 10) {
+                EvalBarView(winWhite: vm.winWhite, whiteAtBottom: vm.playerIsWhite)
+                    .frame(width: 18)
+                ChessBoardView(
+                    fen: vm.fen,
+                    orientation: vm.orientation,
+                    lastMove: vm.lastMove,
+                    selectedSquare: vm.selected,
+                    legalDots: vm.legalDots,
+                    onTapSquare: { vm.tap($0) }
+                )
+            }
+            .padding(.horizontal, 12)
+            infoStrip
             coachPanel
         }
-        .navigationTitle("Play")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailingCompat) {
-                Button("New game", action: onNewGame)
+        #if os(iOS)
+        .toolbar(.hidden, for: .navigationBar)
+        #endif
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Button(action: onNewGame) {
+                Label("New game", systemImage: "chevron.left")
+                    .font(.subheadline.weight(.medium))
             }
-        }
-    }
-
-    private var statusBar: some View {
-        HStack(spacing: 8) {
-            if vm.engineThinking || vm.isCoaching { ProgressView().controlSize(.small) }
-            Text(vm.status)
-                .font(.headline)
-                .foregroundStyle(vm.gameOver ? GemmaTheme.accent : .white)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .gemmaGlassPill()
-        .padding(.top, 6)
-    }
-
-    private var controls: some View {
-        HStack {
-            Text("You: \(vm.playerIsWhite ? "White" : "Black")")
-                .font(.subheadline).foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+            .foregroundStyle(GemmaTheme.accent)
             Spacer()
-            if !vm.gameOver {
-                Button("Resign", role: .destructive) { vm.resign() }
-                    .buttonStyle(.bordered)
-            } else {
+            HStack(spacing: 7) {
+                if vm.engineThinking || vm.isCoaching { ProgressView().controlSize(.small) }
+                Text(vm.status)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(vm.gameOver ? GemmaTheme.accent : .white)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .gemmaGlassPill()
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+    }
+
+    private var infoStrip: some View {
+        HStack(spacing: 12) {
+            AdvantageChip(winWhite: vm.winWhite, eval: vm.evalText)
+            Spacer()
+            Text("You: \(vm.playerIsWhite ? "White" : "Black")")
+                .font(.caption).foregroundStyle(.white.opacity(0.7))
+            if vm.gameOver {
                 Button("New game", action: onNewGame)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+            } else {
+                Button("Resign", role: .destructive) { vm.resign() }
+                    .buttonStyle(.bordered).controlSize(.small)
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 14)
     }
 
     private var coachPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Image(systemName: "bubble.left.and.bubble.right.fill").foregroundStyle(.secondary)
-                Text("Coach").font(.subheadline.weight(.semibold))
+                Image(systemName: "bubble.left.and.bubble.right.fill").foregroundStyle(GemmaTheme.accent)
+                Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 Spacer()
             }
             .padding(.horizontal).padding(.vertical, 6)
-            Divider()
+            Divider().overlay(Color.white.opacity(0.1))
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
@@ -137,7 +148,7 @@ public struct PlayView: View {
                             Text(vm.coachEnabled
                                  ? "Make a move — I'll comment as you play."
                                  : "Engine review only on this device. I'll still grade your moves.")
-                                .font(.footnote).foregroundStyle(.secondary)
+                                .font(.footnote).foregroundStyle(.white.opacity(0.6))
                                 .padding(.horizontal)
                         }
                         ForEach(Array(vm.coachNotes.enumerated()), id: \.offset) { _, note in
@@ -152,9 +163,9 @@ public struct PlayView: View {
                 }
             }
         }
-        .frame(maxHeight: 200)
+        .frame(maxHeight: 176)
         .gemmaGlass(cornerRadius: 18)
-        .padding(.horizontal)
+        .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }
 
@@ -162,13 +173,47 @@ public struct PlayView: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: note.role == "engine" ? "cpu" : "graduationcap.fill")
                 .font(.caption)
-                .foregroundStyle(note.role == "engine" ? .orange : .blue)
+                .foregroundStyle(note.role == "engine" ? GemmaTheme.gold : GemmaTheme.accent)
                 .frame(width: 18)
             Text(note.text)
                 .font(.callout)
+                .foregroundStyle(.white.opacity(0.92))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal)
+    }
+}
+
+/// A compact advantage read-out: a mini win-bar + eval number + who's ahead.
+struct AdvantageChip: View {
+    let winWhite: Double
+    let eval: String
+
+    var body: some View {
+        let whiteAhead = winWhite >= 50
+        let pct = whiteAhead ? Int(winWhite.rounded()) : Int((100 - winWhite).rounded())
+        HStack(spacing: 9) {
+            miniBar
+            Text(eval)
+                .font(.subheadline.weight(.bold)).monospacedDigit()
+                .foregroundStyle(.white)
+            Text("\(whiteAhead ? "White" : "Black") \(pct)%")
+                .font(.caption).foregroundStyle(.white.opacity(0.75))
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .gemmaGlassPill()
+    }
+
+    private var miniBar: some View {
+        GeometryReader { g in
+            let wf = max(0, min(1, winWhite / 100))
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.black.opacity(0.55))
+                Capsule().fill(Color.white).frame(width: g.size.width * wf)
+            }
+        }
+        .frame(width: 54, height: 8)
+        .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
     }
 }
 
