@@ -32,6 +32,7 @@ let package = Package(
             resources: [
                 .copy("Resources/eco"),
                 .copy("Resources/nnue"),
+                .process("Resources/Pieces.xcassets"),
             ]
         ),
         .testTarget(

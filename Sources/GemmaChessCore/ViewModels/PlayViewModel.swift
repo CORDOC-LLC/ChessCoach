@@ -27,6 +27,9 @@ public final class PlayViewModel {
     /// Opponent strength: Stockfish "Skill Level" 0–20.
     public var skill: Int = 6
     public var coachAvailability: CoachAvailability
+    /// Live engine read-out of the current position (White's perspective).
+    public var winWhite: Double = 50
+    public var evalText: String = "0.0"
 
     private var dests: [Square: [Square]] = [:]
     private let coach: CoachOrchestrator
@@ -59,8 +62,11 @@ public final class PlayViewModel {
         gameOver = false
         resultText = nil
         coachNotes = []
+        winWhite = 50
+        evalText = "0.0"
         coachAvailability = coach.availability
         refreshDests()
+        refreshEval()
         if asWhite {
             status = "Your move"
         } else {
@@ -97,6 +103,7 @@ public final class PlayViewModel {
         lastMove = (from, to)
         selected = nil
         refreshDests()
+        refreshEval()
 
         if checkGameOver(youMoved: true) { return }
         status = "Engine is thinking…"
@@ -117,6 +124,7 @@ public final class PlayViewModel {
                 moves.append(reply)
                 lastMove = squares(fromUCI: reply)
                 refreshDests()
+                refreshEval()
                 _ = checkGameOver(youMoved: false)
             }
         } catch {
@@ -151,6 +159,20 @@ public final class PlayViewModel {
     // MARK: Helpers
 
     private func refreshDests() { dests = ChessLogic.legalDestinations(forFEN: fen) }
+
+    /// Analyse the current position (cheaply) to drive the eval bar + win% readout.
+    func refreshEval() {
+        let position = fen
+        Task {
+            guard let result = try? await EnginePool.shared.analyse(fen: position, depth: 12, multipv: 1) else { return }
+            guard position == fen else { return }   // board moved on; drop stale result
+            let best = result.best
+            let stmWhite = ChessLogic.sideToMove(forFEN: position) == .white
+            winWhite = stmWhite ? best.winPercent : 100 - best.winPercent
+            let whiteCp = Int((stmWhite ? best.signedCp : -best.signedCp).rounded())
+            evalText = EngineLine.evalStrFromSignedCp(whiteCp)
+        }
+    }
 
     @discardableResult
     private func checkGameOver(youMoved: Bool) -> Bool {
