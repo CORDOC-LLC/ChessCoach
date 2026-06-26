@@ -230,8 +230,14 @@ public enum CoachPromptBuilder {
         }
         if let lastMove {
             if let moveFen, moveFen != fen {
-                parts.append("The move under review is \(lastMove), which the user played from the "
-                    + "position FEN \(moveFen); the current position above may be a few plies later.")
+                if fen == nil {
+                    // Pure move-review: no other position is in play, so grade only this move.
+                    parts.append("Review only the user's move \(lastMove), played from the position "
+                        + "FEN \(moveFen). Do not discuss any other move or position.")
+                } else {
+                    parts.append("The move under review is \(lastMove), which the user played from the "
+                        + "position FEN \(moveFen); the current position above may be a few plies later.")
+                }
             } else {
                 parts.append("The move in question is \(lastMove), available in the current position.")
             }
