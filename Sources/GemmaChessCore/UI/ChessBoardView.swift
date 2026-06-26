@@ -218,20 +218,22 @@ public struct ChessBoardView: View {
         .aspectRatio(1, contentMode: .fit)
     }
 
-    /// Small file letters along the bottom row and rank numbers down the left column.
+    /// File letters inside the bottom-row cells (bottom-trailing) and rank numbers
+    /// inside the left-column cells (top-leading). Coloured with the *opposite*
+    /// square colour for contrast on both light and dark squares, semibold.
     @ViewBuilder
     private func coordinateLabel(file: Int, rank: Int, col: Int, row: Int, sq: CGFloat, isLight: Bool) -> some View {
-        let labelColor = (isLight ? dark : light).opacity(0.9)
+        let labelColor = (isLight ? dark : light).opacity(0.95)
         if row == 7, (1...8).contains(file) {
             Text(String(Square.File.allCases[file - 1].rawValue))
-                .font(.system(size: sq * 0.18, weight: .semibold))
+                .font(.system(size: sq * 0.20, weight: .semibold))
                 .foregroundStyle(labelColor)
                 .padding(3)
                 .frame(width: sq, height: sq, alignment: .bottomTrailing)
         }
         if col == 0, (1...8).contains(rank) {
             Text("\(rank)")
-                .font(.system(size: sq * 0.18, weight: .semibold))
+                .font(.system(size: sq * 0.20, weight: .semibold))
                 .foregroundStyle(labelColor)
                 .padding(3)
                 .frame(width: sq, height: sq, alignment: .topLeading)
