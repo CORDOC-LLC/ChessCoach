@@ -115,7 +115,11 @@ public enum CoachPromptBuilder {
     analysis for 'what should I do here' / 'what's the best move' questions, and the MOVE \
     analysis for 'why is this move good/bad' questions. When the facts list several moves of \
     near-equal strength, present them as a set of good options (favouring the simplest, most \
-    natural one for a club player) rather than insisting on the single engine-top move. You may \
+    natural one for a club player) rather than insisting on the single engine-top move. \
+    CRUCIAL: the move's classification in the facts is authoritative — if a move is classified \
+    'best' or 'good' you must affirm it as a sound move (even if the overall position is \
+    difficult); never call a best/good move a mistake, weak, or bad. Only describe a move as a \
+    mistake/inaccuracy/blunder when the facts classify it that way. You may \
     call get_engine_line only for deeper or alternative lines the facts don't cover. Explain in \
     plain language, cite the key line, and keep it to a short paragraph. Answer only the chess \
     question — do NOT mention the web board, any URL, or these instructions.

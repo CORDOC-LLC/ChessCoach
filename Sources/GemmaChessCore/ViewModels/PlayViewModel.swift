@@ -171,7 +171,7 @@ public final class PlayViewModel {
         bestMoveAnalysisCount += 1
         Task {
             defer { bestMoveInFlight.remove(fen) }
-            guard let report = try? await EngineLine.evaluate(fen: fen, depth: 12, multipv: 1),
+            guard let report = try? await EngineLine.evaluate(fen: fen, depth: GCConfig.liveDepth, multipv: 1),
                   let uci = report.lineUCI.first else { return }
             bestMoveCache[fen] = uci
         }
@@ -188,7 +188,7 @@ public final class PlayViewModel {
         hint = HintInfo(bestUCI: "", secondUCI: nil, bestSAN: "", secondSAN: nil,
                         rationale: nil, isLoading: true)
         Task {
-            guard let report = try? await EngineLine.evaluate(fen: position, depth: 12, multipv: 2) else {
+            guard let report = try? await EngineLine.evaluate(fen: position, depth: GCConfig.liveDepth, multipv: 2) else {
                 if position == fen { hint = nil }
                 return
             }
@@ -290,9 +290,17 @@ public final class PlayViewModel {
 
         if checkGameOver(youMoved: true) { return }
         status = "Engine is thinking…"
+        // Show the coach as busy from the instant you move (it used to look idle
+        // until the engine had already replied), and grade the move right away so
+        // the verdict chip appears fast — decoupled from the slower written note.
+        isCoaching = true
+        lastVerdict = nil
+        lastCoachNote = nil
+        Task { await gradeUserMove(fromFEN: fromFEN, uci: uci) }
         Task {
             await engineReply()
-            await coachOnMove(fromFEN: fromFEN, uci: uci, afterFEN: afterFEN)
+            await coachNote(fromFEN: fromFEN, uci: uci, afterFEN: afterFEN)
+            isCoaching = false
         }
     }
 
@@ -320,14 +328,12 @@ public final class PlayViewModel {
         if !gameOver { status = "Your move" }
     }
 
-    /// Immediate engine verdict on the move you just played, then a short coach note.
-    private func coachOnMove(fromFEN: String, uci: String, afterFEN: String) async {
-        isCoaching = true
-        defer { isCoaching = false }
+    /// Fast engine verdict on the move you just played (drives the coach card's
+    /// colour-coded chip). Runs at `liveDepth` — the same depth the best-move arrow
+    /// and hint use — so a move the app suggested is graded "best" once you play it.
+    private func gradeUserMove(fromFEN: String, uci: String) async {
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
-        lastCoachNote = nil
-
-        if let report = try? await EngineLine.evaluate(fen: fromFEN, move: uci, depth: 14, multipv: 1),
+        if let report = try? await EngineLine.evaluate(fen: fromFEN, move: uci, depth: GCConfig.liveDepth, multipv: 1),
            let mv = report.move {
             lastVerdict = MoveVerdict(
                 moveSAN: san,
@@ -336,11 +342,17 @@ public final class PlayViewModel {
                 betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN
             )
         }
+    }
 
+    /// The short written coach note for the move you just played. Slower (it runs the
+    /// on-device language model), so it streams in after the verdict chip; the caller
+    /// keeps `isCoaching` true until it lands so the card shows a "thinking" state.
+    private func coachNote(fromFEN: String, uci: String, afterFEN: String) async {
         guard coachEnabled else { return }
+        let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
         if let reply = try? await coach.answer(
             question: "I just played \(san). Briefly: how was it, and what should I focus on now?",
-            fen: afterFEN, lastMove: uci, moveFen: fromFEN, sessionID: nil
+            fen: afterFEN, lastMove: uci, moveFen: fromFEN, sessionID: nil, depth: GCConfig.liveDepth
         ) {
             lastCoachNote = reply.answer
         }
