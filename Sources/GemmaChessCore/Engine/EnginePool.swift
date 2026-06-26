@@ -51,6 +51,7 @@ public actor EnginePool {
 
     /// Accumulated info lines for the in-flight query, keyed by multipv index.
     private var currentInfos: [Int: EngineResponse.Info] = [:]
+    private var currentBestMove: String?
     private var waiter: CheckedContinuation<Void, Never>?
 
     // A one-at-a-time gate: `analyse` suspends across `await`, which permits actor
@@ -119,6 +120,37 @@ public actor EnginePool {
         return result
     }
 
+    /// Pick a move for an OPPONENT to play (used by Play mode). Optional `skill`
+    /// (Stockfish "Skill Level" 0–20) makes it beatable; reset to full strength
+    /// afterwards. Not cached. Returns the best-move UCI, or nil if there is none
+    /// (game over / no legal move).
+    public func playMove(fen: String, depth: Int = 12, skill: Int? = nil) async throws -> String? {
+        await acquire()
+        defer { release() }
+        try await ensureStarted()
+
+        if let skill {
+            await engine.send(command: .setoption(id: "Skill Level", value: "\(max(0, min(20, skill)))"))
+        }
+        if currentMultipv != 1 {
+            await engine.send(command: .setoption(id: "MultiPV", value: "1"))
+            currentMultipv = 1
+        }
+        currentInfos = [:]
+        currentBestMove = nil
+        await engine.send(command: .position(.fen(fen)))
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            self.waiter = cont
+            Task { await engine.send(command: .go(depth: depth)) }
+        }
+        let move = currentBestMove
+        if skill != nil {
+            await engine.send(command: .setoption(id: "Skill Level", value: "20"))  // restore
+        }
+        if let move, move != "(none)", move.count >= 4 { return move }
+        return nil
+    }
+
     /// Quit the engine and drop cached evals.
     public func shutdown() async {
         await engine.stop()
@@ -172,7 +204,8 @@ public actor EnginePool {
             guard let mpv = info.multipv, info.pv?.isEmpty == false, let score = info.score else { return }
             if score.lowerbound == true || score.upperbound == true { return }
             currentInfos[mpv] = info
-        case .bestmove:
+        case let .bestmove(move, _):
+            currentBestMove = move
             if let w = waiter { waiter = nil; w.resume() }
         default:
             break
