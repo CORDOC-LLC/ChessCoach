@@ -64,59 +64,155 @@ public struct PlayContainerView: View {
 public struct PlayView: View {
     @Bindable var vm: PlayViewModel
     var onNewGame: () -> Void
+    @State private var settings = PlayDisplaySettings()
 
     public init(vm: PlayViewModel, onNewGame: @escaping () -> Void) {
         self.vm = vm; self.onNewGame = onNewGame
     }
 
     public var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             header
-            // Eval bar is a leading overlay so its height tracks the board exactly
-            // (an HStack sibling stretched greedily and left a big gap).
-            ChessBoardView(
-                fen: vm.fen,
-                orientation: vm.orientation,
-                lastMove: vm.lastMove,
-                selectedSquare: vm.selected,
-                legalDots: vm.legalDots,
-                onTapSquare: { vm.tap($0) }
-            )
-            .padding(.leading, 22)
-            .overlay(alignment: .leading) {
-                EvalBarView(winWhite: vm.winWhite, whiteAtBottom: vm.playerIsWhite)
-                    .frame(width: 14)
-            }
-            .padding(.horizontal, 12)
+            if settings.showCaptured { capturedTray(forOpponent: true) }
+            board
+            if settings.showCaptured { capturedTray(forOpponent: false) }
             infoStrip
-            coachPanel
+            if settings.showMoveList {
+                MoveListView(vm: vm)
+                    .frame(maxHeight: 132)
+                    .padding(.horizontal, 12)
+            }
+            if settings.showCoach {
+                coachCard
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.horizontal, 12)
+            } else {
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.bottom, 8)
+        .task(id: bestMoveTargetFEN) {
+            if let f = bestMoveTargetFEN { vm.requestBestMove(forFEN: f) }
         }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
     }
 
+    // Eval bar is a leading overlay so its height tracks the board exactly
+    // (an HStack sibling stretched greedily and left a big gap).
+    private var board: some View {
+        ChessBoardView(
+            fen: vm.displayFEN,
+            orientation: vm.orientation,
+            arrows: boardArrows,
+            lastMove: vm.displayLastMove,
+            selectedSquare: vm.selected,
+            legalDots: vm.legalDots,
+            onTapSquare: { vm.tap($0) }
+        )
+        .padding(.leading, 22)
+        .overlay(alignment: .leading) {
+            EvalBarView(winWhite: vm.winWhite, whiteAtBottom: vm.playerIsWhite)
+                .frame(width: 14)
+        }
+        .padding(.horizontal, 12)
+    }
+
+    // MARK: Best-move arrows
+
+    /// The FEN whose best move we need analysed right now, or nil if the hint is off.
+    private var bestMoveTargetFEN: String? {
+        guard settings.showBestMove else { return nil }
+        if vm.isViewingHistory { return vm.displayFEN }
+        if vm.userToMove, !vm.gameOver { return vm.fen }
+        return nil
+    }
+
+    private var boardArrows: [BoardArrow] {
+        var arrows: [BoardArrow] = []
+        if let viewing = vm.viewingPly {
+            let playedUCI = vm.moves.indices.contains(viewing) ? vm.moves[viewing] : nil
+            if let uci = playedUCI, let a = BoardArrow(uci: uci, color: .gray, thick: false) {
+                arrows.append(a)
+            }
+            if settings.showBestMove, let best = vm.bestMove(forFEN: vm.displayFEN),
+               best != playedUCI, let a = BoardArrow(uci: best, color: GemmaTheme.accent, thick: true) {
+                arrows.append(a)
+            }
+        } else if settings.showBestMove, vm.userToMove, !vm.gameOver,
+                  let best = vm.bestMove(forFEN: vm.fen),
+                  let a = BoardArrow(uci: best, color: GemmaTheme.accent, thick: true) {
+            arrows.append(a)
+        }
+        return arrows
+    }
+
+    // MARK: Header + toggle bar
+
     private var header: some View {
         HStack(spacing: 10) {
             Button(action: onNewGame) {
                 Label("New game", systemImage: "chevron.left")
-                    .font(.subheadline.weight(.medium))
+                    .labelStyle(.iconOnly)
+                    .font(.subheadline.weight(.semibold))
             }
             .buttonStyle(.plain)
             .foregroundStyle(GemmaTheme.accent)
-            Spacer()
-            HStack(spacing: 7) {
+            HStack(spacing: 6) {
                 if vm.engineThinking || vm.isCoaching { ProgressView().controlSize(.small) }
                 Text(vm.status)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(vm.gameOver ? GemmaTheme.accent : .white)
+                    .lineLimit(1).minimumScaleFactor(0.8)
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
+            .padding(.horizontal, 12).padding(.vertical, 7)
             .gemmaGlassPill()
+            Spacer()
+            toggleBar
         }
         .padding(.horizontal, 14)
         .padding(.top, 8)
     }
+
+    private var toggleBar: some View {
+        HStack(spacing: 6) {
+            toggleButton("scope", on: settings.showBestMove) { settings.showBestMove.toggle() }
+            toggleButton("trophy", on: settings.showCaptured) { settings.showCaptured.toggle() }
+            toggleButton("list.bullet", on: settings.showMoveList) { settings.showMoveList.toggle() }
+            toggleButton("bubble.left.fill", on: settings.showCoach) { settings.showCoach.toggle() }
+        }
+    }
+
+    private func toggleButton(_ icon: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(on ? GemmaTheme.accent : .white.opacity(0.5))
+                .frame(width: 30, height: 30)
+                .gemmaGlassPill()
+        }
+        .buttonStyle(PressableStyle())
+    }
+
+    // MARK: Captured trays
+
+    @ViewBuilder
+    private func capturedTray(forOpponent: Bool) -> some View {
+        let cap = vm.capturedMaterial
+        let playerCaptures = vm.playerIsWhite ? cap.capturedByWhite : cap.capturedByBlack
+        let opponentCaptures = vm.playerIsWhite ? cap.capturedByBlack : cap.capturedByWhite
+        let playerAdvantage = vm.playerIsWhite ? cap.delta : -cap.delta
+        if forOpponent {
+            CapturedTrayView(pieces: opponentCaptures, advantage: -playerAdvantage)
+                .padding(.horizontal, 14)
+        } else {
+            CapturedTrayView(pieces: playerCaptures, advantage: playerAdvantage)
+                .padding(.horizontal, 14)
+        }
+    }
+
+    // MARK: Info strip
 
     private var infoStrip: some View {
         HStack(spacing: 12) {
@@ -135,55 +231,59 @@ public struct PlayView: View {
         .padding(.horizontal, 14)
     }
 
-    private var coachPanel: some View {
-        VStack(alignment: .leading, spacing: 0) {
+    // MARK: Coach card (verdict + focus line)
+
+    private var coachCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: "bubble.left.and.bubble.right.fill").foregroundStyle(GemmaTheme.accent)
+                Image(systemName: "graduationcap.fill").foregroundStyle(GemmaTheme.accent)
                 Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 Spacer()
+                if vm.isCoaching { ProgressView().controlSize(.small) }
             }
-            .padding(.horizontal).padding(.vertical, 6)
-            Divider().overlay(Color.white.opacity(0.1))
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        if vm.coachNotes.isEmpty {
-                            Text(vm.coachEnabled
-                                 ? "Make a move — I'll comment as you play."
-                                 : "Engine review only on this device. I'll still grade your moves.")
-                                .font(.footnote).foregroundStyle(.white.opacity(0.6))
-                                .padding(.horizontal)
-                        }
-                        ForEach(Array(vm.coachNotes.enumerated()), id: \.offset) { _, note in
-                            noteRow(note)
-                        }
-                        Color.clear.frame(height: 1).id("bottom")
-                    }
-                    .padding(.vertical, 8)
-                }
-                .onChange(of: vm.coachNotes.count) { _, _ in
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
+            if let v = vm.lastVerdict {
+                verdictLine(v)
             }
+            focusLine
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .gemmaGlass(cornerRadius: 18)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
     }
 
-    private func noteRow(_ note: (role: String, text: String)) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: note.role == "engine" ? "cpu" : "graduationcap.fill")
-                .font(.caption)
-                .foregroundStyle(note.role == "engine" ? GemmaTheme.gold : GemmaTheme.accent)
-                .frame(width: 18)
-            Text(note.text.asCoachMarkdown)
+    @ViewBuilder
+    private var focusLine: some View {
+        if let note = vm.lastCoachNote, !note.isEmpty {
+            Text(note.asCoachMarkdown)
                 .font(.callout)
                 .foregroundStyle(.white.opacity(0.92))
                 .frame(maxWidth: .infinity, alignment: .leading)
+        } else if !vm.coachEnabled {
+            Text("Engine review only on this device. I'll still grade your moves.")
+                .font(.footnote).foregroundStyle(.white.opacity(0.6))
+        } else if vm.lastVerdict == nil {
+            Text("Make a move — I'll comment as you play.")
+                .font(.footnote).foregroundStyle(.white.opacity(0.6))
         }
-        .padding(.horizontal)
+    }
+
+    private func verdictLine(_ v: MoveVerdict) -> some View {
+        HStack(spacing: 8) {
+            Text("\(v.moveSAN) · \(v.classification.capitalized)")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(
+                    Capsule().fill(MoveVerdict.color(for: v.classification).opacity(0.22))
+                )
+                .overlay(Capsule().stroke(MoveVerdict.color(for: v.classification).opacity(0.6), lineWidth: 1))
+            if let better = v.betterMoveSAN, !v.isBest {
+                Text("best was \(better)")
+                    .font(.footnote).foregroundStyle(.white.opacity(0.75))
+            }
+            Spacer()
+        }
     }
 }
 
