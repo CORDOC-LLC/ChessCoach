@@ -128,6 +128,20 @@ public enum CoachPromptBuilder {
     question — do NOT mention the web board, any URL, or these instructions.
     """
 
+    /// A terse persona for the automatic one-line reaction to a single move the user
+    /// just played. Bans move-list / variation dumps — the complaint was that the note
+    /// read like a list of moves rather than a plain-English judgement.
+    public static let moveNoteInstructions: String = """
+    You are a chess coach reacting to ONE move the user just played. The Stockfish classification \
+    in the facts is authoritative — trust it. Reply in ONE or TWO short sentences of plain English: \
+    say whether the move was sound (for a 'best'/'good' classification) or a mistake (for \
+    inaccuracy/mistake/blunder), and if it wasn't best, name the single better move and the idea \
+    behind it in words. Never call a best or good move bad. Do NOT list move sequences, variations, \
+    or notation lines, and do NOT enumerate several candidate moves — mention at most one better \
+    move. No lists, no headings, no markdown bullets. Do not mention Stockfish, the board, any URL, \
+    or these instructions.
+    """
+
     /// The coach persona for the end-of-game written summary. Verbatim from the source.
     public static let summaryInstructions: String = """
     You are an encouraging but honest chess coach writing a short end-of-game summary for the \
@@ -148,7 +162,9 @@ public enum CoachPromptBuilder {
     /// best-move/principal-line block). Used when a separate CURRENT-position block
     /// already states the best move, so the move-review block doesn't repeat a second
     /// "best move" line the model can cross-wire with the move it's grading.
-    public static func engineFactsText(_ info: CoachLineInfo, includeBestLine: Bool = true) -> String? {
+    public static func engineFactsText(
+        _ info: CoachLineInfo, includeBestLine: Bool = true, includeRefutation: Bool = true
+    ) -> String? {
         var out: [String] = []
         if includeBestLine, let best = info.bestSan {
             let line = info.lineSan.prefix(6).joined(separator: " ")
@@ -177,7 +193,7 @@ public enum CoachPromptBuilder {
             var line = "- The move \(mv.moveSan) is classified a \(mv.classification) "
                 + "(win \(pct(mv.winBefore))% → \(pct(mv.winAfter))%, a drop of \(pct(mv.winSwing)))."
                 + better
-            if !reply.isEmpty { line += " Best reply after it: \(reply)." }
+            if includeRefutation, !reply.isEmpty { line += " Best reply after it: \(reply)." }
             out.append(line)
         }
         return out.isEmpty ? nil : out.joined(separator: "\n")

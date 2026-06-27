@@ -84,6 +84,13 @@ struct EngineFactsTests {
         let t = CoachPromptBuilder.engineFactsText(info, includeBestLine: false)!
         #expect(t.contains("The move Nf3 is classified a blunder"))
         #expect(!t.contains("Best move in this position"))   // no duplicate best-move line
+
+        // The auto move-note also drops the move-sequence ("Best reply after it") so
+        // the model isn't handed a list of moves to parrot.
+        let terse = CoachPromptBuilder.engineFactsText(
+            info, includeBestLine: false, includeRefutation: false)!
+        #expect(!terse.contains("Best reply after it"))
+        #expect(terse.contains("The engine prefers c3 instead."))
     }
 }
 
