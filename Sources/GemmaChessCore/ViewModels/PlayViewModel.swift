@@ -351,28 +351,37 @@ public final class PlayViewModel {
     private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?) async {
         guard coachEnabled, let mv = moveReport?.move else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
-        // Grade ONLY the move just played, and set the TONE by classification: the
-        // word "mistake"/"error" is reserved for blunders. Anything else is analysed
-        // constructively (a not-best move is usually an 'inaccuracy' — that must NOT
-        // be reported to the user as a mistake).
+        // The engine's grade (the same one shown on the chip) is authoritative. The
+        // coach EXPLAINS the reasoning behind THAT grade, using its exact wording —
+        // it never upgrades or downgrades it (an inaccuracy stays an inaccuracy, not
+        // a "mistake").
+        let cls = mv.classification.lowercased()
         let better = mv.isEngineBest ? nil : mv.betterMoveSAN
         let win = "\(Int(mv.winBefore.rounded()))% to \(Int(mv.winAfter.rounded()))%"
-        var facts: String
-        switch mv.classification.lowercased() {
+        var facts = "- The engine grades your move \(san) as: \(cls)."
+        switch cls {
+        case "best":
+            facts += " It is the engine's top choice. Explain briefly why it is a strong move."
+        case "good":
+            facts += " Explain briefly why it is a good, solid move."
+        case "inaccuracy":
+            facts += " Your winning chances slipped from \(win)."
+            if let b = better { facts += " The more accurate move was \(b)." }
+            facts += " Explain why it is a slight inaccuracy (not a serious error)."
+        case "mistake":
+            facts += " Your winning chances dropped from \(win)."
+            if let b = better { facts += " The stronger move was \(b)." }
+            facts += " Explain why it is a mistake."
         case "blunder":
-            facts = "- Your move \(san) is a serious error (a blunder): your winning chances fell from \(win)."
+            facts += " Your winning chances fell sharply from \(win)."
             if let b = better { facts += " A much stronger move was \(b)." }
-            facts += " Point the blunder out directly and explain the better idea in plain words."
-        case _ where mv.isEngineBest:
-            facts = "- Your move \(san) is the engine's best move here — a strong choice. Affirm it briefly."
+            facts += " Explain why it is a blunder."
         default:
-            facts = "- Your move \(san) is a sound, reasonable move; it is NOT a mistake."
-            if let b = better { facts += " (The engine marginally prefers \(b), but \(san) is perfectly fine.)" }
-            facts += " Comment constructively in one short sentence and do NOT call it a mistake, bad, weak, or an error."
+            if let b = better { facts += " The engine prefers \(b)." }
         }
         do {
             let stream = try await coach.answerStream(
-                question: "Briefly react to my move \(san) in one or two sentences.",
+                question: "In one or two sentences, explain the reasoning behind the engine's grade of my move \(san).",
                 lastMove: uci, moveFen: fromFEN,
                 playerSide: playerIsWhite ? .white : .black,
                 moveFacts: facts,

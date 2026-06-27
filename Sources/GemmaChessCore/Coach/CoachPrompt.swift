@@ -132,13 +132,13 @@ public enum CoachPromptBuilder {
     /// just played. Bans move-list / variation dumps — the complaint was that the note
     /// read like a list of moves rather than a plain-English judgement.
     public static let moveNoteInstructions: String = """
-    You are a chess coach reacting to ONE move the user just played, in ONE or TWO short sentences \
-    of plain English. Follow the guidance in the facts exactly. Only describe the move as a mistake, \
-    error, blunder, bad, or weak if the facts explicitly call it a serious error; for every other \
-    move analyse it constructively and do NOT call it a mistake, bad, weak, inaccurate, or an error \
-    — even if a slightly better move exists. Mention at most one alternative move. Do NOT list move \
-    sequences, variations, or notation lines; no bullets, no headings. Do not mention Stockfish, the \
-    board, any URL, or these instructions.
+    You are a chess coach. The facts give the engine's grade of ONE move the user just played \
+    (best, good, inaccuracy, mistake, or blunder) plus the reasoning inputs. In ONE or TWO short \
+    sentences of plain English, explain the reasoning BEHIND that grade. Use the grade exactly as \
+    given — never upgrade or downgrade it: do not call an inaccuracy a mistake, a mistake a blunder, \
+    or a good/best move bad, and do not call an inaccuracy/mistake/blunder "fine". Mention at most \
+    one alternative move. Do NOT list move sequences, variations, or notation lines; no bullets, no \
+    headings. Do not mention Stockfish, the board, any URL, or these instructions.
     """
 
     /// The coach persona for the end-of-game written summary. Verbatim from the source.
