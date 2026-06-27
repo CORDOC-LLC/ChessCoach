@@ -45,6 +45,7 @@ public final class CoachOrchestrator: Sendable {
         moveFacts: String? = nil,
         profileFacts: String? = nil,
         speedContext: String? = nil,
+        system: String? = nil,
         sessionID: String? = nil,
         depth: Int = GCConfig.defaultDepth
     ) async throws -> CoachReply {
@@ -57,7 +58,7 @@ public final class CoachOrchestrator: Sendable {
             profileFacts: profileFacts, speedContext: speedContext, depth: depth
         )
         return try await backend.generate(
-            system: CoachPromptBuilder.chatInstructions, prompt: prompt, sessionID: sessionID
+            system: system ?? CoachPromptBuilder.chatInstructions, prompt: prompt, sessionID: sessionID
         )
     }
 
@@ -74,6 +75,7 @@ public final class CoachOrchestrator: Sendable {
         moveFacts: String? = nil,
         profileFacts: String? = nil,
         speedContext: String? = nil,
+        system: String? = nil,
         sessionID: String? = nil,
         depth: Int = GCConfig.defaultDepth
     ) async throws -> AsyncThrowingStream<String, Error> {
@@ -86,7 +88,7 @@ public final class CoachOrchestrator: Sendable {
             profileFacts: profileFacts, speedContext: speedContext, depth: depth
         )
         return backend.stream(
-            system: CoachPromptBuilder.chatInstructions, prompt: prompt, sessionID: sessionID
+            system: system ?? CoachPromptBuilder.chatInstructions, prompt: prompt, sessionID: sessionID
         )
     }
 

@@ -355,14 +355,17 @@ public final class PlayViewModel {
         // block and no current position, so the model has exactly one move to talk
         // about — it can't cross-wire two "best move" facts or two positions. (For
         // "what should I do now?" the user taps the hint or asks the coach.)
-        let moveFacts = moveReport.flatMap { CoachPromptBuilder.engineFactsText($0.coachInfo, includeBestLine: false) }
+        let moveFacts = moveReport.flatMap {
+            CoachPromptBuilder.engineFactsText($0.coachInfo, includeBestLine: false, includeRefutation: false)
+        }
         guard moveFacts != nil else { return }
         do {
             let stream = try await coach.answerStream(
                 question: "I just played \(san). In one or two sentences, how was that move?",
                 lastMove: uci, moveFen: fromFEN,
                 playerSide: playerIsWhite ? .white : .black,
-                moveFacts: moveFacts, depth: GCConfig.liveDepth)
+                moveFacts: moveFacts,
+                system: CoachPromptBuilder.moveNoteInstructions, depth: GCConfig.liveDepth)
             for try await partial in stream { lastCoachNote = partial }
         } catch {
             // Leave the note empty; the engine verdict chip still stands on its own.
