@@ -349,22 +349,33 @@ public final class PlayViewModel {
     /// `playerSide` tells it which colour "you" are so it never confuses you with the
     /// engine.
     private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?) async {
-        guard coachEnabled else { return }
+        guard coachEnabled, let mv = moveReport?.move else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
-        // Grade ONLY the move just played. We pass the move verdict as the sole fact
-        // block and no current position, so the model has exactly one move to talk
-        // about — it can't cross-wire two "best move" facts or two positions. (For
-        // "what should I do now?" the user taps the hint or asks the coach.)
-        let moveFacts = moveReport.flatMap {
-            CoachPromptBuilder.engineFactsText($0.coachInfo, includeBestLine: false, includeRefutation: false)
+        // Grade ONLY the move just played, and set the TONE by classification: the
+        // word "mistake"/"error" is reserved for blunders. Anything else is analysed
+        // constructively (a not-best move is usually an 'inaccuracy' — that must NOT
+        // be reported to the user as a mistake).
+        let better = mv.isEngineBest ? nil : mv.betterMoveSAN
+        let win = "\(Int(mv.winBefore.rounded()))% to \(Int(mv.winAfter.rounded()))%"
+        var facts: String
+        switch mv.classification.lowercased() {
+        case "blunder":
+            facts = "- Your move \(san) is a serious error (a blunder): your winning chances fell from \(win)."
+            if let b = better { facts += " A much stronger move was \(b)." }
+            facts += " Point the blunder out directly and explain the better idea in plain words."
+        case _ where mv.isEngineBest:
+            facts = "- Your move \(san) is the engine's best move here — a strong choice. Affirm it briefly."
+        default:
+            facts = "- Your move \(san) is a sound, reasonable move; it is NOT a mistake."
+            if let b = better { facts += " (The engine marginally prefers \(b), but \(san) is perfectly fine.)" }
+            facts += " Comment constructively in one short sentence and do NOT call it a mistake, bad, weak, or an error."
         }
-        guard moveFacts != nil else { return }
         do {
             let stream = try await coach.answerStream(
-                question: "I just played \(san). In one or two sentences, how was that move?",
+                question: "Briefly react to my move \(san) in one or two sentences.",
                 lastMove: uci, moveFen: fromFEN,
                 playerSide: playerIsWhite ? .white : .black,
-                moveFacts: moveFacts,
+                moveFacts: facts,
                 system: CoachPromptBuilder.moveNoteInstructions, depth: GCConfig.liveDepth)
             for try await partial in stream { lastCoachNote = partial }
         } catch {
