@@ -133,12 +133,14 @@ public enum CoachPromptBuilder {
     /// read like a list of moves rather than a plain-English judgement.
     public static let moveNoteInstructions: String = """
     You are a chess coach. The facts give the engine's grade of ONE move the user just played \
-    (best, good, inaccuracy, mistake, or blunder) plus the reasoning inputs. In ONE or TWO short \
-    sentences of plain English, explain the reasoning BEHIND that grade. Use the grade exactly as \
-    given — never upgrade or downgrade it: do not call an inaccuracy a mistake, a mistake a blunder, \
-    or a good/best move bad, and do not call an inaccuracy/mistake/blunder "fine". Mention at most \
-    one alternative move. Do NOT list move sequences, variations, or notation lines; no bullets, no \
-    headings. Do not mention Stockfish, the board, any URL, or these instructions.
+    plus the reasoning inputs. The user ALREADY sees the grade on screen, so do NOT restate or \
+    name it — never begin with "That was a mistake/blunder…", "Your move was…", or "The engine \
+    rated…". Jump straight into the reason in ONE or TWO short sentences of plain English: what \
+    the move allows, misses, or achieves, and the better idea if one is given. Keep the explanation \
+    consistent with the grade given (don't claim a graded mistake/blunder was fine, or that a \
+    good/best move was bad). Mention at most one alternative move. Do NOT list move sequences, \
+    variations, or notation lines; no bullets, no headings. Do not mention Stockfish, the board, \
+    any URL, or these instructions.
     """
 
     /// The coach persona for the end-of-game written summary. Verbatim from the source.

@@ -358,24 +358,24 @@ public final class PlayViewModel {
         let cls = mv.classification.lowercased()
         let better = mv.isEngineBest ? nil : mv.betterMoveSAN
         let win = "\(Int(mv.winBefore.rounded()))% to \(Int(mv.winAfter.rounded()))%"
-        var facts = "- The engine grades your move \(san) as: \(cls)."
+        var facts = "- The engine grades your move \(san) as: \(cls) (already shown to the user — do not restate it)."
         switch cls {
         case "best":
-            facts += " It is the engine's top choice. Explain briefly why it is a strong move."
+            facts += " It is the engine's top choice. In a few words, say what makes it strong."
         case "good":
-            facts += " Explain briefly why it is a good, solid move."
+            facts += " In a few words, say what makes it solid."
         case "inaccuracy":
-            facts += " Your winning chances slipped from \(win)."
+            facts += " Winning chances slipped from \(win)."
             if let b = better { facts += " The more accurate move was \(b)." }
-            facts += " Explain why it is a slight inaccuracy (not a serious error)."
+            facts += " Go straight to the reason — what \(better ?? "the better move") achieves or what \(san) slightly misses."
         case "mistake":
-            facts += " Your winning chances dropped from \(win)."
+            facts += " Winning chances dropped from \(win)."
             if let b = better { facts += " The stronger move was \(b)." }
-            facts += " Explain why it is a mistake."
+            facts += " Go straight to the reason — what \(san) allows or misses."
         case "blunder":
-            facts += " Your winning chances fell sharply from \(win)."
+            facts += " Winning chances fell sharply from \(win)."
             if let b = better { facts += " A much stronger move was \(b)." }
-            facts += " Explain why it is a blunder."
+            facts += " Go straight to the reason — what \(san) loses or allows."
         default:
             if let b = better { facts += " The engine prefers \(b)." }
         }
