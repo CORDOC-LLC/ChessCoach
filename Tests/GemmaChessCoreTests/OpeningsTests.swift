@@ -42,6 +42,21 @@ struct OpeningsTests {
         #expect(Openings.match(fen: "8/8/8/3k4/8/3K4/8/8 w - - 0 1") == nil)
     }
 
+    @Test func matchesLiveMoveApplicationDespiteEnPassantField() {
+        // Regression: `ChessLogic.fen(afterMove:fromFEN:)` (the live Play-mode path)
+        // sets the en-passant target square after a two-square pawn push; the book
+        // is built from `finalFEN(forPGN:)`, which doesn't. Keying on that field
+        // would silently miss the opening name on move one of most games (e4, d4…).
+        let start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        let afterE4 = try! #require(ChessLogic.fen(afterMove: "e2e4", fromFEN: start))
+        #expect(afterE4.contains(" e3 "))              // confirms ep really is set here
+        #expect(Openings.match(fen: afterE4)?.name.contains("King's Pawn") == true)
+
+        let afterD4 = try! #require(ChessLogic.fen(afterMove: "d2d4", fromFEN: start))
+        #expect(afterD4.contains(" d3 "))
+        #expect(Openings.match(fen: afterD4) != nil)
+    }
+
     @Test func bookLoadsEntries() {
         // Sanity: the vendored TSVs loaded into a non-trivial book.
         #expect(Openings.book.count > 1000)

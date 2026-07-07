@@ -51,6 +51,7 @@ public struct GemmaRootView: View {
 struct HomeView: View {
     var onPlay: () -> Void
     var onReview: () -> Void
+    @State private var showLicenses = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -88,6 +89,14 @@ struct HomeView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .tint(.white)
+
+                Button { showLicenses = true } label: {
+                    Text("Open Source Licenses")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
             .padding(.horizontal, 32)
             .padding(.bottom, 48)
@@ -97,5 +106,6 @@ struct HomeView: View {
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
+        .navigationDestination(isPresented: $showLicenses) { LicensesView() }
     }
 }
