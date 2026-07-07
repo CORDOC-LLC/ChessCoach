@@ -13,7 +13,7 @@ packages:
 
 settings:
   base:
-    DEVELOPMENT_TEAM: 9DPW28TX7M
+    DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
