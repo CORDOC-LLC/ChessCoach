@@ -213,16 +213,29 @@ public final class PlayViewModel {
             )
 
             guard coachEnabled else { return }
-            let reply = try? await coach.answer(
-                question: "Give a quick hint: the best move and a good alternative here, "
-                    + "and one short reason for each. Two sentences max.",
-                fen: position, playerSide: playerIsWhite ? .white : .black,
-                openingFacts: openingFacts,
-                depth: GCConfig.liveDepth
-            )
-            guard position == fen else { return }
-            hint?.rationale = reply?.answer
-            hint?.isLoading = false
+            // Ground the rationale in the SAME analysis that drew the arrows (passed
+            // as currentFacts so the orchestrator does no second engine run), and
+            // stream it so the reason appears as it's written instead of after a wait.
+            let facts = CoachPromptBuilder.engineFactsText(report.coachInfo)
+            var question = "Why is \(bestSAN) the strongest move here? One or two short sentences on the idea behind it."
+            if let alt = secondSAN {
+                question += " Add one short sentence on when \(alt) is a fine alternative."
+            }
+            do {
+                let stream = try await coach.answerStream(
+                    question: question,
+                    fen: position, playerSide: playerIsWhite ? .white : .black,
+                    openingFacts: openingFacts, currentFacts: facts,
+                    depth: GCConfig.liveDepth
+                )
+                for try await partial in stream {
+                    guard position == fen, hint != nil else { return }
+                    hint?.rationale = partial
+                }
+            } catch {
+                // No rationale — the arrows and SANs still stand on their own.
+            }
+            if position == fen { hint?.isLoading = false }
         }
     }
 
