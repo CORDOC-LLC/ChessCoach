@@ -154,6 +154,40 @@ struct ChatPromptTests {
         #expect(!CoachPromptBuilder.chatPrompt(question: "q").contains("known opening"))
     }
 
+    @Test("board facts list every piece with its true square, so the model needn't parse FEN")
+    func boardFacts() {
+        // After 1. e4: the ONLY differences from the start are the e-pawn on e4.
+        let afterE4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+        let board = try! #require(CoachPromptBuilder.boardFactsText(fen: afterE4))
+        #expect(board.contains("White pieces:"))
+        #expect(board.contains("king e1"))
+        #expect(board.contains("pawns a2, b2, c2, d2, f2, g2, h2, e4"))     // e-pawn on e4 (rank-major order)
+        #expect(board.contains("Black pieces:"))
+        #expect(board.contains("pawns a7, b7, c7, d7, e7, f7, g7, h7"))
+        #expect(board.contains("Black to move."))
+        // No white pawn can ever be on c1 — the hallucination this guards against.
+        #expect(!board.contains("c1,") || board.contains("bishops c1"))
+
+        // Unparseable FEN degrades to nil, and the prompt just omits the block.
+        #expect(CoachPromptBuilder.boardFactsText(fen: "not a fen") == nil)
+    }
+
+    @Test("chat prompt embeds the verified piece list for the viewed and move positions")
+    func boardFactsInPrompt() {
+        let start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        let p = CoachPromptBuilder.chatPrompt(question: "q", fen: start)
+        #expect(p.contains("Verified piece placement"))
+        #expect(p.contains("Never mention a piece or square not consistent with this list"))
+
+        // Pure move review (fen == nil): the origin position's pieces are listed.
+        let m = CoachPromptBuilder.chatPrompt(question: "q", lastMove: "e2e4", moveFen: start)
+        #expect(m.contains("Verified piece placement BEFORE that move"))
+
+        // A placeholder/unparseable FEN adds no block (and breaks nothing).
+        let bad = CoachPromptBuilder.chatPrompt(question: "q", fen: "fen")
+        #expect(!bad.contains("Verified piece placement"))
+    }
+
     @Test("move available at the current board uses the 'available in the current position' phrasing")
     func moveAtCurrentBoard() {
         let p = CoachPromptBuilder.chatPrompt(
