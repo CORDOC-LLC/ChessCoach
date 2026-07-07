@@ -139,6 +139,21 @@ struct ChatPromptTests {
         #expect(!none.contains("against a computer opponent"))
     }
 
+    @Test("opening facts name the line and land in the prompt")
+    func openingFacts() {
+        let line = CoachPromptBuilder.openingFactsText(name: "London System", eco: "D02")
+        #expect(line?.contains("London System (ECO D02)") == true)
+        // No ECO → name only; no name → nothing.
+        #expect(CoachPromptBuilder.openingFactsText(name: "Italian Game", eco: nil)?.contains("Italian Game.") == true)
+        #expect(CoachPromptBuilder.openingFactsText(name: nil, eco: "D02") == nil)
+        #expect(CoachPromptBuilder.openingFactsText(name: "", eco: "D02") == nil)
+
+        let p = CoachPromptBuilder.chatPrompt(question: "q", openingFacts: line)
+        #expect(p.contains("London System"))
+        // Absent by default.
+        #expect(!CoachPromptBuilder.chatPrompt(question: "q").contains("known opening"))
+    }
+
     @Test("move available at the current board uses the 'available in the current position' phrasing")
     func moveAtCurrentBoard() {
         let p = CoachPromptBuilder.chatPrompt(

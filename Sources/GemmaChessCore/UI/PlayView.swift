@@ -300,6 +300,18 @@ public struct PlayView: View {
                     .buttonStyle(PressableStyle())
                 }
             }
+            // The named opening the game has followed so far ("London System · A45"),
+            // refined live as the line deepens — a persistent teaching label, so the
+            // user learns what their setup is called while they play it.
+            if let opening = vm.opening {
+                HStack(spacing: 5) {
+                    Image(systemName: "book.closed.fill")
+                        .font(.caption2).foregroundStyle(GemmaTheme.gold)
+                    Text("\(opening.name) · \(opening.eco)")
+                        .font(.caption).foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+            }
             // The focus line scrolls within the card's bounds so a long note never
             // pushes the layout or clips.
             ScrollView { focusLine }

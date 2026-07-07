@@ -41,6 +41,7 @@ public final class CoachOrchestrator: Sendable {
         lastMove: String? = nil,
         moveFen: String? = nil,
         playerSide: CoachSide? = nil,
+        openingFacts: String? = nil,
         currentFacts: String? = nil,
         moveFacts: String? = nil,
         profileFacts: String? = nil,
@@ -54,7 +55,7 @@ public final class CoachOrchestrator: Sendable {
         }
         let prompt = try await composePrompt(
             question: question, fen: fen, lastMove: lastMove, moveFen: moveFen, playerSide: playerSide,
-            currentFacts: currentFacts, moveFacts: moveFacts,
+            openingFacts: openingFacts, currentFacts: currentFacts, moveFacts: moveFacts,
             profileFacts: profileFacts, speedContext: speedContext, depth: depth
         )
         return try await backend.generate(
@@ -71,6 +72,7 @@ public final class CoachOrchestrator: Sendable {
         lastMove: String? = nil,
         moveFen: String? = nil,
         playerSide: CoachSide? = nil,
+        openingFacts: String? = nil,
         currentFacts: String? = nil,
         moveFacts: String? = nil,
         profileFacts: String? = nil,
@@ -84,7 +86,7 @@ public final class CoachOrchestrator: Sendable {
         }
         let prompt = try await composePrompt(
             question: question, fen: fen, lastMove: lastMove, moveFen: moveFen, playerSide: playerSide,
-            currentFacts: currentFacts, moveFacts: moveFacts,
+            openingFacts: openingFacts, currentFacts: currentFacts, moveFacts: moveFacts,
             profileFacts: profileFacts, speedContext: speedContext, depth: depth
         )
         return backend.stream(
@@ -96,7 +98,7 @@ public final class CoachOrchestrator: Sendable {
     /// didn't already supply (`currentFacts`/`moveFacts` overrides).
     private func composePrompt(
         question: String, fen: String?, lastMove: String?, moveFen: String?,
-        playerSide: CoachSide?, currentFacts: String?, moveFacts: String?,
+        playerSide: CoachSide?, openingFacts: String?, currentFacts: String?, moveFacts: String?,
         profileFacts: String?, speedContext: String?, depth: Int
     ) async throws -> String {
         let moveAtCurrent = (lastMove != nil) && (moveFen == nil || moveFen == fen)
@@ -119,7 +121,7 @@ public final class CoachOrchestrator: Sendable {
 
         return CoachPromptBuilder.chatPrompt(
             question: question, fen: fen, lastMove: lastMove, moveFen: moveFen,
-            playerSide: playerSide,
+            playerSide: playerSide, openingFacts: openingFacts,
             currentFacts: current, moveFacts: move,
             profileFacts: profileFacts, speedContext: speedContext, depth: depth
         )
