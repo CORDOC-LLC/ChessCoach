@@ -1,4 +1,4 @@
-# GemmaChess
+# ChessCoach
 
 A native **iOS + macOS** chess coach: Stockfish-grounded full-game review with a
 position-aware conversational coach that runs **fully on-device** — Apple

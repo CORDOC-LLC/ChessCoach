@@ -35,7 +35,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: GemmaChess
+        INFOPLIST_KEY_CFBundleDisplayName: ChessCoach
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -54,6 +54,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.cordoc.gemmachess.mac
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: GemmaChess
+        INFOPLIST_KEY_CFBundleDisplayName: ChessCoach
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.board-games"
         ENABLE_HARDENED_RUNTIME: "YES"
