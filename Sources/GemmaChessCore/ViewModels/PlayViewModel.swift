@@ -106,6 +106,12 @@ public final class PlayViewModel {
     /// `clearHint`, a new move, or a new game.
     public var hint: HintInfo?
 
+    // MARK: Opening recognition
+    /// The deepest named opening the game has reached so far (lichess chess-openings
+    /// book), refined live after every ply. Never regresses: an out-of-book move
+    /// keeps the last named line ("you left the London with …" still reads right).
+    public var opening: Openings.Opening?
+
     private var dests: [Square: [Square]] = [:]
     private let coach: CoachOrchestrator
 
@@ -211,6 +217,7 @@ public final class PlayViewModel {
                 question: "Give a quick hint: the best move and a good alternative here, "
                     + "and one short reason for each. Two sentences max.",
                 fen: position, playerSide: playerIsWhite ? .white : .black,
+                openingFacts: openingFacts,
                 depth: GCConfig.liveDepth
             )
             guard position == fen else { return }
@@ -244,6 +251,7 @@ public final class PlayViewModel {
         lastVerdict = nil
         lastCoachNote = nil
         hint = nil
+        opening = nil
         chat = []
         isAsking = false
         coachAvailability = coach.availability
@@ -291,6 +299,7 @@ public final class PlayViewModel {
         refreshDests()
         refreshEval()
 
+        updateOpening(afterFEN: afterFEN)
         if checkGameOver(youMoved: true) { return }
         status = "Engine is thinking…"
         // Show the coach as busy from the instant you move (it used to look idle
@@ -309,34 +318,57 @@ public final class PlayViewModel {
                     moveSAN: san, classification: mv.classification,
                     isBest: mv.isEngineBest, betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN)
             }
-            await engineReply()
-            await streamCoachNote(fromFEN: fromFEN, uci: uci, moveReport: moveReport)
+            let replySAN = await engineReply()
+            await streamCoachNote(fromFEN: fromFEN, uci: uci, moveReport: moveReport,
+                                  opponentReplySAN: replySAN)
             isCoaching = false
         }
     }
 
-    private func engineReply() async {
-        guard !gameOver else { return }
+    /// Play the engine's reply and return its SAN (nil when no reply was made), so
+    /// the coach note can read the opponent's move.
+    @discardableResult
+    private func engineReply() async -> String? {
+        guard !gameOver else { return nil }
         engineThinking = true
         defer { engineThinking = false }
+        var replySAN: String?
         do {
             if let reply = try await EnginePool.shared.playMove(fen: fen, depth: 12, skill: skill),
                let next = ChessLogic.fen(afterMove: reply, fromFEN: fen) {
                 let fromFEN = fen
                 fen = next
                 moves.append(reply)
-                sanMoves.append(ChessLogic.san(fromUCI: reply, inFEN: fromFEN) ?? reply)
+                replySAN = ChessLogic.san(fromUCI: reply, inFEN: fromFEN) ?? reply
+                sanMoves.append(replySAN!)
                 fenHistory.append(next)
                 lastMove = squares(fromUCI: reply)
                 hint = nil   // the position changed under any showing hint
                 refreshDests()
                 refreshEval()
+                updateOpening(afterFEN: next)
                 _ = checkGameOver(youMoved: false)
             }
         } catch {
             // engine hiccup — leave it the user's move
         }
         if !gameOver { status = "Your move" }
+        return replySAN
+    }
+
+    /// Refine the live opening name after a ply. The book lookup is a dictionary hit,
+    /// but the book itself is built lazily on first use (~3.7k line replays), so the
+    /// work runs off the main actor and only a *hit* is written back (deepest-match).
+    private func updateOpening(afterFEN newFEN: String) {
+        Task.detached(priority: .utility) {
+            guard let hit = Openings.match(fen: newFEN) else { return }
+            await MainActor.run { self.opening = hit }
+        }
+    }
+
+    /// The opening fact line for coach prompts, when a named line has been reached.
+    private var openingFacts: String? {
+        CoachPromptBuilder.openingFactsText(name: opening?.name, eco: opening?.eco)
     }
 
     /// The short written coach note for the move you just played. Streams in after
@@ -348,7 +380,8 @@ public final class PlayViewModel {
     /// again — every engine number the coach sees is then from YOUR perspective, and
     /// `playerSide` tells it which colour "you" are so it never confuses you with the
     /// engine.
-    private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?) async {
+    private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?,
+                                 opponentReplySAN: String? = nil) async {
         guard coachEnabled, let mv = moveReport?.move else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
         // The engine's grade (the same one shown on the chip) is authoritative. The
@@ -379,11 +412,19 @@ public final class PlayViewModel {
         default:
             if let b = better { facts += " The engine prefers \(b)." }
         }
+        // The opponent's actual reply, so the note ends with what to watch for next —
+        // "the opponent may be trying to…" is the half of coaching the chip can't show.
+        var question = "In one or two sentences, explain the reasoning behind the engine's grade of my move \(san)."
+        if let reply = opponentReplySAN {
+            facts += "\n- The opponent then replied \(reply)."
+            question += " Then, in one more short sentence, tell me what the opponent's reply \(reply) is trying to do."
+        }
         do {
             let stream = try await coach.answerStream(
-                question: "In one or two sentences, explain the reasoning behind the engine's grade of my move \(san).",
+                question: question,
                 lastMove: uci, moveFen: fromFEN,
                 playerSide: playerIsWhite ? .white : .black,
+                openingFacts: openingFacts,
                 moveFacts: facts,
                 system: CoachPromptBuilder.moveNoteInstructions, depth: GCConfig.liveDepth)
             for try await partial in stream { lastCoachNote = partial }
@@ -414,6 +455,7 @@ public final class PlayViewModel {
             let stream = try await coach.answerStream(
                 question: q, fen: position,
                 playerSide: playerIsWhite ? .white : .black,
+                openingFacts: openingFacts,
                 depth: GCConfig.liveDepth)
             for try await partial in stream where chat.indices.contains(idx) {
                 chat[idx].text = partial

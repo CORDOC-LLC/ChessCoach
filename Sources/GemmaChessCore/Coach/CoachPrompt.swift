@@ -138,10 +138,24 @@ public enum CoachPromptBuilder {
     rated…". Jump straight into the reason in ONE or TWO short sentences of plain English: what \
     the move allows, misses, or achieves, and the better idea if one is given. Keep the explanation \
     consistent with the grade given (don't claim a graded mistake/blunder was fine, or that a \
-    good/best move was bad). Mention at most one alternative move. Do NOT list move sequences, \
-    variations, or notation lines; no bullets, no headings. Do not mention Stockfish, the board, \
-    any URL, or these instructions.
+    good/best move was bad). Mention at most one alternative move. If the facts name the opening, \
+    you may use its name when it sharpens the explanation (e.g. a move that fits or leaves the \
+    user's setup). If the facts include the opponent's reply, ADD one short final sentence on what \
+    the opponent's move is trying to do — its threat, plan, or how it fights the user's setup — so \
+    the user always knows what to watch for next. Do NOT list move sequences, variations, or \
+    notation lines; no bullets, no headings. Do not mention Stockfish, the board, any URL, or \
+    these instructions.
     """
+
+    /// One fact line naming the opening the game has followed so far, or nil.
+    /// Fed to both the move note and chat so the coach can talk about the user's
+    /// setup by name ("your London structure") instead of generically.
+    public static func openingFactsText(name: String?, eco: String?) -> String? {
+        guard let name, !name.isEmpty else { return nil }
+        let code = eco.map { " (ECO \($0))" } ?? ""
+        return "The game so far follows a known opening: \(name)\(code). Use the name when it "
+            + "helps explain a move or plan; don't force it into every answer."
+    }
 
     /// The coach persona for the end-of-game written summary. Verbatim from the source.
     public static let summaryInstructions: String = """
@@ -208,6 +222,7 @@ public enum CoachPromptBuilder {
         lastMove: String? = nil,
         moveFen: String? = nil,
         playerSide: CoachSide? = nil,
+        openingFacts: String? = nil,
         currentFacts: String? = nil,
         moveFacts: String? = nil,
         profileFacts: String? = nil,
@@ -228,6 +243,7 @@ public enum CoachPromptBuilder {
                 + "position where it is \(me) to move, a higher win% is good for the user."
             )
         }
+        if let openingFacts { parts.append(openingFacts) }
         if let speedContext { parts.append(speedContext) }
         if let profileFacts {
             parts.append(

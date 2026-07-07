@@ -33,6 +33,15 @@ struct OpeningsTests {
         #expect(Openings.classifyFromFens([]) == nil)
     }
 
+    @Test func singleFenMatch() {
+        // The London System position after 1.d4 d5 2.Bf4 (D00) matches by one FEN;
+        // a random non-book position doesn't. This is Play mode's live lookup.
+        let london = try! #require(ChessLogic.finalFEN(forPGN: "1. d4 d5 2. Bf4"))
+        let hit = Openings.match(fen: london)
+        #expect(hit?.name.contains("London") == true)
+        #expect(Openings.match(fen: "8/8/8/3k4/8/3K4/8/8 w - - 0 1") == nil)
+    }
+
     @Test func bookLoadsEntries() {
         // Sanity: the vendored TSVs loaded into a non-trivial book.
         #expect(Openings.book.count > 1000)

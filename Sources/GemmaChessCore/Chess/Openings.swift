@@ -51,6 +51,14 @@ public enum Openings {
         return best
     }
 
+    /// Book hit for a single position, or `nil` when it isn't a named line. Used by
+    /// Play mode to refine the opening name live, one ply at a time (the caller keeps
+    /// the deepest hit, so `nil` for an out-of-book position never erases the name).
+    public static func match(fen: String) -> Opening? {
+        guard let epd = ChessLogic.epd(fromFEN: fen) else { return nil }
+        return book[epd]
+    }
+
     /// Deepest opening match for a full PGN string (convenience for callers without
     /// a pre-built timeline). Replays the mainline and reuses the FEN path.
     public static func classifyFromPgn(_ pgn: String) -> Opening? {
