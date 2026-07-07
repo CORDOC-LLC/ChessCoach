@@ -282,6 +282,52 @@ public enum CoachPromptBuilder {
         return parts.joined(separator: "\n")
     }
 
+    /// One graded user move from a live Play game, for the end-of-game summary.
+    public struct PlayMoveRecord: Sendable, Equatable {
+        public var moveNumber: Int
+        public var san: String
+        public var classification: String
+        public var winBefore: Double
+        public var winAfter: Double
+        public var betterSan: String?
+        public init(moveNumber: Int, san: String, classification: String,
+                    winBefore: Double, winAfter: Double, betterSan: String?) {
+            self.moveNumber = moveNumber; self.san = san; self.classification = classification
+            self.winBefore = winBefore; self.winAfter = winAfter; self.betterSan = betterSan
+        }
+    }
+
+    /// Facts block for the end-of-game summary of a live Play game. Unlike
+    /// `gameFactsText` (imported games with two known accuracies), Play grades only
+    /// the USER's moves live, so this reports the user's accuracy alone and flags
+    /// their inaccuracy/mistake/blunder moves, worst first.
+    public static func playGameFactsText(
+        result: String, playerSide: CoachSide, opening: String?,
+        records: [PlayMoveRecord]
+    ) -> String {
+        let side = playerSide == .white ? "White" : "Black"
+        var out: [String] = ["Game over: \(result) The user played \(side) against a computer opponent."]
+        if let opening, !opening.isEmpty { out.append("Opening: \(opening).") }
+        let accs = records.map { Evaluation.moveAccuracy(winBefore: $0.winBefore, winAfter: $0.winAfter) }
+        out.append("The user's accuracy over \(records.count) moves: \(pct(Evaluation.aggregateAccuracy(accs)))%.")
+        let flagged = records
+            .filter { ["inaccuracy", "mistake", "blunder"].contains($0.classification.lowercased()) }
+            .sorted { ($0.winBefore - $0.winAfter) > ($1.winBefore - $1.winAfter) }
+            .prefix(8)
+        if flagged.isEmpty {
+            out.append("No inaccuracies, mistakes or blunders — a clean game.")
+        } else {
+            out.append("The user's flagged moves (worst first):")
+            for m in flagged {
+                var row = "- \(m.moveNumber)\(playerSide == .white ? "." : "...")\(m.san) "
+                    + "(\(m.classification), win \(pct(m.winBefore))% -> \(pct(m.winAfter))%)"
+                if let b = m.betterSan { row += "; engine preferred \(b)" }
+                out.append(row + ".")
+            }
+        }
+        return out.joined(separator: "\n")
+    }
+
     /// Pre-computed, engine-grounded facts about the whole game for the summary
     /// prompt. Port of `_game_facts`.
     public static func gameFactsText(_ g: CoachGameInput) -> String {

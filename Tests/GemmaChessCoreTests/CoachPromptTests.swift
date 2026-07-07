@@ -238,3 +238,51 @@ struct GameFactsTests {
         #expect(CoachPromptBuilder.gameFactsText(withBlackMove).contains("7...Qd7"))
     }
 }
+
+// MARK: - Play end-of-game summary facts
+
+struct PlaySummaryFactsTests {
+
+    private func record(_ n: Int, _ san: String, _ cls: String, _ before: Double, _ after: Double,
+                        better: String? = nil) -> CoachPromptBuilder.PlayMoveRecord {
+        .init(moveNumber: n, san: san, classification: cls,
+              winBefore: before, winAfter: after, betterSan: better)
+    }
+
+    @Test("facts carry result, side, opening, accuracy and flagged moves worst-first")
+    func playFacts() {
+        let facts = CoachPromptBuilder.playGameFactsText(
+            result: "Checkmate — you lose.", playerSide: .white, opening: "London System",
+            records: [
+                record(1, "d4", "best", 52, 52),
+                record(9, "Qh5", "blunder", 55, 12, better: "Nf3"),
+                record(5, "a4", "inaccuracy", 54, 47, better: "c4"),
+            ])
+        #expect(facts.contains("Checkmate — you lose."))
+        #expect(facts.contains("played White"))
+        #expect(facts.contains("Opening: London System."))
+        #expect(facts.contains("accuracy over 3 moves"))
+        // Worst-first ordering: the blunder (43-point drop) before the inaccuracy.
+        let qh5 = facts.range(of: "9.Qh5")!.lowerBound
+        let a4 = facts.range(of: "5.a4")!.lowerBound
+        #expect(qh5 < a4)
+        #expect(facts.contains("engine preferred Nf3"))
+        // The clean best move isn't flagged.
+        #expect(!facts.contains("1.d4 (best"))
+    }
+
+    @Test("a clean game says so, and Black numbering uses '...'")
+    func cleanGameAndBlack() {
+        let clean = CoachPromptBuilder.playGameFactsText(
+            result: "Stalemate — it's a draw.", playerSide: .black, opening: nil,
+            records: [record(1, "e5", "good", 48, 48)])
+        #expect(clean.contains("played Black"))
+        #expect(clean.contains("clean game"))
+        #expect(!clean.contains("Opening:"))
+
+        let flagged = CoachPromptBuilder.playGameFactsText(
+            result: "r", playerSide: .black, opening: nil,
+            records: [record(3, "g5", "blunder", 50, 10, better: "Nf6")])
+        #expect(flagged.contains("3...g5"))
+    }
+}

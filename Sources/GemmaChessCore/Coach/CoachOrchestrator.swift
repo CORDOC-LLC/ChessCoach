@@ -127,6 +127,18 @@ public final class CoachOrchestrator: Sendable {
         )
     }
 
+    /// Streaming end-of-game summary from a ready-made facts block (Play mode's
+    /// live-graded games). Same persona as `gameSummary`, no engine work.
+    public func summaryStream(facts: String) throws -> AsyncThrowingStream<String, Error> {
+        guard let backend = active else {
+            throw CoachError("The on-device coach isn't available on this device.")
+        }
+        return backend.stream(
+            system: CoachPromptBuilder.summaryInstructions,
+            prompt: "This game's facts:\n" + facts, sessionID: nil
+        )
+    }
+
     /// A written end-of-game summary, grounded in pre-computed game facts.
     /// Mirrors `coach_summary_ai()`.
     public func gameSummary(_ input: CoachGameInput, profileFacts: String? = nil) async throws -> String {

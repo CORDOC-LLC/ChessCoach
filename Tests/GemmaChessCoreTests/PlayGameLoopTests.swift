@@ -84,4 +84,73 @@ struct PlayGameLoopTests {
         #expect(!vm.isViewingHistory)
         #expect(vm.displayFEN == vm.fen)
     }
+
+    @Test("retry rewinds the user's flagged move and the engine's reply")
+    func retryRewindsFlaggedMove() async throws {
+        let vm = PlayViewModel()
+        vm.skill = 1
+        vm.newGame(asWhite: true)
+        let e2 = try #require(BoardGeometry.square("e2"))
+        let e4 = try #require(BoardGeometry.square("e4"))
+        vm.tap(e2); vm.tap(e4)
+        _ = await wait { vm.lastVerdict != nil && vm.moves.count >= 2 && !vm.engineThinking }
+
+        // A best/good move offers no retry.
+        if let v = vm.lastVerdict, ["best", "good"].contains(v.classification.lowercased()) {
+            #expect(!vm.canRetry)
+        }
+        // Force a flagged grade (grading is the engine's job; retry only reads it).
+        vm.lastVerdict = MoveVerdict(moveSAN: "e4", classification: "blunder",
+                                     isBest: false, betterMoveSAN: "d4")
+        #expect(vm.canRetry)
+
+        vm.retryLastMove()
+        // Both plies gone; back to the start, user to move, nothing graded.
+        #expect(vm.moves.isEmpty)
+        #expect(vm.sanMoves.isEmpty)
+        #expect(vm.fen == PlayViewModel.startFEN)
+        #expect(vm.fenHistory == [PlayViewModel.startFEN])
+        #expect(vm.lastVerdict == nil)
+        #expect(vm.lastCoachNote == nil)
+        #expect(vm.moveRecords.isEmpty)
+        #expect(!vm.gameOver)
+        #expect(!vm.canRetry)          // one rewind per snapshot
+        #expect(vm.userToMove)
+
+        // The board is fully playable again.
+        vm.tap(e2)
+        #expect(vm.selected == e2)
+    }
+
+    @Test("graded user moves accumulate into the summary records")
+    func moveRecordsAccumulate() async throws {
+        let vm = PlayViewModel()
+        vm.skill = 1
+        vm.newGame(asWhite: true)
+        let e2 = try #require(BoardGeometry.square("e2"))
+        let e4 = try #require(BoardGeometry.square("e4"))
+        vm.tap(e2); vm.tap(e4)
+        _ = await wait { vm.lastVerdict != nil }
+        #expect(vm.moveRecords.count == 1)
+        #expect(vm.moveRecords.first?.san == "e4")
+        #expect(vm.moveRecords.first?.moveNumber == 1)
+        // The record carries real win% inputs for the accuracy math.
+        let r = try #require(vm.moveRecords.first)
+        #expect(r.winBefore >= 0 && r.winBefore <= 100)
+    }
+
+    @Test("the opening is named live after book moves")
+    func openingNamedLive() async throws {
+        let vm = PlayViewModel()
+        vm.skill = 1
+        vm.newGame(asWhite: true)
+        let e2 = try #require(BoardGeometry.square("e2"))
+        let e4 = try #require(BoardGeometry.square("e4"))
+        vm.tap(e2); vm.tap(e4)                 // 1. e4 is a named book position
+        let named = await wait { vm.opening != nil }
+        #expect(named)
+        #expect(vm.opening?.name.isEmpty == false)
+        vm.newGame(asWhite: true)
+        #expect(vm.opening == nil)             // reset with the game
+    }
 }

@@ -287,8 +287,19 @@ public struct PlayView: View {
                 Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 if let v = vm.lastVerdict { verdictChip(v) }
                 Spacer(minLength: 4)
-                if vm.isCoaching {
+                if vm.isCoaching || vm.isSummarizing {
                     ProgressView().controlSize(.small)
+                }
+                // The teach-back loop: after a graded slip, take the move back and
+                // find the better one yourself.
+                if vm.canRetry {
+                    Button { vm.retryLastMove() } label: {
+                        Label("Retry", systemImage: "arrow.uturn.backward")
+                            .font(.caption2.weight(.semibold))
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(GemmaTheme.gold)
+                    }
+                    .buttonStyle(PressableStyle())
                 }
                 if vm.coachEnabled {
                     Button { showChat = true } label: {
@@ -325,7 +336,18 @@ public struct PlayView: View {
 
     @ViewBuilder
     private var focusLine: some View {
-        if let note = vm.lastCoachNote, !note.isEmpty {
+        // At game over the debrief takes the card: what mattered, the habit, the
+        // one thing to practice.
+        if vm.gameOver, let summary = vm.gameSummary, !summary.isEmpty {
+            Text(summary.asCoachMarkdown)
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        } else if vm.gameOver, vm.isSummarizing {
+            Text("Looking back over the game…")
+                .font(.footnote).foregroundStyle(.white.opacity(0.6))
+        } else if let note = vm.lastCoachNote, !note.isEmpty {
             Text(note.asCoachMarkdown)
                 .font(.callout)
                 .foregroundStyle(.white.opacity(0.92))
