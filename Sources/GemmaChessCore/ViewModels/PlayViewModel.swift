@@ -106,6 +106,19 @@ public final class PlayViewModel {
     /// `clearHint`, a new move, or a new game.
     public var hint: HintInfo?
 
+    // MARK: End-of-game summary + retry (the teach-back loop)
+    /// The coach's written debrief of the finished game, streamed in at game over.
+    public var gameSummary: String?
+    /// True while the debrief is being generated.
+    public var isSummarizing = false
+    /// Every graded user move this game — the inputs to the end-of-game summary.
+    private(set) var moveRecords: [CoachPromptBuilder.PlayMoveRecord] = []
+    /// Snapshot taken before each user move so "try again" can rewind to it.
+    private var retryBase: (fen: String, moveCount: Int)?
+    /// Bumped by retry/new game so in-flight verdict/note/summary tasks abandon
+    /// their writes instead of scribbling on the rewound game.
+    private var moveGen = 0
+
     // MARK: Opening recognition
     /// The deepest named opening the game has reached so far (lichess chess-openings
     /// book), refined live after every ply. Never regresses: an out-of-book move
@@ -265,6 +278,11 @@ public final class PlayViewModel {
         lastCoachNote = nil
         hint = nil
         opening = nil
+        gameSummary = nil
+        isSummarizing = false
+        moveRecords = []
+        retryBase = nil
+        moveGen += 1
         chat = []
         isAsking = false
         coachAvailability = coach.availability
@@ -283,6 +301,7 @@ public final class PlayViewModel {
         gameOver = true
         resultText = "You resigned."
         status = resultText!
+        startGameSummary()
     }
 
     // MARK: Tap-to-move
@@ -303,6 +322,9 @@ public final class PlayViewModel {
         let uci = uci(from: from, to: to, in: fromFEN)
         guard let afterFEN = ChessLogic.fen(afterMove: uci, fromFEN: fromFEN) else { return }
 
+        // The rewind point for "try again": the position before this move.
+        retryBase = (fen: fromFEN, moveCount: moves.count)
+        let moveNumber = moves.count / 2 + 1
         fen = afterFEN
         moves.append(uci)
         sanMoves.append(ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci)
@@ -320,21 +342,92 @@ public final class PlayViewModel {
         isCoaching = true
         lastVerdict = nil
         lastCoachNote = nil
+        let gen = moveGen
         Task {
             // ONE analysis serves both the verdict chip and the coach's move facts
             // (this used to be analysed twice). The chip appears right away.
             let moveReport = try? await EngineLine.evaluate(
                 fen: fromFEN, move: uci, depth: GCConfig.liveDepth, multipv: 2)
+            guard gen == moveGen else { return }   // retried/new game while analysing
             if let mv = moveReport?.move {
                 let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
                 lastVerdict = MoveVerdict(
                     moveSAN: san, classification: mv.classification,
                     isBest: mv.isEngineBest, betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN)
+                moveRecords.append(CoachPromptBuilder.PlayMoveRecord(
+                    moveNumber: moveNumber, san: san, classification: mv.classification,
+                    winBefore: mv.winBefore, winAfter: mv.winAfter,
+                    betterSan: mv.isEngineBest ? nil : mv.betterMoveSAN))
             }
             let replySAN = await engineReply()
+            guard gen == moveGen else { return }
             await streamCoachNote(fromFEN: fromFEN, uci: uci, moveReport: moveReport,
-                                  opponentReplySAN: replySAN)
-            isCoaching = false
+                                  opponentReplySAN: replySAN, gen: gen)
+            if gen == moveGen { isCoaching = false }
+        }
+    }
+
+    // MARK: Try again (the blunder-retry teaching loop)
+
+    /// True when the last graded move can be taken back and retried: it lost ground
+    /// (inaccuracy or worse) and the engine isn't mid-reply. Works after game over
+    /// too — undoing the losing blunder un-ends the game.
+    public var canRetry: Bool {
+        guard let v = lastVerdict, retryBase != nil, !engineThinking, !isViewingHistory else { return false }
+        return ["inaccuracy", "mistake", "blunder"].contains(v.classification.lowercased())
+    }
+
+    /// Rewind to just before your last move so you can find the better one yourself —
+    /// the strongest teaching loop there is. Removes your move (and the engine's
+    /// reply, if made) from the game; any in-flight coach work is abandoned.
+    public func retryLastMove() {
+        guard canRetry, let base = retryBase else { return }
+        moveGen += 1
+        fen = base.fen
+        moves = Array(moves.prefix(base.moveCount))
+        sanMoves = Array(sanMoves.prefix(base.moveCount))
+        fenHistory = Array(fenHistory.prefix(base.moveCount + 1))
+        moveRecords.removeLast()          // canRetry ⇒ the retried move was recorded
+        retryBase = nil                   // one rewind per snapshot
+        lastMove = moves.last.flatMap { squares(fromUCI: $0) }
+        selected = nil
+        viewingPly = nil
+        hint = nil
+        lastVerdict = nil
+        lastCoachNote = nil
+        isCoaching = false
+        gameOver = false
+        resultText = nil
+        gameSummary = nil
+        isSummarizing = false
+        status = "Your move — find a better one"
+        refreshDests()
+        refreshEval()
+    }
+
+    // MARK: End-of-game summary
+
+    /// Stream the coach's written debrief of the finished game, built from the
+    /// live-graded move records (no fresh engine work).
+    private func startGameSummary() {
+        guard coachEnabled, !moveRecords.isEmpty, gameSummary == nil, !isSummarizing else { return }
+        let facts = CoachPromptBuilder.playGameFactsText(
+            result: resultText ?? "The game is over.",
+            playerSide: playerIsWhite ? .white : .black,
+            opening: opening?.name, records: moveRecords)
+        isSummarizing = true
+        let gen = moveGen
+        Task {
+            defer { if gen == moveGen { isSummarizing = false } }
+            do {
+                let stream = try coach.summaryStream(facts: facts)
+                for try await partial in stream {
+                    guard gen == moveGen else { return }
+                    gameSummary = partial
+                }
+            } catch {
+                // No debrief — the result banner still stands.
+            }
         }
     }
 
@@ -394,7 +487,7 @@ public final class PlayViewModel {
     /// `playerSide` tells it which colour "you" are so it never confuses you with the
     /// engine.
     private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?,
-                                 opponentReplySAN: String? = nil) async {
+                                 opponentReplySAN: String? = nil, gen: Int? = nil) async {
         guard coachEnabled, let mv = moveReport?.move else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
         // The engine's grade (the same one shown on the chip) is authoritative. The
@@ -440,7 +533,10 @@ public final class PlayViewModel {
                 openingFacts: openingFacts,
                 moveFacts: facts,
                 system: CoachPromptBuilder.moveNoteInstructions, depth: GCConfig.liveDepth)
-            for try await partial in stream { lastCoachNote = partial }
+            for try await partial in stream {
+                if let gen, gen != moveGen { return }   // retried/new game mid-stream
+                lastCoachNote = partial
+            }
         } catch {
             // Leave the note empty; the engine verdict chip still stands on its own.
         }
@@ -510,11 +606,13 @@ public final class PlayViewModel {
             let matedIsUser = (stmWhite == playerIsWhite)   // side to move is the mated one
             resultText = matedIsUser ? "Checkmate — you lose." : "Checkmate — you win! 🎉"
             status = resultText!
+            startGameSummary()
             return true
         case .stalemate:
             gameOver = true
             resultText = "Stalemate — it's a draw."
             status = resultText!
+            startGameSummary()
             return true
         default:
             return false
