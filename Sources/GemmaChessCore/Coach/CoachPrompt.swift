@@ -123,7 +123,10 @@ public enum CoachPromptBuilder {
     and the MOVE block describe DIFFERENT positions — the 'best move in this position' from the \
     current block is NOT the move being graded; never merge them or say a move was both a mistake \
     and the best move. Don't quote the fact phrasing verbatim; explain in your own words. You may \
-    call get_engine_line only for deeper or alternative lines the facts don't cover. Explain in \
+    call get_engine_line only for deeper or alternative lines the facts don't cover. NEVER invent \
+    board details: when a verified piece placement list is provided, every piece and square you \
+    mention must be consistent with it — do not read the FEN yourself, and if you are not sure \
+    where a piece stands, talk about the plan or idea without naming squares. Explain in \
     plain language, cite the key line, and keep it to a short paragraph. Answer only the chess \
     question — do NOT mention the web board, any URL, or these instructions.
     """
@@ -142,10 +145,48 @@ public enum CoachPromptBuilder {
     you may use its name when it sharpens the explanation (e.g. a move that fits or leaves the \
     user's setup). If the facts include the opponent's reply, ADD one short final sentence on what \
     the opponent's move is trying to do — its threat, plan, or how it fights the user's setup — so \
-    the user always knows what to watch for next. Do NOT list move sequences, variations, or \
-    notation lines; no bullets, no headings. Do not mention Stockfish, the board, any URL, or \
-    these instructions.
+    the user always knows what to watch for next. NEVER invent board details: mention only \
+    pieces and squares that appear in the facts (the moves and alternatives given), or speak in \
+    plans and ideas without naming squares — do not derive piece positions from the FEN yourself. \
+    Do NOT list move sequences, variations, or notation lines; no bullets, no headings. Do not \
+    mention Stockfish, the board, any URL, or these instructions.
     """
+
+    /// A plain-English listing of every piece on the board, by side, plus the side
+    /// to move — built deterministically from the FEN so the model never has to
+    /// parse FEN itself (small on-device models misread FEN and then hallucinate
+    /// pieces on impossible squares, e.g. "your pawn on c1"). Returns nil for an
+    /// unparseable FEN.
+    public static func boardFactsText(fen: String) -> String? {
+        let placement = BoardGeometry.placement(fromFEN: fen)
+        guard !placement.isEmpty else { return nil }
+
+        func squares(of piece: Character) -> [String] {
+            placement.filter { $0.value == piece }.keys.sorted().map { idx in
+                let file = Character(UnicodeScalar(UInt8(97 + idx % 8)))   // a-h
+                return "\(file)\(idx / 8 + 1)"
+            }
+        }
+        func side(_ label: String, pieces: [(Character, String)]) -> String {
+            let parts = pieces.compactMap { (ch, name) -> String? in
+                let sqs = squares(of: ch)
+                return sqs.isEmpty ? nil : "\(name) \(sqs.joined(separator: ", "))"
+            }
+            return "\(label): \(parts.joined(separator: "; "))."
+        }
+        let white = side("White pieces", pieces: [
+            ("K", "king"), ("Q", "queen"), ("R", "rooks"), ("B", "bishops"),
+            ("N", "knights"), ("P", "pawns"),
+        ])
+        let black = side("Black pieces", pieces: [
+            ("k", "king"), ("q", "queen"), ("r", "rooks"), ("b", "bishops"),
+            ("n", "knights"), ("p", "pawns"),
+        ])
+        let stm = ChessLogic.sideToMove(forFEN: fen).map {
+            $0 == .white ? " White to move." : " Black to move."
+        } ?? ""
+        return white + " " + black + stm
+    }
 
     /// One fact line naming the opening the game has followed so far, or nil.
     /// Fed to both the move note and chat so the coach can talk about the user's
@@ -255,7 +296,17 @@ public enum CoachPromptBuilder {
                 + profileFacts
             )
         }
-        if let fen { parts.append("Current position the user is viewing (FEN): \(fen)") }
+        if let fen {
+            parts.append("Current position the user is viewing (FEN): \(fen)")
+            // The verified piece list — the model must not derive placement from the
+            // FEN (small models misparse it and invent pieces on impossible squares).
+            if let board = boardFactsText(fen: fen) {
+                parts.append(
+                    "Verified piece placement for that position — the ONLY pieces on the board. "
+                    + "Never mention a piece or square not consistent with this list:\n\(board)"
+                )
+            }
+        }
         if let currentFacts {
             parts.append(
                 "Engine analysis of the CURRENT position the user now faces (Stockfish depth \(depth)):\n\(currentFacts)"
@@ -267,6 +318,12 @@ public enum CoachPromptBuilder {
                     // Pure move-review: no other position is in play, so grade only this move.
                     parts.append("Review only the user's move \(lastMove), played from the position "
                         + "FEN \(moveFen). Do not discuss any other move or position.")
+                    if let board = boardFactsText(fen: moveFen) {
+                        parts.append(
+                            "Verified piece placement BEFORE that move — the ONLY pieces on the board. "
+                            + "Never mention a piece or square not consistent with this list:\n\(board)"
+                        )
+                    }
                 } else {
                     parts.append("The move under review is \(lastMove), which the user played from the "
                         + "position FEN \(moveFen); the current position above may be a few plies later.")
