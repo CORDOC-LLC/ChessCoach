@@ -61,7 +61,7 @@ struct HomeView: View {
                     .foregroundStyle(GemmaTheme.accentGradient)
                     .shadow(color: GemmaTheme.accent.opacity(0.5), radius: 18)
                 VStack(spacing: 8) {
-                    Text("GemmaChess")
+                    Text("ChessCoach")
                         .font(.system(size: 40, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                     Text("Play with an on-device coach,\nor review one of your games.")
