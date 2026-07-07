@@ -4,10 +4,15 @@
 //  bulk exports often don't).
 //
 //  Engine-free and deterministic. We vendor the Lichess `chess-openings` dataset
-//  (`Resources/eco/{a..e}.tsv`, ~3.7k named lines) and key it by board EPD (FEN
-//  minus the move/halfmove counters) so transpositions collapse to the same
-//  position. Classification walks a game's positions in play order and keeps the
-//  DEEPEST match — the most specific named line the game actually reached.
+//  (`Resources/eco/{a..e}.tsv`, ~3.7k named lines) and key it by placement + side +
+//  castling rights (FEN's first three fields) so transpositions collapse to the
+//  same position. The en-passant field is deliberately dropped, not just the move
+//  counters: `ChessLogic.finalFEN(forPGN:)` (used to build the book) doesn't compute
+//  it, while `ChessLogic.fen(afterMove:)` (used by live play) does — so keying on it
+//  would silently miss every opening ending in a two-square pawn push (e4, d4, …:
+//  most of them). Two positions differing only by ep-capture availability are the
+//  same opening line anyway. Classification walks a game's positions in play order
+//  and keeps the DEEPEST match — the most specific named line the game reached.
 //
 //  Ported 1:1 from the source `server/core/openings.py`.
 
@@ -45,8 +50,8 @@ public enum Openings {
         guard !book.isEmpty else { return nil }
         var best: Opening?
         for fen in fens {
-            guard let epd = ChessLogic.epd(fromFEN: fen) else { continue }
-            if let hit = book[epd] { best = hit }
+            guard let key = positionKey(fromFEN: fen) else { continue }
+            if let hit = book[key] { best = hit }
         }
         return best
     }
@@ -55,8 +60,8 @@ public enum Openings {
     /// Play mode to refine the opening name live, one ply at a time (the caller keeps
     /// the deepest hit, so `nil` for an out-of-book position never erases the name).
     public static func match(fen: String) -> Opening? {
-        guard let epd = ChessLogic.epd(fromFEN: fen) else { return nil }
-        return book[epd]
+        guard let key = positionKey(fromFEN: fen) else { return nil }
+        return book[key]
     }
 
     /// Deepest opening match for a full PGN string (convenience for callers without
@@ -67,6 +72,15 @@ public enum Openings {
     }
 
     // MARK: Private
+
+    /// Placement + side-to-move + castling rights — the first three FEN fields —
+    /// deliberately excluding en passant and the move counters. See the file header
+    /// for why en passant specifically must be dropped, not just normalized.
+    private static func positionKey(fromFEN fen: String) -> String? {
+        let fields = fen.split(separator: " ", omittingEmptySubsequences: true)
+        guard fields.count >= 3 else { return nil }
+        return fields[0..<3].joined(separator: " ")
+    }
 
     private static func loadBook() -> [String: Opening] {
         var book: [String: Opening] = [:]
@@ -83,8 +97,8 @@ public enum Openings {
                 let movetext = String(columns[2])
 
                 guard let fen = ChessLogic.finalFEN(forPGN: movetext),
-                      let epd = ChessLogic.epd(fromFEN: fen) else { continue }
-                book[epd] = Opening(eco: eco, name: name)
+                      let key = positionKey(fromFEN: fen) else { continue }
+                book[key] = Opening(eco: eco, name: name)
             }
         }
         return book
