@@ -9,11 +9,15 @@ import SwiftUI
 public struct PlayContainerView: View {
     @Bindable var vm: PlayViewModel
     var onExit: () -> Void
-    @State private var started = false
+    @State private var started: Bool
     @State private var sideIsWhite = true
 
-    public init(vm: PlayViewModel, onExit: @escaping () -> Void) {
+    /// `startedInitially`: skip the setup form and go straight to the live
+    /// game -- used when `vm` was just loaded from a `SavedGame` (Resume, or
+    /// opening a finished game for replay from Home/My Games).
+    public init(vm: PlayViewModel, onExit: @escaping () -> Void, startedInitially: Bool = false) {
         self.vm = vm; self.onExit = onExit
+        self._started = State(initialValue: startedInitially)
     }
 
     public var body: some View {
@@ -339,9 +343,23 @@ public struct PlayView: View {
 
     @ViewBuilder
     private var focusLine: some View {
+        // Browsing a past ply (live game or a replayed finished one) shows THAT
+        // move's own note, not the latest/overall one -- this is what makes
+        // "walk through the moves and see where it went wrong" actually work.
+        if let ply = vm.viewingPly {
+            if let note = vm.note(forPly: ply), !note.isEmpty {
+                Text(note.asCoachMarkdown)
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.92))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            } else {
+                Text("No coach note recorded for this move.")
+                    .font(.footnote).foregroundStyle(.white.opacity(0.6))
+            }
         // At game over the debrief takes the card: what mattered, the habit, the
         // one thing to practice.
-        if vm.gameOver, let summary = vm.gameSummary, !summary.isEmpty {
+        } else if vm.gameOver, let summary = vm.gameSummary, !summary.isEmpty {
             Text(summary.asCoachMarkdown)
                 .font(.callout)
                 .foregroundStyle(.white.opacity(0.92))
