@@ -8,6 +8,7 @@ import SwiftUI
 
 public struct CoachSettingsView: View {
     @State private var apiKey: String = GeminiKeyStore.load() ?? ""
+    @State private var model: String = GeminiKeyStore.loadModel()
     @State private var saved = false
 
     public init() {}
@@ -47,6 +48,19 @@ public struct CoachSettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(GemmaTheme.accent)
                 }
+            }
+            Section("Model") {
+                Picker("Model", selection: $model) {
+                    ForEach(GeminiModelOption.all) { option in
+                        VStack(alignment: .leading) {
+                            Text(option.displayName)
+                            Text(option.hint).font(.caption).foregroundStyle(.secondary)
+                        }
+                        .tag(option.slug)
+                    }
+                }
+                .pickerStyle(.inline)
+                .onChange(of: model) { _, newValue in GeminiKeyStore.saveModel(newValue) }
             }
             Section {
                 Text("Get a free key at aistudio.google.com/apikey. Stored in the device "

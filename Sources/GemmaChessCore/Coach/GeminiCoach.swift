@@ -23,13 +23,16 @@ public final class GeminiCoach: CoachLLM, Sendable {
 
     private let session: URLSession
     private let baseURL: String
-    private let model: String
+    private let model: @Sendable () -> String
     private let apiKey: @Sendable () -> String?
 
+    /// `model` is a closure, not a fixed value, so changing the choice in Coach
+    /// Settings takes effect on the NEXT call with no need to recreate the coach
+    /// (mirrors how `apiKey` is re-read fresh every time, not captured once).
     public init(
         session: URLSession = .shared,
         baseURL: String = "https://generativelanguage.googleapis.com/v1beta",
-        model: String = GeminiCoach.defaultModel,
+        model: @escaping @Sendable () -> String = { GeminiKeyStore.loadModel() },
         apiKey: @escaping @Sendable () -> String? = { GeminiKeyStore.load() }
     ) {
         self.session = session
@@ -50,7 +53,7 @@ public final class GeminiCoach: CoachLLM, Sendable {
         guard let key = apiKey(), !key.isEmpty else {
             throw CoachError("No Gemini API key is set. Add one in Settings.")
         }
-        guard let url = URL(string: "\(baseURL)/models/\(model):generateContent?key=\(key)") else {
+        guard let url = URL(string: "\(baseURL)/models/\(model()):generateContent?key=\(key)") else {
             throw CoachError("Invalid Gemini endpoint.")
         }
         var request = URLRequest(url: url)
@@ -76,7 +79,7 @@ public final class GeminiCoach: CoachLLM, Sendable {
                     return
                 }
                 guard let url = URL(
-                    string: "\(baseURL)/models/\(model):streamGenerateContent?alt=sse&key=\(key)"
+                    string: "\(baseURL)/models/\(model()):streamGenerateContent?alt=sse&key=\(key)"
                 ) else {
                     continuation.finish(throwing: CoachError("Invalid Gemini endpoint.")); return
                 }

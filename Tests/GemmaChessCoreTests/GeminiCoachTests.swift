@@ -105,8 +105,52 @@ struct GeminiCoachTests {
             Issue.record("wrong error type: \(error)")
         }
     }
+
+    /// Reference-typed box so the model choice can change between two calls
+    /// without capturing a `var` in a `@Sendable` closure.
+    final class ModelBox: @unchecked Sendable {
+        var slug = "gemini-2.5-flash-lite"
+    }
+
+    @Test("GeminiCoach reads the model via a live closure, not a snapshot at init")
+    func coachReadsModelDynamically() async throws {
+        defer { GeminiMockURLProtocol.handler = nil }
+        let box = ModelBox()
+        let requested = RequestedURLs()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [GeminiMockURLProtocol.self]
+        GeminiMockURLProtocol.handler = { request in
+            requested.append(request.url?.absoluteString ?? "")
+            return (200, Data(#"{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}"#.utf8))
+        }
+        let coach = GeminiCoach(
+            session: URLSession(configuration: config), baseURL: "https://gemini.test",
+            model: { box.slug }, apiKey: { "k" }
+        )
+        _ = try await coach.generate(system: "s", prompt: "p", sessionID: nil)
+        box.slug = "gemini-2.5-pro"
+        _ = try await coach.generate(system: "s", prompt: "p", sessionID: nil)
+
+        #expect(requested.urls[0].contains("gemini-2.5-flash-lite"))
+        #expect(requested.urls[1].contains("gemini-2.5-pro"))
+    }
 }
 
+/// Thread-safe append-only log for the URLs the mock protocol observed.
+final class RequestedURLs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _urls: [String] = []
+    var urls: [String] { lock.withLock { _urls } }
+    func append(_ url: String) { lock.withLock { _urls.append(url) } }
+}
+
+private extension NSLock {
+    func withLock<T>(_ body: () -> T) -> T { lock(); defer { unlock() }; return body() }
+}
+
+/// Pure Keychain/UserDefaults round-trips — no network mock, so this suite is
+/// safe to run concurrently with anything (unlike GeminiCoachTests above, which
+/// owns the shared GeminiMockURLProtocol.handler).
 @Suite("GeminiKeyStore", .serialized)
 struct GeminiKeyStoreTests {
 
@@ -122,5 +166,17 @@ struct GeminiKeyStoreTests {
         #expect(GeminiKeyStore.load() == nil)
 
         GeminiKeyStore.save(nil)   // leave the real Keychain clean for other tests/runs
+    }
+
+    @Test("model defaults to Flash and round-trips through UserDefaults")
+    func modelRoundTrip() {
+        let original = GeminiKeyStore.loadModel()
+        defer { GeminiKeyStore.saveModel(original) }   // leave state clean for other tests
+
+        GeminiKeyStore.saveModel(GeminiModelOption.flashLite.slug)
+        #expect(GeminiKeyStore.loadModel() == "gemini-2.5-flash-lite")
+
+        GeminiKeyStore.saveModel(GeminiModelOption.pro.slug)
+        #expect(GeminiKeyStore.loadModel() == "gemini-2.5-pro")
     }
 }
