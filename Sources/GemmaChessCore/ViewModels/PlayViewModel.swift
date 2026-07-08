@@ -257,9 +257,15 @@ public final class PlayViewModel {
 
     // MARK: Game lifecycle
 
-    public func newGame(asWhite: Bool) {
+    /// Starts a new game. `startFEN` defaults to the standard opening position;
+    /// pass a recognized board-photo FEN to start from an arbitrary position
+    /// instead (e.g. after `ManagedVisionClient.recognizeBoard`). `asWhite` is
+    /// which side the USER plays, independent of whose move `startFEN` has —
+    /// so scanning a photo where it's Black's move with the user playing
+    /// White correctly hands the first move to the engine.
+    public func newGame(asWhite: Bool, startFEN: String = PlayViewModel.startFEN) {
         playerIsWhite = asWhite
-        fen = Self.startFEN
+        fen = startFEN
         moves = []
         lastMove = nil
         selected = nil
@@ -268,7 +274,7 @@ public final class PlayViewModel {
         coachNotes = []
         winWhite = 50
         evalText = "0.0"
-        fenHistory = [Self.startFEN]
+        fenHistory = [startFEN]
         sanMoves = []
         viewingPly = nil
         bestMoveCache = [:]
@@ -288,7 +294,8 @@ public final class PlayViewModel {
         coachAvailability = coach.availability
         refreshDests()
         refreshEval()
-        if asWhite {
+        let userToMoveNow = (ChessLogic.sideToMove(forFEN: startFEN) == .white) == asWhite
+        if userToMoveNow {
             status = "Your move"
         } else {
             status = "Engine is thinking…"
