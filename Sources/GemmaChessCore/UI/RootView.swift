@@ -53,6 +53,7 @@ struct HomeView: View {
     var onReview: () -> Void
     @State private var showLicenses = false
     @State private var showCoachSettings = false
+    @State private var showBeginners = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -91,6 +92,15 @@ struct HomeView: View {
                 .controlSize(.large)
                 .tint(.white)
 
+                Button { showBeginners = true } label: {
+                    Label("New to chess?", systemImage: "graduationcap")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, minHeight: 24)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .tint(GemmaTheme.gold)
+
                 HStack(spacing: 16) {
                     Button { showCoachSettings = true } label: {
                         Text("Coach Settings")
@@ -118,5 +128,6 @@ struct HomeView: View {
         #endif
         .navigationDestination(isPresented: $showLicenses) { LicensesView() }
         .navigationDestination(isPresented: $showCoachSettings) { CoachSettingsView() }
+        .navigationDestination(isPresented: $showBeginners) { BeginnersView() }
     }
 }
