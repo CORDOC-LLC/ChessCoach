@@ -19,7 +19,7 @@ public struct CoachChatView: View {
                 Label("Engine review only — \(reason)", systemImage: "info.circle")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            case .foundationModels, .gemma:
+            case .foundationModels, .gemma, .gemini:
                 coachBody
             }
         }

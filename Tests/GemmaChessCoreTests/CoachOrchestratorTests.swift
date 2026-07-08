@@ -75,7 +75,7 @@ struct CoachOrchestratorTests {
     func fmAvailabilityProbe() {
         let fm = FoundationModelsCoach()
         switch fm.availability {
-        case .foundationModels, .gemma, .unavailable:
+        case .foundationModels, .gemma, .gemini, .unavailable:
             #expect(Bool(true))
         }
     }

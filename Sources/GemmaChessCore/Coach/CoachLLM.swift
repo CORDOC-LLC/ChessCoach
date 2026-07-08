@@ -16,6 +16,10 @@ public enum CoachAvailability: Equatable, Sendable {
     case foundationModels
     /// Local Gemma via MLX (downloaded on first use).
     case gemma
+    /// Google Gemini (cloud), used with the user's own API key. Explains the same
+    /// engine-grounded facts as the on-device backends, just with noticeably
+    /// better reasoning — opt-in, since it leaves the device.
+    case gemini
     /// No on-device model fits — the UI hides chat and keeps the engine review.
     /// `reason` is a short, user-facing explanation.
     case unavailable(reason: String)

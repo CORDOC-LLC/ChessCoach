@@ -12,9 +12,15 @@ public final class CoachOrchestrator: Sendable {
     private let backends: [CoachLLM]
     private let engine: EnginePool
 
-    /// Default priority: Foundation Models first; a Gemma backend can be appended by
-    /// the app on devices without Apple Intelligence.
-    public init(backends: [CoachLLM] = [FoundationModelsCoach()], engine: EnginePool = .shared) {
+    /// Default priority: Gemini first when the user has set their own API key (a
+    /// cloud model explains noticeably better than the on-device ones), then
+    /// Foundation Models. A Gemma backend can be appended by the app on devices
+    /// without Apple Intelligence. Gemini reports `.unavailable` with no key set,
+    /// so it's a transparent no-op until the user opts in.
+    public init(
+        backends: [CoachLLM] = [GeminiCoach(), FoundationModelsCoach()],
+        engine: EnginePool = .shared
+    ) {
         self.backends = backends
         self.engine = engine
     }

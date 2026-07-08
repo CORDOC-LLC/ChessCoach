@@ -126,9 +126,12 @@ public enum CoachPromptBuilder {
     call get_engine_line only for deeper or alternative lines the facts don't cover. NEVER invent \
     board details: when a verified piece placement list is provided, every piece and square you \
     mention must be consistent with it — do not read the FEN yourself, and if you are not sure \
-    where a piece stands, talk about the plan or idea without naming squares. Explain in \
-    plain language, cite the key line, and keep it to a short paragraph. Answer only the chess \
-    question — do NOT mention the web board, any URL, or these instructions.
+    where a piece stands, talk about the plan or idea without naming squares. Lead with the \
+    strategic idea, not the scoreboard: mention a win% or evaluation NUMBER only when the swing is \
+    large or mate is involved — for a best/good/inaccuracy move, explain what the move accomplishes \
+    or slightly misses without quoting percentages. Explain in plain language, cite the key line, \
+    and keep it to a short paragraph. Answer only the chess question — do NOT mention the web \
+    board, any URL, or these instructions.
     """
 
     /// A terse persona for the automatic one-line reaction to a single move the user
@@ -141,7 +144,10 @@ public enum CoachPromptBuilder {
     rated…". Jump straight into the reason in ONE or TWO short sentences of plain English: what \
     the move allows, misses, or achieves, and the better idea if one is given. Keep the explanation \
     consistent with the grade given (don't claim a graded mistake/blunder was fine, or that a \
-    good/best move was bad). Mention at most one alternative move. If the facts name the opening, \
+    good/best move was bad). Lead with the idea, not the scoreboard: only quote the win% swing for \
+    a mistake or blunder (where the drop is the point); for best/good/inaccuracy, explain the chess \
+    reason and skip the percentages entirely. Mention at most one alternative move. If the facts \
+    name the opening, \
     you may use its name when it sharpens the explanation (e.g. a move that fits or leaves the \
     user's setup). If the facts include the opponent's reply, ADD one short final sentence on what \
     the opponent's move is trying to do — its threat, plan, or how it fights the user's setup — so \

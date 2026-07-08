@@ -52,6 +52,7 @@ struct HomeView: View {
     var onPlay: () -> Void
     var onReview: () -> Void
     @State private var showLicenses = false
+    @State private var showCoachSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,12 +91,21 @@ struct HomeView: View {
                 .controlSize(.large)
                 .tint(.white)
 
-                Button { showLicenses = true } label: {
-                    Text("Open Source Licenses")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.55))
+                HStack(spacing: 16) {
+                    Button { showCoachSettings = true } label: {
+                        Text("Coach Settings")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button { showLicenses = true } label: {
+                        Text("Open Source Licenses")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
                 .padding(.top, 4)
             }
             .padding(.horizontal, 32)
@@ -107,5 +117,6 @@ struct HomeView: View {
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .navigationDestination(isPresented: $showLicenses) { LicensesView() }
+        .navigationDestination(isPresented: $showCoachSettings) { CoachSettingsView() }
     }
 }

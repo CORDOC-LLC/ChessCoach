@@ -55,6 +55,7 @@ public struct PlayContainerView: View {
         switch vm.coachAvailability {
         case .foundationModels: return "Apple Intelligence (on-device)"
         case .gemma: return "Gemma (on-device)"
+        case .gemini: return "Gemini"
         case .unavailable(let reason): return "engine only — \(reason)"
         }
     }
