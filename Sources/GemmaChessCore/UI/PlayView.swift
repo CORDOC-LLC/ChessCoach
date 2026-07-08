@@ -56,6 +56,7 @@ public struct PlayContainerView: View {
         case .foundationModels: return "Apple Intelligence (on-device)"
         case .gemma: return "Gemma (on-device)"
         case .gemini: return "Gemini"
+        case .managed: return "ChessCoach Pro"
         case .unavailable(let reason): return "engine only — \(reason)"
         }
     }
