@@ -346,7 +346,9 @@ public enum CoachPromptBuilder {
     }
 
     /// One graded user move from a live Play game, for the end-of-game summary.
-    public struct PlayMoveRecord: Sendable, Equatable {
+    /// Codable so `SavedGame` can persist it and restore full summary quality
+    /// after a resumed game later ends.
+    public struct PlayMoveRecord: Sendable, Equatable, Codable {
         public var moveNumber: Int
         public var san: String
         public var classification: String

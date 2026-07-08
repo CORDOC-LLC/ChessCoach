@@ -29,7 +29,7 @@ struct PlayHintTests {
     }
 
     @Test func requestHintPopulatesBestAndDistinctSecond() async {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         #expect(vm.hint == nil)
 
         vm.requestHint()
@@ -49,7 +49,7 @@ struct PlayHintTests {
     }
 
     @Test func clearHintEmptiesIt() async {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.requestHint()
         await wait { vm.hint?.bestUCI.isEmpty == false }
         #expect(vm.hint != nil)
@@ -58,7 +58,7 @@ struct PlayHintTests {
     }
 
     @Test func newMoveClearsExistingHint() async {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.newGame(asWhite: true)
         vm.requestHint()
         await wait { vm.hint?.bestUCI.isEmpty == false }

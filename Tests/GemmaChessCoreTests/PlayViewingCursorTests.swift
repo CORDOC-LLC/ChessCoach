@@ -15,7 +15,7 @@ struct PlayViewingCursorTests {
 
     /// A VM with a synthetic two-ply history (engine-free).
     private func seeded() -> PlayViewModel {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.fen = Self.afterE4E5
         vm.moves = ["e2e4", "e7e5"]
         vm.sanMoves = ["e4", "e5"]
@@ -50,7 +50,7 @@ struct PlayViewingCursorTests {
     }
 
     @Test func tapIsNoOpWhileViewing() {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.newGame(asWhite: true)       // engine-free for White
         vm.viewTo(ply: 0)               // browse the start position
         vm.tap(.e2)                     // would normally select e2
@@ -60,7 +60,7 @@ struct PlayViewingCursorTests {
 
     @Test func makingAMoveReturnsToLive() {
         // After newGame the cursor is nil; a fresh move keeps us live and appends.
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.newGame(asWhite: true)
         vm.tap(.d2)
         vm.tap(.d4)
