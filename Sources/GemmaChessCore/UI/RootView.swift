@@ -15,7 +15,7 @@ public struct GemmaRootView: View {
     @State private var play = PlayViewModel()
     @State private var mode: Mode = .home
 
-    private enum Mode { case home, play, review }
+    private enum Mode { case home, play, review, scan }
 
     public init(style: GemmaLayoutStyle = .automatic) {}
 
@@ -23,11 +23,17 @@ public struct GemmaRootView: View {
         NavigationStack {
             switch mode {
             case .home:
-                HomeView(onPlay: { mode = .play }, onReview: { mode = .review })
+                HomeView(onPlay: { mode = .play }, onReview: { mode = .review }, onScan: { mode = .scan })
             case .play:
                 PlayContainerView(vm: play, onExit: { mode = .home })
             case .review:
                 reviewFlow
+            case .scan:
+                BoardScannerView(onStartGame: { fen, asWhite in
+                    play.newGame(asWhite: asWhite, startFEN: fen)
+                    mode = .play
+                })
+                .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
             }
         }
         .gemmaChrome()
@@ -51,9 +57,13 @@ public struct GemmaRootView: View {
 struct HomeView: View {
     var onPlay: () -> Void
     var onReview: () -> Void
+    var onScan: () -> Void
     @State private var showLicenses = false
     @State private var showCoachSettings = false
     @State private var showBeginners = false
+    /// "Scan a board" needs the managed coach (ChessCoach Pro) — a photo has
+    /// to go over the network to be read, unlike everything else in the app.
+    private var scanEnabled: Bool { ManagedCoachStore.loadBackendURL() != nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -100,6 +110,17 @@ struct HomeView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
                 .tint(GemmaTheme.gold)
+
+                if scanEnabled {
+                    Button(action: onScan) {
+                        Label("Scan a board", systemImage: "camera.viewfinder")
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity, minHeight: 24)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .tint(GemmaTheme.gold)
+                }
 
                 HStack(spacing: 16) {
                     Button { showCoachSettings = true } label: {
