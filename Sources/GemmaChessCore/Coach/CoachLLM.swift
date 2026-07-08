@@ -20,6 +20,12 @@ public enum CoachAvailability: Equatable, Sendable {
     /// engine-grounded facts as the on-device backends, just with noticeably
     /// better reasoning — opt-in, since it leaves the device.
     case gemini
+    /// The developer-hosted, metered coach (chesscoach-gateway). Same
+    /// explanation-only contract as every other backend — the backend's own
+    /// `/coach` endpoint decides the provider/model, this app never talks to
+    /// one directly. Opt-in via subscription (or, for local testing before
+    /// U6 wires up RevenueCat, a debug bypass token).
+    case managed
     /// No on-device model fits — the UI hides chat and keeps the engine review.
     /// `reason` is a short, user-facing explanation.
     case unavailable(reason: String)
