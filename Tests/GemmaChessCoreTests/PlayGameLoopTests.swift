@@ -24,7 +24,7 @@ struct PlayGameLoopTests {
 
     @Test("a tapped user move triggers a legal engine reply and updates state")
     func userMoveThenEngineReply() async throws {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.skill = 1                 // weak + fast opponent
         vm.newGame(asWhite: true)
 
@@ -63,7 +63,7 @@ struct PlayGameLoopTests {
 
     @Test("tapping is ignored while browsing history; returnToLive restores play")
     func viewingDisablesTap() async throws {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.skill = 1
         vm.newGame(asWhite: true)
         let e2 = try #require(BoardGeometry.square("e2"))
@@ -87,7 +87,7 @@ struct PlayGameLoopTests {
 
     @Test("retry rewinds the user's flagged move and the engine's reply")
     func retryRewindsFlaggedMove() async throws {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.skill = 1
         vm.newGame(asWhite: true)
         let e2 = try #require(BoardGeometry.square("e2"))
@@ -124,7 +124,7 @@ struct PlayGameLoopTests {
 
     @Test("graded user moves accumulate into the summary records")
     func moveRecordsAccumulate() async throws {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.skill = 1
         vm.newGame(asWhite: true)
         let e2 = try #require(BoardGeometry.square("e2"))
@@ -141,7 +141,7 @@ struct PlayGameLoopTests {
 
     @Test("the opening is named live after book moves")
     func openingNamedLive() async throws {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.skill = 1
         vm.newGame(asWhite: true)
         let e2 = try #require(BoardGeometry.square("e2"))

@@ -22,7 +22,7 @@ struct PlayBestMoveTests {
     }
 
     @Test func cachesBestMoveAndAvoidsReanalysis() async {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         #expect(vm.bestMove(forFEN: Self.start) == nil)   // nothing cached yet
 
         vm.requestBestMove(forFEN: Self.start)
@@ -39,7 +39,7 @@ struct PlayBestMoveTests {
     }
 
     @Test func doesNotAnalyseTerminalPositions() async {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         // Fool's mate — checkmate, no legal move to suggest.
         let mated = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"
         vm.requestBestMove(forFEN: mated)

@@ -125,12 +125,34 @@ public final class PlayViewModel {
     /// keeps the last named line ("you left the London with …" still reads right).
     public var opening: Openings.Opening?
 
+    // MARK: On-device persistence (resume + replay)
+    /// Identity of the game being saved -- stable across the whole game so
+    /// checkpoints overwrite the same file rather than accumulating one per move.
+    public private(set) var gameID = UUID()
+    private var startedAt = Date()
+    /// The coach's per-move note, keyed by the 0-based ply index of the USER's
+    /// move it explains. Mirrors `SavedGame.moveNotes`; `lastCoachNote` only ever
+    /// holds the LATEST one, so replay (viewing an arbitrary past ply) needs this.
+    private(set) var moveNotes: [Int: String] = [:]
+
     private var dests: [Square: [Square]] = [:]
     private let coach: CoachOrchestrator
+    /// Where `SavedGame` checkpoints are written, and which UserDefaults tracks
+    /// the in-progress game pointer -- both injectable so tests use a temp
+    /// directory / scratch defaults instead of the real ones. Internal (not
+    /// private) so tests can point `SavedGameStore` calls at the same values.
+    let savedGamesBaseDir: URL
+    let savedGamesDefaults: UserDefaults
 
-    public init(coach: CoachOrchestrator = CoachOrchestrator()) {
+    public init(
+        coach: CoachOrchestrator = CoachOrchestrator(),
+        savedGamesBaseDir: URL = SavedGameStore.defaultBaseDir,
+        savedGamesDefaults: UserDefaults = .standard
+    ) {
         self.coach = coach
         self.coachAvailability = coach.availability
+        self.savedGamesBaseDir = savedGamesBaseDir
+        self.savedGamesDefaults = savedGamesDefaults
     }
 
     // MARK: Derived
@@ -166,6 +188,11 @@ public final class PlayViewModel {
         if let p = viewingPly, moves.indices.contains(p) { return squares(fromUCI: moves[p]) }
         return lastMove
     }
+
+    /// The coach's note for the ply at 0-based index `ply` (the user move it
+    /// explains), or nil if none was recorded. Used when browsing history --
+    /// live play instead follows `lastCoachNote`, which is always the latest.
+    public func note(forPly ply: Int) -> String? { moveNotes[ply] }
 
     public var userToMove: Bool {
         (ChessLogic.sideToMove(forFEN: fen) == .white) == playerIsWhite
@@ -299,14 +326,22 @@ public final class PlayViewModel {
         chat = []
         isAsking = false
         coachAvailability = coach.availability
+        gameID = UUID()
+        startedAt = Date()
+        moveNotes = [:]
         refreshDests()
         refreshEval()
         let userToMoveNow = (ChessLogic.sideToMove(forFEN: startFEN) == .white) == asWhite
         if userToMoveNow {
             status = "Your move"
+            persistCheckpoint()
         } else {
             status = "Engine is thinking…"
-            Task { await engineReply() }
+            let gen = moveGen
+            Task {
+                await engineReply()
+                if gen == moveGen { persistCheckpoint() }
+            }
         }
     }
 
@@ -316,6 +351,7 @@ public final class PlayViewModel {
         resultText = "You resigned."
         status = resultText!
         startGameSummary()
+        persistCheckpoint()
     }
 
     // MARK: Tap-to-move
@@ -339,6 +375,7 @@ public final class PlayViewModel {
         // The rewind point for "try again": the position before this move.
         retryBase = (fen: fromFEN, moveCount: moves.count)
         let moveNumber = moves.count / 2 + 1
+        let userPly = moves.count   // this move's index, once appended below
         fen = afterFEN
         moves.append(uci)
         sanMoves.append(ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci)
@@ -357,6 +394,7 @@ public final class PlayViewModel {
         lastVerdict = nil
         lastCoachNote = nil
         let gen = moveGen
+        persistCheckpoint()   // save the user's move even if the app dies right after
         Task {
             // ONE analysis serves both the verdict chip and the coach's move facts
             // (this used to be analysed twice). The chip appears right away.
@@ -376,8 +414,8 @@ public final class PlayViewModel {
             let replySAN = await engineReply()
             guard gen == moveGen else { return }
             await streamCoachNote(fromFEN: fromFEN, uci: uci, moveReport: moveReport,
-                                  opponentReplySAN: replySAN, gen: gen)
-            if gen == moveGen { isCoaching = false }
+                                  opponentReplySAN: replySAN, userPly: userPly, gen: gen)
+            if gen == moveGen { isCoaching = false; persistCheckpoint() }
         }
     }
 
@@ -402,6 +440,7 @@ public final class PlayViewModel {
         sanMoves = Array(sanMoves.prefix(base.moveCount))
         fenHistory = Array(fenHistory.prefix(base.moveCount + 1))
         moveRecords.removeLast()          // canRetry ⇒ the retried move was recorded
+        moveNotes.removeValue(forKey: base.moveCount)   // the retried ply's note, if any
         retryBase = nil                   // one rewind per snapshot
         lastMove = moves.last.flatMap { squares(fromUCI: $0) }
         selected = nil
@@ -417,6 +456,7 @@ public final class PlayViewModel {
         status = "Your move — find a better one"
         refreshDests()
         refreshEval()
+        persistCheckpoint()
     }
 
     // MARK: End-of-game summary
@@ -439,6 +479,7 @@ public final class PlayViewModel {
                     guard gen == moveGen else { return }
                     gameSummary = partial
                 }
+                if gen == moveGen { persistCheckpoint() }
             } catch {
                 // No debrief — the result banner still stands.
             }
@@ -486,6 +527,81 @@ public final class PlayViewModel {
         }
     }
 
+    // MARK: On-device persistence (resume + replay)
+
+    /// Snapshot the current game to disk. Called after every state-changing event
+    /// (a move, a coach note landing, game over) so a killed app loses at most the
+    /// in-flight step, never the whole game. Cheap: a small per-game JSON file, no
+    /// network involved -- see `SavedGame`'s header.
+    private func persistCheckpoint() {
+        let game = SavedGame(
+            id: gameID, startedAt: startedAt, updatedAt: Date(), playerIsWhite: playerIsWhite,
+            startFEN: fenHistory.first ?? Self.startFEN, moves: moves, sanMoves: sanMoves,
+            fenHistory: fenHistory, skill: skill, isGameOver: gameOver, resultText: resultText,
+            openingName: opening?.name, openingECO: opening?.eco,
+            moveNotes: moveNotes, gameSummary: gameSummary, moveRecords: moveRecords
+        )
+        try? SavedGameStore.save(game, baseDir: savedGamesBaseDir)
+        if gameOver {
+            // A finished game is replay-only from here -- stop offering it as "Resume".
+            if SavedGameStore.inProgressGameID(defaults: savedGamesDefaults) == gameID {
+                SavedGameStore.setInProgressGameID(nil, defaults: savedGamesDefaults)
+            }
+        } else {
+            SavedGameStore.setInProgressGameID(gameID, defaults: savedGamesDefaults)
+        }
+    }
+
+    /// Reconstruct full live state from a saved game -- for "Resume" (an unfinished
+    /// game continues exactly where it left off, engine replying if it's its turn)
+    /// or opening a finished game for replay (browsable via `viewTo`, no further
+    /// moves possible since `tap` already refuses them once `gameOver` is true).
+    public func load(_ saved: SavedGame) {
+        moveGen += 1   // abandon any in-flight task tied to whatever was live before
+        gameID = saved.id
+        startedAt = saved.startedAt
+        playerIsWhite = saved.playerIsWhite
+        moves = saved.moves
+        sanMoves = saved.sanMoves
+        fenHistory = saved.fenHistory
+        fen = saved.fenHistory.last ?? saved.startFEN
+        skill = saved.skill
+        gameOver = saved.isGameOver
+        resultText = saved.resultText
+        opening = saved.openingName.map { Openings.Opening(eco: saved.openingECO ?? "", name: $0) }
+        moveNotes = saved.moveNotes
+        lastCoachNote = saved.moves.indices.last.flatMap { saved.moveNotes[$0] }
+        gameSummary = saved.gameSummary
+        moveRecords = saved.moveRecords
+        lastVerdict = nil    // not persisted -- the chip is a live-move-only affordance
+        hint = nil
+        selected = nil
+        viewingPly = nil
+        retryBase = nil
+        isCoaching = false
+        isSummarizing = false
+        chat = []
+        isAsking = false
+        coachAvailability = coach.availability
+        refreshDests()
+        refreshEval()
+        if saved.isGameOver {
+            status = saved.resultText ?? "Game over"
+        } else {
+            SavedGameStore.setInProgressGameID(saved.id, defaults: savedGamesDefaults)
+            if userToMove {
+                status = "Your move"
+            } else {
+                status = "Engine is thinking…"
+                let gen = moveGen
+                Task {
+                    await engineReply()
+                    if gen == moveGen { persistCheckpoint() }
+                }
+            }
+        }
+    }
+
     /// The opening fact line for coach prompts, when a named line has been reached.
     private var openingFacts: String? {
         CoachPromptBuilder.openingFactsText(name: opening?.name, eco: opening?.eco)
@@ -501,7 +617,7 @@ public final class PlayViewModel {
     /// `playerSide` tells it which colour "you" are so it never confuses you with the
     /// engine.
     private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?,
-                                 opponentReplySAN: String? = nil, gen: Int? = nil) async {
+                                 opponentReplySAN: String? = nil, userPly: Int? = nil, gen: Int? = nil) async {
         guard coachEnabled, let mv = moveReport?.move else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
         // The engine's grade (the same one shown on the chip) is authoritative. The
@@ -550,6 +666,9 @@ public final class PlayViewModel {
             for try await partial in stream {
                 if let gen, gen != moveGen { return }   // retried/new game mid-stream
                 lastCoachNote = partial
+            }
+            if let userPly, let gen, gen == moveGen, let note = lastCoachNote, !note.isEmpty {
+                moveNotes[userPly] = note
             }
         } catch {
             // Leave the note empty; the engine verdict chip still stands on its own.
@@ -621,12 +740,14 @@ public final class PlayViewModel {
             resultText = matedIsUser ? "Checkmate — you lose." : "Checkmate — you win! 🎉"
             status = resultText!
             startGameSummary()
+            persistCheckpoint()
             return true
         case .stalemate:
             gameOver = true
             resultText = "Stalemate — it's a draw."
             status = resultText!
             startGameSummary()
+            persistCheckpoint()
             return true
         default:
             return false

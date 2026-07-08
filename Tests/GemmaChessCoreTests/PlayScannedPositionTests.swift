@@ -15,7 +15,7 @@ struct PlayScannedPositionTests {
     /// White to move, user plays White -> it's the user's move.
     @Test("user's move when the scanned FEN's side-to-move matches the user's side")
     func userToMoveMatchesSideToMove() {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 4 3"
         vm.newGame(asWhite: true, startFEN: fen)
 
@@ -26,7 +26,7 @@ struct PlayScannedPositionTests {
     /// White to move, user plays Black -> it's the engine's move, not the user's.
     @Test("engine's move when the scanned FEN's side-to-move is the opponent")
     func engineToMoveWhenSideMismatches() async {
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.skill = 1
         let fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 4 3"
         vm.newGame(asWhite: false, startFEN: fen)

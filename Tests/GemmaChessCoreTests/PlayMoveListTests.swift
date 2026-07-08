@@ -34,7 +34,7 @@ struct PlayMoveListTests {
     @Test func sanAccumulatesAtMoveTime() {
         // The VM appends SAN as moves are made (no replay). Drive one user move and
         // confirm the SAN + history grew in step (white's first move, no engine wait).
-        let vm = PlayViewModel()
+        let vm = PlayViewModel.forTesting()
         vm.newGame(asWhite: true)
         vm.tap(.e2)
         vm.tap(.e4)
