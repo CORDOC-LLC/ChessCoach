@@ -41,6 +41,7 @@ struct ManagedCoachTests {
 
     static func makeCoach(
         backendURL: String?, debugToken: String? = nil, appUserId: String? = "user-1",
+        debugModel: String? = nil,
         handler: @escaping (URLRequest) -> (Int, Data)
     ) -> ManagedCoach {
         let config = URLSessionConfiguration.ephemeral
@@ -50,7 +51,8 @@ struct ManagedCoachTests {
             session: URLSession(configuration: config),
             backendURL: { backendURL },
             debugToken: { debugToken },
-            appUserId: { appUserId }
+            appUserId: { appUserId },
+            debugModel: { debugModel }
         )
     }
 
@@ -96,6 +98,36 @@ struct ManagedCoachTests {
         _ = try await coach.generate(system: "sys", prompt: "p", sessionID: nil)
 
         #expect(capturedHeader == "let-me-in")
+    }
+
+    @Test("effectiveModel: with a debug token AND a debug model, the model is sent")
+    func effectiveModelWithToken() {
+        #expect(ManagedCoach.effectiveModel(debugToken: "let-me-in", debugModel: "anthropic/claude-haiku-4.5")
+                 == "anthropic/claude-haiku-4.5")
+    }
+
+    @Test("effectiveModel: WITHOUT a debug token, the model is never sent (KTD-3)")
+    func effectiveModelWithoutToken() {
+        #expect(ManagedCoach.effectiveModel(debugToken: nil, debugModel: "anthropic/claude-haiku-4.5") == nil)
+        #expect(ManagedCoach.effectiveModel(debugToken: "", debugModel: "anthropic/claude-haiku-4.5") == nil)
+    }
+
+    @Test("effectiveModel: a token with no chosen model (\"server default\") sends nil")
+    func effectiveModelServerDefault() {
+        #expect(ManagedCoach.effectiveModel(debugToken: "let-me-in", debugModel: nil) == nil)
+        #expect(ManagedCoach.effectiveModel(debugToken: "let-me-in", debugModel: "") == nil)
+    }
+
+    @Test("generate() succeeds end-to-end with both a debug token and a debug model configured")
+    func generateWithDebugModelConfigured() async throws {
+        defer { ManagedCoachMockURLProtocol.handler = nil }
+        let coach = Self.makeCoach(
+            backendURL: "https://gateway.test", debugToken: "let-me-in", debugModel: "anthropic/claude-haiku-4.5"
+        ) { _ in (200, Data(#"{"text":"Solid move.","model":"anthropic/claude-haiku-4.5","usage":{}}"#.utf8)) }
+
+        let reply = try await coach.generate(system: "sys", prompt: "p", sessionID: nil)
+
+        #expect(reply.answer == "Solid move.")
     }
 
     @Test("no backend configured throws without attempting a network call")

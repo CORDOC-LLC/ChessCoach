@@ -15,11 +15,58 @@ import Foundation
 import Security
 #endif
 
+/// A Gateway model the developer can pick for local testing (KTD-3: real
+/// subscribers never get this choice — see ManagedCoach's `debugModel`).
+/// Slugs must match `lib/pricing.ts` in chesscoach-gateway for the Usage &
+/// Cost screen's estimates to mean anything; keep the two in sync by hand.
+public struct ManagedModelOption: Identifiable, Equatable, Sendable {
+    public var id: String { slug }
+    public let slug: String
+    public let displayName: String
+    public let hint: String
+
+    public init(slug: String, displayName: String, hint: String) {
+        self.slug = slug; self.displayName = displayName; self.hint = hint
+    }
+
+    public static let flashLite = ManagedModelOption(
+        slug: "google/gemini-2.5-flash-lite", displayName: "Gemini Flash Lite", hint: "Cheapest, fastest")
+    public static let flash = ManagedModelOption(
+        slug: "google/gemini-2.5-flash", displayName: "Gemini Flash", hint: "Balanced")
+    public static let pro = ManagedModelOption(
+        slug: "google/gemini-2.5-pro", displayName: "Gemini Pro", hint: "Most capable, priciest")
+    public static let claudeHaiku = ManagedModelOption(
+        slug: "anthropic/claude-haiku-4.5", displayName: "Claude Haiku", hint: "Alternative provider")
+
+    /// "Server default" isn't a real slug — sending no override at all lets
+    /// the backend's own CHESSCOACH_PRIMARY_MODEL decide, same as production.
+    public static let serverDefault = ManagedModelOption(
+        slug: "", displayName: "Server default", hint: "Whatever the backend is configured for")
+
+    public static let all: [ManagedModelOption] = [.serverDefault, .flashLite, .flash, .pro, .claudeHaiku]
+}
+
 public enum ManagedCoachStore {
     private static let backendURLKey = "managedCoach.backendURL"
     private static let appUserIdKey = "managedCoach.debugAppUserId"
+    private static let debugModelKey = "managedCoach.debugModel"
     private static let service = "com.cordoc.gemmachess.managedCoachDebug"
     private static let debugTokenAccount = "debug-token"
+
+    /// The chosen model override, or nil to let the server decide (its own
+    /// CHESSCOACH_PRIMARY_MODEL — the same thing a real subscriber gets).
+    public static func loadDebugModel() -> String? {
+        let stored = UserDefaults.standard.string(forKey: debugModelKey)
+        return (stored?.isEmpty ?? true) ? nil : stored
+    }
+
+    public static func saveDebugModel(_ slug: String?) {
+        if let slug, !slug.isEmpty {
+            UserDefaults.standard.set(slug, forKey: debugModelKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: debugModelKey)
+        }
+    }
 
     /// The chesscoach-gateway deployment base URL (e.g.
     /// `https://chesscoach-gateway.vercel.app`), or nil when not configured --
