@@ -60,6 +60,9 @@ public struct CoachSettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(GemmaTheme.accent)
                 }
+                if ManagedCoachStore.loadBackendURL() != nil {
+                    NavigationLink("Usage & Cost") { ManagedUsageView() }
+                }
             }
             Section {
                 Text("ChessCoach's coach runs on-device by default (Apple Foundation Models). "
