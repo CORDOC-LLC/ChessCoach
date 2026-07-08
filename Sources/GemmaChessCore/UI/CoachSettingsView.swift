@@ -15,6 +15,7 @@ public struct CoachSettingsView: View {
     // RevenueCat being wired up. See ManagedCoachStore's header comment.
     @State private var backendURL: String = ManagedCoachStore.loadBackendURL() ?? ""
     @State private var debugToken: String = ManagedCoachStore.loadDebugToken() ?? ""
+    @State private var debugModel: String = ManagedCoachStore.loadDebugModel() ?? ""
     @State private var managedSaved = false
 
     public init() {}
@@ -62,6 +63,26 @@ public struct CoachSettingsView: View {
                 }
                 if ManagedCoachStore.loadBackendURL() != nil {
                     NavigationLink("Usage & Cost") { ManagedUsageView() }
+                }
+            }
+            if !debugToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Section("Model override (debug only)") {
+                    Text("Try a different Gateway model for latency/price/accuracy comparisons. "
+                        + "Only takes effect with a debug bypass token above — real subscribers "
+                        + "always get the server's own choice.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Picker("Model", selection: $debugModel) {
+                        ForEach(ManagedModelOption.all) { option in
+                            VStack(alignment: .leading) {
+                                Text(option.displayName)
+                                Text(option.hint).font(.caption).foregroundStyle(.secondary)
+                            }
+                            .tag(option.slug)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    .onChange(of: debugModel) { _, newValue in ManagedCoachStore.saveDebugModel(newValue) }
                 }
             }
             Section {

@@ -22,17 +22,24 @@ public final class ManagedCoach: CoachLLM, Sendable {
     private let backendURL: @Sendable () -> String?
     private let debugToken: @Sendable () -> String?
     private let appUserId: @Sendable () -> String?
+    /// A model override, sent ONLY alongside a debug token — the backend
+    /// silently drops it on any non-bypassed (real subscriber) request, so
+    /// this is purely a local-testing lever for comparing models on
+    /// latency/price/accuracy, never something a paying user can steer.
+    private let debugModel: @Sendable () -> String?
 
     public init(
         session: URLSession = .shared,
         backendURL: @escaping @Sendable () -> String? = { ManagedCoachStore.loadBackendURL() },
         debugToken: @escaping @Sendable () -> String? = { ManagedCoachStore.loadDebugToken() },
-        appUserId: @escaping @Sendable () -> String? = { ManagedCoachStore.debugAppUserId() }
+        appUserId: @escaping @Sendable () -> String? = { ManagedCoachStore.debugAppUserId() },
+        debugModel: @escaping @Sendable () -> String? = { ManagedCoachStore.loadDebugModel() }
     ) {
         self.session = session
         self.backendURL = backendURL
         self.debugToken = debugToken
         self.appUserId = appUserId
+        self.debugModel = debugModel
     }
 
     public var availability: CoachAvailability {
@@ -77,6 +84,17 @@ public final class ManagedCoach: CoachLLM, Sendable {
 
     // MARK: helpers
 
+    /// The model override to send, or nil to let the server decide. Only
+    /// ever non-nil when a debug token is ALSO present — the backend enforces
+    /// this too (KTD-3), but computing it the same way here means a tester
+    /// never accidentally sends a model override that a production build
+    /// would silently ignore, keeping the two paths honest with each other.
+    static func effectiveModel(debugToken: String?, debugModel: String?) -> String? {
+        guard let debugToken, !debugToken.isEmpty else { return nil }
+        guard let debugModel, !debugModel.isEmpty else { return nil }
+        return debugModel
+    }
+
     private func buildRequest(system: String, prompt: String, stream: Bool) throws -> URLRequest {
         guard let base = backendURL(), !base.isEmpty, let userId = appUserId(), !userId.isEmpty else {
             throw CoachError("Managed coach isn't configured.")
@@ -90,8 +108,9 @@ public final class ManagedCoach: CoachLLM, Sendable {
         if let token = debugToken(), !token.isEmpty {
             request.setValue(token, forHTTPHeaderField: "X-Debug-Token")
         }
+        let model = Self.effectiveModel(debugToken: debugToken(), debugModel: debugModel())
         request.httpBody = try JSONEncoder().encode(
-            CoachRequest(system: system, prompt: prompt, stream: stream, appUserId: userId)
+            CoachRequest(system: system, prompt: prompt, stream: stream, appUserId: userId, model: model)
         )
         return request
     }
@@ -121,10 +140,12 @@ private struct CoachRequest: Encodable {
     let prompt: String
     let stream: Bool
     let appUserId: String
+    let model: String?
 }
 
 private struct CoachResponse: Decodable {
     let text: String
+    let model: String?
 }
 
 private extension StringProtocol {
