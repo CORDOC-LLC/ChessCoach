@@ -99,105 +99,9 @@ struct HomeView: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
-            VStack(spacing: 18) {
-                Image(systemName: "crown.fill")
-                    .font(.system(size: 60, weight: .semibold))
-                    .foregroundStyle(GemmaTheme.accentGradient)
-                    .shadow(color: GemmaTheme.accent.opacity(0.5), radius: 18)
-                VStack(spacing: 8) {
-                    Text("ChessCoach")
-                        .font(.system(size: 40, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("Play with a coach,\nor review one of your games.")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.65))
-                        .multilineTextAlignment(.center)
-                }
-            }
+            header
             Spacer()
-            VStack(spacing: 14) {
-                if inProgressGameID != nil {
-                    Button(action: onResume) {
-                        Label("Resume game", systemImage: "arrow.clockwise")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 30)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                }
-
-                Button(action: onPlay) {
-                    Label(inProgressGameID != nil ? "Play a new game" : "Play a game",
-                          systemImage: "play.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 30)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(inProgressGameID != nil ? .white : GemmaTheme.accent)
-
-                Button(action: onReview) {
-                    Label("Review a game", systemImage: "magnifyingglass")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 30)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .tint(.white)
-
-                Button { showBeginners = true } label: {
-                    Label("New to chess?", systemImage: "graduationcap")
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity, minHeight: 24)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .tint(GemmaTheme.gold)
-
-                if scanEnabled {
-                    Button(action: onScan) {
-                        Label("Scan a board", systemImage: "camera.viewfinder")
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity, minHeight: 24)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .tint(GemmaTheme.gold)
-                }
-
-                if hasSavedGames {
-                    Button(action: onMyGames) {
-                        Label("My Games", systemImage: "clock.arrow.circlepath")
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity, minHeight: 24)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .tint(.white)
-                    Text("Saved on this device only")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.45))
-                }
-
-                HStack(spacing: 16) {
-                    Button { showCoachSettings = true } label: {
-                        Text("Coach Settings")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.55))
-                    }
-                    .buttonStyle(.plain)
-
-                    Button { showLicenses = true } label: {
-                        Text("Open Source Licenses")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.55))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.top, 4)
-            }
-            .padding(.horizontal, 32)
-            .padding(.bottom, 48)
+            actions
         }
         .frame(maxWidth: 460)
         .frame(maxWidth: .infinity)
@@ -207,5 +111,135 @@ struct HomeView: View {
         .navigationDestination(isPresented: $showLicenses) { LicensesView() }
         .navigationDestination(isPresented: $showCoachSettings) { CoachSettingsView() }
         .navigationDestination(isPresented: $showBeginners) { BeginnersView() }
+    }
+
+    private var header: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 54, weight: .semibold))
+                .foregroundStyle(GemmaTheme.accentGradient)
+                .shadow(color: GemmaTheme.accent.opacity(0.55), radius: 20)
+            VStack(spacing: 6) {
+                Text("ChessCoach")
+                    .font(.system(size: 38, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .tracking(0.3)
+                Text("Play with a coach,\nor review one of your games.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+            }
+        }
+    }
+
+    private var actions: some View {
+        VStack(spacing: 12) {
+            if inProgressGameID != nil {
+                Button(action: onResume) {
+                    Label("Resume game", systemImage: "arrow.clockwise")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+
+            Button(action: onPlay) {
+                Label(inProgressGameID != nil ? "Play a new game" : "Play a game",
+                      systemImage: "play.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(inProgressGameID != nil ? .white.opacity(0.16) : GemmaTheme.accent)
+
+            Button(action: onReview) {
+                Label("Review a game", systemImage: "magnifyingglass")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(.white)
+
+            // Everything below is a lower-emphasis, one-tap utility -- grouped into a
+            // single glass card (the same language as Play mode's coach/hint cards)
+            // instead of stacking near-identical outlined pills for each one.
+            moreCard
+                .padding(.top, 6)
+
+            if hasSavedGames {
+                Text("Games are saved on this device only")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+
+            Divider()
+                .overlay(Color.white.opacity(0.08))
+                .padding(.vertical, 6)
+
+            HStack(spacing: 16) {
+                Button { showCoachSettings = true } label: {
+                    Text("Coach Settings")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+
+                Button { showLicenses = true } label: {
+                    Text("Open Source Licenses")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 32)
+        .padding(.bottom, 48)
+    }
+
+    /// "New to chess?" is always offered; "Scan a board" and "My Games" only when
+    /// relevant (managed coach configured / at least one saved game).
+    private var moreCard: some View {
+        VStack(spacing: 0) {
+            moreRow(icon: "graduationcap.fill", title: "New to chess?") { showBeginners = true }
+            if scanEnabled {
+                rowDivider
+                moreRow(icon: "camera.viewfinder", title: "Scan a board", action: onScan)
+            }
+            if hasSavedGames {
+                rowDivider
+                moreRow(icon: "clock.arrow.circlepath", title: "My Games", action: onMyGames)
+            }
+        }
+        .gemmaGlass(cornerRadius: 16)
+    }
+
+    private var rowDivider: some View {
+        Divider().overlay(Color.white.opacity(0.08)).padding(.leading, 46)
+    }
+
+    private func moreRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(GemmaTheme.gold)
+                    .frame(width: 22)
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.92))
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.3))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
     }
 }
