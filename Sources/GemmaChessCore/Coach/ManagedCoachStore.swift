@@ -15,6 +15,13 @@ import Foundation
 import Security
 #endif
 
+/// The canonical chesscoach-gateway deployment, on the project's own domain
+/// (api.chesscoach.im) rather than the raw *.vercel.app URL. Offered in
+/// Coach Settings as a one-tap fill-in — never applied automatically, since
+/// this is still the debug/local-testing path (see this file's header) and
+/// nothing should change behavior without the user explicitly saving it.
+public let managedCoachProductionURL = "https://api.chesscoach.im"
+
 /// A Gateway model the developer can pick for local testing (KTD-3: real
 /// subscribers never get this choice — see ManagedCoach's `debugModel`).
 /// Slugs must match `lib/pricing.ts` in chesscoach-gateway for the Usage &
