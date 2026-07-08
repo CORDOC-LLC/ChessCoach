@@ -28,11 +28,3 @@ https://github.com/lichess-org/chess-openings — vendored at
 `Sources/GemmaChessCore/Resources/eco/`, used for live opening
 classification. No attribution is legally required (CC0), credited here as a
 courtesy.
-
-## Apple Foundation Models / MLX / Gemma
-
-The on-device coach uses Apple's Foundation Models framework (system
-framework, no bundled source) and, as a fallback on devices without Apple
-Intelligence, Google's Gemma 3n weights via
-[MLX](https://github.com/ml-explore/mlx). Gemma is distributed under Google's
-Gemma license/terms; see https://ai.google.dev/gemma/terms.

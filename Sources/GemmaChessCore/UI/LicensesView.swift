@@ -41,15 +41,10 @@ public struct LicensesView: View {
             resourceFile: nil
         ),
         LicenseEntry(
-            name: "Apple Foundation Models",
-            license: "Apple system framework",
-            note: "The on-device model that explains the engine's verdicts in plain English.",
-            resourceFile: nil
-        ),
-        LicenseEntry(
-            name: "Gemma (via MLX)",
-            license: "Gemma Terms of Use",
-            note: "A fallback coach model on devices without Apple Intelligence.",
+            name: "Google Gemini",
+            license: "Google API Terms of Service",
+            note: "The coach model that explains the engine's verdicts in plain English "
+                + "(via your own API key, or ChessCoach Pro's managed backend).",
             resourceFile: nil
         ),
     ]

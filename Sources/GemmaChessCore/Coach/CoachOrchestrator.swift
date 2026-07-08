@@ -13,15 +13,14 @@ public final class CoachOrchestrator: Sendable {
     private let engine: EnginePool
 
     /// Default priority: the managed, developer-hosted coach first (paid tier
-    /// or, for now, local debug testing — see `ManagedCoachStore`), then
-    /// Gemini when the user has set their own API key (a cloud model explains
-    /// noticeably better than the on-device ones), then Foundation Models. A
-    /// Gemma backend can be appended by the app on devices without Apple
-    /// Intelligence. Each backend reports `.unavailable` when unconfigured, so
-    /// this list is a transparent fallthrough — nothing changes until the user
-    /// opts into one.
+    /// or, for now, local debug testing — see `ManagedCoachStore`), then Gemini
+    /// when the user has set their own API key. Both are network backends —
+    /// on-device Foundation Models/Gemma were tried and dropped (quality wasn't
+    /// good enough), so there is no local fallback tier. Each backend reports
+    /// `.unavailable` when unconfigured, so this list is a transparent
+    /// fallthrough — nothing changes until the user opts into one.
     public init(
-        backends: [CoachLLM] = [ManagedCoach(), GeminiCoach(), FoundationModelsCoach()],
+        backends: [CoachLLM] = [ManagedCoach(), GeminiCoach()],
         engine: EnginePool = .shared
     ) {
         self.backends = backends
@@ -38,7 +37,7 @@ public final class CoachOrchestrator: Sendable {
 
     /// State for the UI: which backend will answer, or why none can.
     public var availability: CoachAvailability {
-        active?.availability ?? .unavailable(reason: "No on-device coach is available.")
+        active?.availability ?? .unavailable(reason: "No coach is configured.")
     }
 
     /// Answer a position question, grounded in freshly-computed engine facts.

@@ -1,8 +1,10 @@
 //  CoachSettingsView.swift
-//  Optional Gemini API key entry. Entirely opt-in: with no key set, the app keeps
-//  using the on-device coach (Apple Foundation Models). Setting a key upgrades
-//  ONLY the explanation layer to Gemini — Stockfish still decides every grade,
-//  best move, and evaluation; Gemini, like every other backend, only writes.
+//  Optional Gemini API key entry, plus the managed coach (ChessCoach Pro) config.
+//  With neither configured, the app has engine-only review — no coach backend
+//  runs on-device (on-device Foundation Models/Gemma were tried and dropped for
+//  quality reasons). Stockfish still decides every grade, best move, and
+//  evaluation regardless of which coach backend is configured; the coach only
+//  writes about what the engine already computed.
 
 import SwiftUI
 
@@ -25,8 +27,8 @@ public struct CoachSettingsView: View {
             Section("ChessCoach Pro (managed coach — testing)") {
                 Text("For local testing before subscriptions are wired up: point at your own "
                     + "chesscoach-gateway deployment and, if it has a debug bypass token "
-                    + "configured, paste that too. This backend takes priority over Gemini and "
-                    + "the on-device coach whenever it's configured.")
+                    + "configured, paste that too. This backend takes priority over the Gemini "
+                    + "key below whenever it's configured.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 TextField("Backend URL (e.g. https://your-app.vercel.app)", text: $backendURL)
@@ -90,10 +92,10 @@ public struct CoachSettingsView: View {
                 }
             }
             Section {
-                Text("ChessCoach's coach runs on-device by default (Apple Foundation Models). "
-                    + "Adding your own free Gemini API key upgrades the coach's explanations — "
-                    + "the engine still decides every grade and best move; Gemini just writes "
-                    + "about it more clearly.")
+                Text("Without ChessCoach Pro or a Gemini key, you still get full engine review — "
+                    + "Stockfish's grades, best moves, and evaluations — just no written coaching. "
+                    + "Adding your own free Gemini API key turns that on: the engine still decides "
+                    + "every grade and best move; Gemini just writes about it.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

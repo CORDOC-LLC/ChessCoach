@@ -9,32 +9,32 @@ Play a full game against Stockfish (adjustable strength) with live coaching
 after every move, or paste/import a finished game for a full post-game
 review.
 
-**Everything except the coach's written explanation runs fully on-device,
-always** — Stockfish is compiled directly into the app (via
+**The engine always runs fully on-device** — Stockfish is compiled directly
+into the app (via
 [chesskit-engine](https://github.com/chesskit-app/chesskit-engine)), so every
 move evaluation, grade, best-move calculation, and opening lookup happens
-locally with no network involved, full stop. The *explanation* text is the
-one piece that can come from a network call, and only if you've opted into
-one:
+locally with no network involved, full stop. The coach's *written
+explanation* is the one piece that requires a network call — there is no
+on-device coach model (Apple Foundation Models and Gemma 3n via MLX were both
+tried and dropped; quality wasn't good enough to ship). You opt into one of:
 
 1. **ChessCoach Pro** (developer-hosted, metered) — if configured
 2. **Your own Gemini API key** (BYOK) — if you've added one in Coach Settings
-3. **On-device** — Apple Foundation Models, or Gemma 3n via MLX as a fallback
-   on devices without Apple Intelligence
 
-If a network-based backend (1 or 2) fails, **the app shows the error — it
-does not silently fall back to the on-device model.** That's deliberate: a
-silent fallback would hide a real problem (a bad deploy, an expired key, a
-network outage) behind output that looks fine but quietly downgraded. The
-engine-only review always still works regardless; only the coach's prose is
-affected.
+If neither is configured, the app still gives full engine review — grades,
+best moves, evaluations — just without written coaching.
+
+If a configured backend fails, **the app shows the error — it does not
+silently fall back to a different backend.** That's deliberate: a silent
+fallback would hide a real problem (a bad deploy, an expired key, a network
+outage) behind output that looks fine but quietly downgraded. The engine-only
+review always still works regardless; only the coach's prose is affected.
 
 A native Swift reimplementation of
 [tintins-chess-analysis](https://github.com/Chess-analysis-mcp/tintins-chess-analysis).
 The defining contract, inherited from that project: **Stockfish computes; the
 model only explains.** The LLM never reasons about chess — it turns
-pre-computed engine facts into plain-English coaching, which is what makes a
-small on-device model viable.
+pre-computed engine facts into plain-English coaching.
 
 ## What it does
 
@@ -64,14 +64,11 @@ small on-device model viable.
 
 - `Sources/GemmaChessCore/` — the cross-platform core (SwiftPM package):
   chess rules, the Stockfish engine wrapper, evaluation math, the coach
-  prompt builder, all four `CoachLLM` backends (`ManagedCoach`, `GeminiCoach`,
-  `FoundationModelsCoach`, plus `MLXGemmaCoach` in the package below), and all
-  SwiftUI views/view models. Both app targets are thin shells over this
-  package.
+  prompt builder, both `CoachLLM` backends (`ManagedCoach`, `GeminiCoach`),
+  and all SwiftUI views/view models. Both app targets are thin shells over
+  this package.
 - `Apps/GemmaChessiOS/`, `Apps/GemmaChessMac/` — the iOS and macOS app
   targets (UI wiring only — no logic lives here).
-- `GemmaChessGemma/` — the Gemma-via-MLX coach backend, a separate SwiftPM
-  package so devices without Apple Intelligence still get an on-device coach.
 - `Tests/GemmaChessCoreTests/` — Swift Testing suite (163 tests).
 - `docs/plans/` — implementation plans, kept as historical design records.
 
@@ -119,6 +116,6 @@ into the app binary (via
 makes the whole combined binary a single GPLv3 work — so the full app source,
 this repository, is released under GPLv3 too. See `LICENSE` for the full text
 and `NOTICE.md` for every third-party component and its license (Stockfish,
-chesskit-swift/engine, the Lichess `chess-openings` dataset, Apple Foundation
-Models, and Gemma). The same information is available in-app under
-**Open Source Licenses** on the home screen.
+chesskit-swift/engine, the Lichess `chess-openings` dataset). The same
+information is available in-app under **Open Source Licenses** on the home
+screen.
