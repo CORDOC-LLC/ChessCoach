@@ -93,6 +93,9 @@ public struct PlayView: View {
             }
         }
         .padding(.bottom, 8)
+        .onChange(of: settings.showCoach, initial: true) { _, showCoach in
+            vm.coachDisplayEnabled = showCoach
+        }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif

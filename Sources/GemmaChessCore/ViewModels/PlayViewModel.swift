@@ -136,9 +136,16 @@ public final class PlayViewModel {
     // MARK: Derived
     public var orientation: BoardOrientation { playerIsWhite ? .white : .black }
     public var legalDots: [Square] { selected.flatMap { dests[$0] } ?? [] }
+    /// Mirrors the "Coach" show/hide toggle in the ⋯ menu (`PlayDisplaySettings.
+    /// showCoach`, wired in by the view). Folded into `coachEnabled` itself —
+    /// not just hiding the card — so turning the coach off actually stops the
+    /// per-move note, hint rationale, chat, and end-of-game debrief network
+    /// calls, instead of just hiding their output.
+    public var coachDisplayEnabled: Bool = true
+
     public var coachEnabled: Bool {
         if case .unavailable = coachAvailability { return false }
-        return true
+        return coachDisplayEnabled
     }
 
     /// True when the user is browsing a past position rather than the live game.
