@@ -35,6 +35,10 @@ public struct CoachSettingsView: View {
                     .keyboardType(.URL)
                     #endif
                     .autocorrectionDisabled()
+                if backendURL != managedCoachProductionURL {
+                    Button("Use api.chesscoach.im") { backendURL = managedCoachProductionURL }
+                        .font(.caption)
+                }
                 SecureField("Debug bypass token (optional)", text: $debugToken)
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
