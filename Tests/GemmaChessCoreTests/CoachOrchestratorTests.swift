@@ -1,7 +1,7 @@
 //  CoachOrchestratorTests.swift
-//  Covers U16 (orchestrator routing + engine→facts→prompt wiring) and U14
-//  (Foundation Models availability gating). Model output itself is device-
-//  dependent, so a mock backend echoes the (system, prompt) it receives.
+//  Covers U16 (orchestrator routing + engine→facts→prompt wiring). Model output
+//  itself is backend-dependent, so a mock backend echoes the (system, prompt)
+//  it receives.
 
 import Testing
 @testable import GemmaChessCore
@@ -25,9 +25,9 @@ struct CoachOrchestratorTests {
     func backendSelection() {
         let o = CoachOrchestrator(backends: [
             MockCoach(.unavailable(reason: "no FM")),
-            MockCoach(.gemma),
+            MockCoach(.gemini),
         ])
-        #expect(o.availability == .gemma)
+        #expect(o.availability == .gemini)
     }
 
     @Test("all-unavailable backends -> unavailable + answering throws")
@@ -41,7 +41,7 @@ struct CoachOrchestratorTests {
 
     @Test("answer() grounds the prompt in real engine facts about the move in question")
     func groundsAnswerInEngineFacts() async throws {
-        let o = CoachOrchestrator(backends: [MockCoach(.gemma)])
+        let o = CoachOrchestrator(backends: [MockCoach(.gemini)])
         let reply = try await o.answer(
             question: "Why is g4 bad here?",
             fen: blunderFEN, lastMove: "g4", moveFen: blunderFEN, depth: 12
@@ -56,7 +56,7 @@ struct CoachOrchestratorTests {
 
     @Test("gameSummary() grounds the prompt in the game facts + uses the summary persona")
     func gameSummaryGrounding() async throws {
-        let o = CoachOrchestrator(backends: [MockCoach(.gemma)])
+        let o = CoachOrchestrator(backends: [MockCoach(.gemini)])
         let input = CoachGameInput(
             white: "alice", black: "bob", result: "1-0", opening: "Italian Game",
             speed: "blitz", player: .white, accuracyWhite: 92.7, accuracyBlack: 81.0,
@@ -69,14 +69,5 @@ struct CoachOrchestratorTests {
         #expect(summary.contains("Reviewing White. Accuracy: 92.7%"))
         #expect(summary.contains("cross-game history"))
         #expect(summary.contains("You hang pieces in time trouble."))
-    }
-
-    @Test("FoundationModelsCoach reports a valid availability state without crashing")
-    func fmAvailabilityProbe() {
-        let fm = FoundationModelsCoach()
-        switch fm.availability {
-        case .foundationModels, .gemma, .gemini, .managed, .unavailable:
-            #expect(Bool(true))
-        }
     }
 }

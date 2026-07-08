@@ -1,24 +1,23 @@
 //  CoachLLM.swift
-//  The provider-agnostic seam for the on-device coach.
+//  The provider-agnostic seam for the coach.
 //
-//  Backends (Foundation Models, MLX Gemma) are deliberately "dumb": they take a
-//  system instruction + a fully-composed user prompt and return text. ALL prompt
-//  and fact construction lives in `CoachPromptBuilder` (this file's companion), so
-//  the engine-grounding contract — "Stockfish computes, the model only explains" —
-//  is enforced in one tested place. This mirrors the source project's
-//  `server/claude_bridge.py`, minus the `claude -p` subprocess.
+//  Backends are deliberately "dumb": they take a system instruction + a fully-
+//  composed user prompt and return text. ALL prompt and fact construction lives
+//  in `CoachPromptBuilder` (this file's companion), so the engine-grounding
+//  contract — "Stockfish computes, the model only explains" — is enforced in
+//  one tested place. This mirrors the source project's `server/claude_bridge.py`,
+//  minus the `claude -p` subprocess.
+//
+//  On-device backends (Apple Foundation Models, Gemma via MLX) were tried and
+//  dropped — quality wasn't good enough to ship. Every coach backend is now a
+//  network call (the managed coach or BYOK Gemini); only the engine (Stockfish)
+//  runs on-device.
 
 import Foundation
 
 /// Which coach backend is live for this device/session.
 public enum CoachAvailability: Equatable, Sendable {
-    /// Apple Foundation Models (iOS/macOS 26, Apple-Intelligence devices).
-    case foundationModels
-    /// Local Gemma via MLX (downloaded on first use).
-    case gemma
-    /// Google Gemini (cloud), used with the user's own API key. Explains the same
-    /// engine-grounded facts as the on-device backends, just with noticeably
-    /// better reasoning — opt-in, since it leaves the device.
+    /// Google Gemini (cloud), used with the user's own API key.
     case gemini
     /// The developer-hosted, metered coach (chesscoach-gateway). Same
     /// explanation-only contract as every other backend — the backend's own
@@ -26,8 +25,8 @@ public enum CoachAvailability: Equatable, Sendable {
     /// one directly. Opt-in via subscription (or, for local testing before
     /// U6 wires up RevenueCat, a debug bypass token).
     case managed
-    /// No on-device model fits — the UI hides chat and keeps the engine review.
-    /// `reason` is a short, user-facing explanation.
+    /// No coach backend is configured — the UI hides chat and keeps the engine
+    /// review. `reason` is a short, user-facing explanation.
     case unavailable(reason: String)
 }
 
@@ -43,9 +42,8 @@ public struct CoachReply: Equatable, Sendable {
     }
 }
 
-/// A backend that turns a (system, prompt) pair into coaching text. Implemented by
-/// `FoundationModelsCoach` (U14) and `MLXGemmaCoach` (U15); selected by the
-/// orchestrator (U16).
+/// A backend that turns a (system, prompt) pair into coaching text. Implemented
+/// by `GeminiCoach` and `ManagedCoach`; selected by `CoachOrchestrator`.
 public protocol CoachLLM: Sendable {
     /// The state to show the UI (drives whether chat is offered at all).
     var availability: CoachAvailability { get }

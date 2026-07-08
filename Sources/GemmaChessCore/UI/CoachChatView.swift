@@ -1,5 +1,5 @@
 //  CoachChatView.swift
-//  The on-device coach panel. When no backend is available it degrades to a single
+//  The coach panel. When no backend is available it degrades to a single
 //  line ("Engine review only — …") and hides the input. Otherwise it shows a chat
 //  transcript, an input row, a "Coach summary" action, and a personalization toggle.
 
@@ -19,7 +19,7 @@ public struct CoachChatView: View {
                 Label("Engine review only — \(reason)", systemImage: "info.circle")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            case .foundationModels, .gemma, .gemini, .managed:
+            case .gemini, .managed:
                 coachBody
             }
         }
