@@ -150,6 +150,10 @@ public struct ChessBoardView: View {
     public var selectedSquare: Square?
     public var legalDots: [Square]
     public var onTapSquare: ((Square) -> Void)?
+    /// The checked king's square, when the shown position is check/checkmate --
+    /// draws a pulsing red glow so it's visually obvious which king is in
+    /// trouble, on top of whatever attacker arrows the caller adds.
+    public var checkSquare: Square?
 
     public init(
         fen: String,
@@ -158,13 +162,17 @@ public struct ChessBoardView: View {
         lastMove: (from: Square, to: Square)? = nil,
         selectedSquare: Square? = nil,
         legalDots: [Square] = [],
+        checkSquare: Square? = nil,
         onTapSquare: ((Square) -> Void)? = nil
     ) {
         self.fen = fen; self.orientation = orientation
         self.arrows = arrows; self.lastMove = lastMove
         self.selectedSquare = selectedSquare; self.legalDots = legalDots
+        self.checkSquare = checkSquare
         self.onTapSquare = onTapSquare
     }
+
+    @State private var kingPulse = false
 
     private let light = GemmaTheme.boardLight
     private let dark = GemmaTheme.boardDark
@@ -215,6 +223,14 @@ public struct ChessBoardView: View {
                         Rectangle().fill(isLight ? light : dark)
                         if highlighted || isSelected {
                             Rectangle().fill(isSelected ? Color.green.opacity(0.40) : highlight)
+                        }
+                        if cellSquare != nil && cellSquare == checkSquare {
+                            RadialGradient(
+                                colors: [.red.opacity(0.75), .red.opacity(0)],
+                                center: .center, startRadius: 1, endRadius: sq * 0.65
+                            )
+                            .scaleEffect(kingPulse ? 1.1 : 0.85)
+                            .opacity(kingPulse ? 1 : 0.55)
                         }
                         if let ch = placement[(rank - 1) * 8 + (file - 1)] {
                             // While a piece is sliding in, skip its static copy on the
@@ -279,6 +295,11 @@ public struct ChessBoardView: View {
             } completion: {
                 // Only clear if no newer slide superseded this one.
                 if token == slideToken { slide = nil }
+            }
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                kingPulse = true
             }
         }
     }

@@ -68,6 +68,21 @@ public enum ChessLogic {
         return sideToMoveInCheck(position)
     }
 
+    /// The checked king's square and the opposing piece(s) directly attacking it,
+    /// when the side to move in `fen` is in check (check OR checkmate) -- nil
+    /// otherwise. This is what lets the board actually show WHY it's check/mate,
+    /// not just announce it.
+    public static func checkAttackers(forFEN fen: String) -> (king: Square, attackers: [Square])? {
+        guard let position = Position(fen: fen), sideToMoveInCheck(position) else { return nil }
+        let kingColor = position.sideToMove
+        guard let king = position.pieces.first(where: { $0.color == kingColor && $0.kind == .king })
+        else { return nil }
+        let attackerColor: Piece.Color = kingColor == .white ? .black : .white
+        let attackers = BoardAttacks.attackers(of: attackerColor, on: king.square, in: position)
+        guard !attackers.isEmpty else { return nil }
+        return (king.square, attackers)
+    }
+
     /// The status (normal / check / checkmate / stalemate) of the side to move in
     /// `fen`, or `nil` if the FEN is invalid.
     ///

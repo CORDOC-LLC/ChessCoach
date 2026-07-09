@@ -72,6 +72,17 @@ public final class PlayViewModel {
     public var isCoaching: Bool = false
     public var gameOver: Bool = false
     public var resultText: String?
+
+    /// How the finished game went for the user -- drives the game-over banner's
+    /// icon/color. Derived from `resultText`'s own wording rather than tracked
+    /// separately, since `checkGameOver`/`resign` already set it precisely.
+    public enum Outcome: Equatable, Sendable { case win, loss, draw }
+    public var outcome: Outcome? {
+        guard gameOver, let resultText else { return nil }
+        if resultText.contains("you win") { return .win }
+        if resultText.contains("you lose") || resultText == "You resigned." { return .loss }
+        return .draw
+    }
     /// Opponent strength: Stockfish "Skill Level" 0–20.
     public var skill: Int = 6
     public var coachAvailability: CoachAvailability
