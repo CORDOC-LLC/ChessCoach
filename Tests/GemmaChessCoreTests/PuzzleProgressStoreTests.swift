@@ -31,4 +31,16 @@ struct PuzzleProgressStoreTests {
         #expect(PuzzleProgressStore.solvedIDs(theme: "fork", defaults: d) == ["abc12", "xyz99"])
         #expect(PuzzleProgressStore.solvedIDs(theme: "pin", defaults: d) == ["abc12"])
     }
+
+    @Test("resetAll clears every theme's progress (Settings' reset action)")
+    func resetAllClearsEveryTheme() {
+        let d = freshDefaults()
+        PuzzleProgressStore.markSolved("abc12", theme: "fork", defaults: d)
+        PuzzleProgressStore.markSolved("abc12", theme: "pin", defaults: d)
+
+        PuzzleProgressStore.resetAll(defaults: d)
+
+        #expect(PuzzleProgressStore.solvedIDs(theme: "fork", defaults: d).isEmpty)
+        #expect(PuzzleProgressStore.solvedIDs(theme: "pin", defaults: d).isEmpty)
+    }
 }

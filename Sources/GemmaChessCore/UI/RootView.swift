@@ -48,6 +48,7 @@ public struct GemmaRootView: View {
                     mode = .play
                 })
                 .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
+                .toolbar { settingsToolbarItem }
             case .savedGames:
                 SavedGamesView(onSelect: { saved in
                     play.load(saved)
@@ -55,6 +56,7 @@ public struct GemmaRootView: View {
                     mode = .play
                 })
                 .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
+                .toolbar { settingsToolbarItem }
             case .puzzles:
                 PuzzlesContainerView(vm: puzzles, onExit: { mode = .home })
             }
@@ -74,11 +76,21 @@ public struct GemmaRootView: View {
         if review.session == nil {
             LoadView(vm: review)
                 .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
+                .toolbar { settingsToolbarItem }
         } else {
             ReviewScreen(vm: review, onNewGame: { review.session = nil })
                 .toolbar { ToolbarItem(placement: .topBarLeadingCompat) {
                     Button("Home") { review.session = nil; mode = .home }
                 } }
+                .toolbar { settingsToolbarItem }
+        }
+    }
+
+    /// A trailing gear icon to the app-wide Settings hub -- added to every
+    /// screen's toolbar so it's reachable from anywhere, not just Home.
+    private var settingsToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailingCompat) {
+            NavigationLink(destination: SettingsView()) { Image(systemName: "gearshape") }
         }
     }
 }
@@ -91,9 +103,8 @@ struct HomeView: View {
     var onResume: () -> Void
     var onMyGames: () -> Void
     var onPuzzles: () -> Void
-    @State private var showLicenses = false
-    @State private var showCoachSettings = false
     @State private var showBeginners = false
+    @State private var showSettings = false
     /// "Scan a board" needs the managed coach (ChessCoach Pro) — a photo has
     /// to go over the network to be read, unlike everything else in the app.
     private var scanEnabled: Bool { ManagedCoachStore.loadBackendURL() != nil }
@@ -111,12 +122,23 @@ struct HomeView: View {
         }
         .frame(maxWidth: 460)
         .frame(maxWidth: .infinity)
+        .overlay(alignment: .topTrailing) {
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .frame(width: 34, height: 34)
+                    .gemmaGlassPill()
+            }
+            .buttonStyle(PressableStyle())
+            .padding(.top, 8)
+            .padding(.trailing, 16)
+        }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
-        .navigationDestination(isPresented: $showLicenses) { LicensesView() }
-        .navigationDestination(isPresented: $showCoachSettings) { CoachSettingsView() }
         .navigationDestination(isPresented: $showBeginners) { BeginnersView() }
+        .navigationDestination(isPresented: $showSettings) { SettingsView() }
     }
 
     private var header: some View {
@@ -189,26 +211,6 @@ struct HomeView: View {
                 Text("Games are saved on this device only")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.4))
-            }
-
-            Divider()
-                .overlay(Color.white.opacity(0.08))
-                .padding(.vertical, 6)
-
-            HStack(spacing: 16) {
-                Button { showCoachSettings = true } label: {
-                    Text("Coach Settings")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-                .buttonStyle(.plain)
-
-                Button { showLicenses = true } label: {
-                    Text("Open Source Licenses")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 32)

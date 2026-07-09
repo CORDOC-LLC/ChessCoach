@@ -1,0 +1,103 @@
+//  SettingsView.swift
+//  The app-wide Settings hub, reachable from a gear icon on Home and from
+//  every other screen's toolbar. Consolidates the per-game Play toggles
+//  (also editable from Play's own ⋯ menu mid-game -- both read/write the
+//  same UserDefaults-backed PlayDisplaySettings, so they stay in sync),
+//  the coach backend config, and on-device data management.
+
+import SwiftUI
+
+public struct SettingsView: View {
+    @State private var settings = PlayDisplaySettings()
+    @State private var showClearGamesConfirm = false
+    @State private var showResetPuzzlesConfirm = false
+    @State private var clearedGames = false
+    @State private var resetPuzzles = false
+
+    public init() {}
+
+    public var body: some View {
+        Form {
+            Section {
+                Stepper("Default engine strength: \(settings.defaultEngineSkill)/20",
+                        value: $settings.defaultEngineSkill, in: 0...20)
+            } header: {
+                Text("New games")
+            } footer: {
+                Text("Preselected the next time you start a game -- remembers whatever you last played at.")
+            }
+
+            Section {
+                Toggle(isOn: $settings.showCaptured) { Label("Captured pieces", systemImage: "trophy") }
+                Toggle(isOn: $settings.showMoveList) { Label("Move list", systemImage: "list.bullet") }
+                Toggle(isOn: $settings.showMoveComments) {
+                    Label("Best moves", systemImage: "chart.bar.fill")
+                }
+                Toggle(isOn: $settings.showOpening) {
+                    Label("Opening name", systemImage: "book.closed.fill")
+                }
+            } header: {
+                Text("Play mode")
+            } footer: {
+                Text("These are all free -- Stockfish and the local opening book, no network involved.")
+            }
+
+            Section {
+                Toggle(isOn: $settings.showCoach) {
+                    Label("Coach", systemImage: "bubble.left.fill")
+                }
+                NavigationLink {
+                    CoachSettingsView()
+                } label: {
+                    Label("Coach backend (ChessCoach Pro / Gemini)", systemImage: "gearshape.2")
+                }
+            } header: {
+                Text("Coach")
+            } footer: {
+                Text("The written explanation, chat, and end-of-game debrief are the only things "
+                    + "that use Gemini credits. Turn Coach off to keep everything else free.")
+            }
+
+            Section("On-device data") {
+                Button(role: .destructive) { showClearGamesConfirm = true } label: {
+                    Label("Clear all saved games", systemImage: "trash")
+                }
+                if clearedGames {
+                    Label("Cleared.", systemImage: "checkmark.circle.fill")
+                        .font(.footnote).foregroundStyle(GemmaTheme.accent)
+                }
+                Button(role: .destructive) { showResetPuzzlesConfirm = true } label: {
+                    Label("Reset puzzle progress", systemImage: "arrow.counterclockwise")
+                }
+                if resetPuzzles {
+                    Label("Reset.", systemImage: "checkmark.circle.fill")
+                        .font(.footnote).foregroundStyle(GemmaTheme.accent)
+                }
+            }
+
+            Section {
+                NavigationLink("Open Source Licenses") { LicensesView() }
+                NavigationLink("New to chess?") { BeginnersView() }
+            }
+        }
+        .navigationTitle("Settings")
+        .confirmationDialog(
+            "Delete every saved game? This can't be undone.",
+            isPresented: $showClearGamesConfirm, titleVisibility: .visible
+        ) {
+            Button("Delete All", role: .destructive) {
+                SavedGameStore.deleteAll()
+                clearedGames = true
+            }
+        }
+        .confirmationDialog(
+            "Reset progress on every puzzle theme? Solved puzzles will show up again.",
+            isPresented: $showResetPuzzlesConfirm, titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                PuzzleProgressStore.resetAll()
+                resetPuzzles = true
+            }
+        }
+    }
+}
