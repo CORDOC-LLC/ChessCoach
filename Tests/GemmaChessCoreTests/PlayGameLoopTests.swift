@@ -90,8 +90,8 @@ struct PlayGameLoopTests {
         #expect(vm.displayFEN == vm.fen)
     }
 
-    @Test("retry rewinds the user's flagged move and the engine's reply")
-    func retryRewindsFlaggedMove() async throws {
+    @Test("undo rewinds the user's move and the engine's reply, regardless of grade")
+    func undoRewindsLastRound() async throws {
         let vm = PlayViewModel.forTesting()
         vm.skill = 1
         vm.newGame(asWhite: true)
@@ -100,16 +100,11 @@ struct PlayGameLoopTests {
         vm.tap(e2); vm.tap(e4)
         _ = await wait { vm.lastVerdict != nil && vm.moves.count >= 2 && !vm.engineThinking }
 
-        // A best/good move offers no retry.
-        if let v = vm.lastVerdict, ["best", "good"].contains(v.classification.lowercased()) {
-            #expect(!vm.canRetry)
-        }
-        // Force a flagged grade (grading is the engine's job; retry only reads it).
-        vm.lastVerdict = MoveVerdict(moveSAN: "e4", classification: "blunder",
-                                     isBest: false, betterMoveSAN: "d4")
-        #expect(vm.canRetry)
+        // Undo has no classification gate -- available for best moves too, since
+        // this is about learning, not defending a good score.
+        #expect(vm.canUndo)
 
-        vm.retryLastMove()
+        vm.undoLastMove()
         // Both plies gone; back to the start, user to move, nothing graded.
         #expect(vm.moves.isEmpty)
         #expect(vm.sanMoves.isEmpty)
@@ -120,12 +115,39 @@ struct PlayGameLoopTests {
         #expect(vm.lastCoachNote == nil)
         #expect(vm.moveRecords.isEmpty)
         #expect(!vm.gameOver)
-        #expect(!vm.canRetry)          // one rewind per snapshot
+        #expect(!vm.canUndo)           // nothing left to undo
         #expect(vm.userToMove)
 
         // The board is fully playable again.
         vm.tap(e2)
         #expect(vm.selected == e2)
+    }
+
+    @Test("undo is repeatable -- multiple rounds can be taken back in a row")
+    func undoIsRepeatable() async throws {
+        let vm = PlayViewModel.forTesting()
+        vm.skill = 1
+        vm.newGame(asWhite: true)
+        let e2 = try #require(BoardGeometry.square("e2"))
+        let e4 = try #require(BoardGeometry.square("e4"))
+        let d2 = try #require(BoardGeometry.square("d2"))
+        let d4 = try #require(BoardGeometry.square("d4"))
+
+        vm.tap(e2); vm.tap(e4)
+        _ = await wait { vm.moves.count >= 2 && !vm.engineThinking }
+        vm.tap(d2); vm.tap(d4)
+        _ = await wait { vm.moves.count >= 4 && !vm.engineThinking }
+        #expect(vm.moveRecords.count == 2)
+
+        vm.undoLastMove()
+        #expect(vm.moves.count == 2)
+        #expect(vm.moveRecords.count == 1)
+        #expect(vm.canUndo)             // one more round left to take back
+
+        vm.undoLastMove()
+        #expect(vm.moves.isEmpty)
+        #expect(vm.moveRecords.isEmpty)
+        #expect(!vm.canUndo)            // back to the very start
     }
 
     @Test("graded user moves accumulate into the summary records")

@@ -120,9 +120,7 @@ public final class PlayViewModel {
     public var isSummarizing = false
     /// Every graded user move this game — the inputs to the end-of-game summary.
     private(set) var moveRecords: [CoachPromptBuilder.PlayMoveRecord] = []
-    /// Snapshot taken before each user move so "try again" can rewind to it.
-    private var retryBase: (fen: String, moveCount: Int)?
-    /// Bumped by retry/new game so in-flight verdict/note/summary tasks abandon
+    /// Bumped by undo/new game so in-flight verdict/note/summary tasks abandon
     /// their writes instead of scribbling on the rewound game.
     private var moveGen = 0
 
@@ -329,7 +327,6 @@ public final class PlayViewModel {
         gameSummary = nil
         isSummarizing = false
         moveRecords = []
-        retryBase = nil
         moveGen += 1
         chat = []
         isAsking = false
@@ -380,8 +377,6 @@ public final class PlayViewModel {
         let uci = uci(from: from, to: to, in: fromFEN)
         guard let afterFEN = ChessLogic.fen(afterMove: uci, fromFEN: fromFEN) else { return }
 
-        // The rewind point for "try again": the position before this move.
-        retryBase = (fen: fromFEN, moveCount: moves.count)
         let moveNumber = moves.count / 2 + 1
         let userPly = moves.count   // this move's index, once appended below
         fen = afterFEN
@@ -431,29 +426,30 @@ public final class PlayViewModel {
         }
     }
 
-    // MARK: Try again (the blunder-retry teaching loop)
+    // MARK: Undo (unlimited -- this app is about learning, not defending a score)
 
-    /// True when the last graded move can be taken back and retried: it lost ground
-    /// (inaccuracy or worse) and the engine isn't mid-reply. Works after game over
-    /// too — undoing the losing blunder un-ends the game.
-    public var canRetry: Bool {
-        guard let v = lastVerdict, retryBase != nil, !engineThinking, !isViewingHistory else { return false }
-        return ["inaccuracy", "mistake", "blunder"].contains(v.classification.lowercased())
+    /// True whenever there's a move to take back: the engine isn't mid-reply and
+    /// you're not browsing history. Unlike the old "retry", this has no
+    /// classification gate and no one-use limit — undo any move, as many times
+    /// in a row as you like, all the way back to the start of the game. Works
+    /// after game over too — undoing the losing move un-ends the game.
+    public var canUndo: Bool {
+        !moves.isEmpty && !engineThinking && !isViewingHistory
     }
 
-    /// Rewind to just before your last move so you can find the better one yourself —
-    /// the strongest teaching loop there is. Removes your move (and the engine's
-    /// reply, if made) from the game; any in-flight coach work is abandoned.
-    public func retryLastMove() {
-        guard canRetry, let base = retryBase else { return }
+    /// Take back the last full round — your move, plus the engine's reply if it
+    /// got to make one (a mate/stalemate on your own move ends the game before
+    /// the engine replies, so there's nothing of its to pop). Callable
+    /// repeatedly; any in-flight coach work for the undone round is abandoned.
+    public func undoLastMove() {
+        guard canUndo else { return }
         moveGen += 1
-        fen = base.fen
-        moves = Array(moves.prefix(base.moveCount))
-        sanMoves = Array(sanMoves.prefix(base.moveCount))
-        fenHistory = Array(fenHistory.prefix(base.moveCount + 1))
-        moveRecords.removeLast()          // canRetry ⇒ the retried move was recorded
-        moveNotes.removeValue(forKey: base.moveCount)   // the retried ply's note, if any
-        retryBase = nil                   // one rewind per snapshot
+        if !moves.isEmpty, !isUserPly(moves.count - 1) {
+            popLastPly(wasUserMove: false)   // the engine's reply
+        }
+        if !moves.isEmpty {
+            popLastPly(wasUserMove: true)    // your move
+        }
         lastMove = moves.last.flatMap { squares(fromUCI: $0) }
         selected = nil
         viewingPly = nil
@@ -466,10 +462,30 @@ public final class PlayViewModel {
         resultText = nil
         gameSummary = nil
         isSummarizing = false
-        status = "Your move — find a better one"
+        status = "Your move"
         refreshDests()
         refreshEval()
         persistCheckpoint()
+    }
+
+    /// Whether ply `i` (0-based index into `moves`) was played by the user,
+    /// as opposed to the engine.
+    private func isUserPly(_ i: Int) -> Bool { (i % 2 == 0) == playerIsWhite }
+
+    /// Remove the most recent ply from every parallel array. `wasUserMove`
+    /// controls whether the matching `moveRecords`/`moveNotes` entry (which
+    /// only exists for the user's own moves) is trimmed too.
+    private func popLastPly(wasUserMove: Bool) {
+        guard !moves.isEmpty else { return }
+        let poppedIndex = moves.count - 1
+        moves.removeLast()
+        sanMoves.removeLast()
+        fenHistory.removeLast()
+        fen = fenHistory.last ?? Self.startFEN
+        if wasUserMove {
+            if !moveRecords.isEmpty { moveRecords.removeLast() }
+            moveNotes.removeValue(forKey: poppedIndex)
+        }
     }
 
     // MARK: End-of-game summary
@@ -591,7 +607,6 @@ public final class PlayViewModel {
         hint = nil
         selected = nil
         viewingPly = nil
-        retryBase = nil
         isCoaching = false
         isSummarizing = false
         chat = []
