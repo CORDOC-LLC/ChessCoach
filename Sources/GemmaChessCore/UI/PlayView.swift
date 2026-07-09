@@ -119,10 +119,12 @@ public struct PlayView: View {
             // Only on a LIVE transition into game-over (see the onChange below) --
             // reopening an already-finished game (My Games) shouldn't replay this.
             if showGameOverBanner, let outcome = vm.outcome {
-                GameOverBanner(resultText: vm.resultText ?? "Game over", outcome: outcome) {
+                GameOverBanner(
+                    resultText: vm.resultText ?? "Game over", outcome: outcome, stats: vm.stats
+                ) {
                     withAnimation(.easeOut(duration: 0.25)) { showGameOverBanner = false }
                 }
-                .transition(.scale(scale: 0.85).combined(with: .opacity))
+                .transition(AnyTransition.scale(scale: 0.85).combined(with: .opacity))
             }
         }
         .onChange(of: vm.gameOver) { _, isOver in
@@ -517,7 +519,8 @@ public struct PlayView: View {
 /// position, with the check/checkmate arrows if it ended that way).
 struct GameOverBanner: View {
     let resultText: String
-    let outcome: PlayViewModel.Outcome
+    let outcome: PlayOutcome
+    let stats: PlayStats
     var onDismiss: () -> Void
 
     @State private var appeared = false
@@ -536,6 +539,10 @@ struct GameOverBanner: View {
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.75))
                 .multilineTextAlignment(.center)
+            Text("\(stats.wins)W · \(stats.losses)L · \(stats.draws)D")
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.top, 4)
             Text("Tap to dismiss")
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.4))
