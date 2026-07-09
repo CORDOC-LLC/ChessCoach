@@ -76,13 +76,15 @@ public final class PlayViewModel {
     /// How the finished game went for the user -- drives the game-over banner's
     /// icon/color. Derived from `resultText`'s own wording rather than tracked
     /// separately, since `checkGameOver`/`resign` already set it precisely.
-    public enum Outcome: Equatable, Sendable { case win, loss, draw }
-    public var outcome: Outcome? {
+    public var outcome: PlayOutcome? {
         guard gameOver, let resultText else { return nil }
         if resultText.contains("you win") { return .win }
         if resultText.contains("you lose") || resultText == "You resigned." { return .loss }
         return .draw
     }
+    /// Lifetime win/loss/draw tally, shown in the game-over banner and Settings.
+    /// Updated (and persisted) the instant a game actually ends.
+    public private(set) var stats: PlayStats
     /// Opponent strength: Stockfish "Skill Level" 0–20.
     public var skill: Int = 6
     public var coachAvailability: CoachAvailability
@@ -159,16 +161,21 @@ public final class PlayViewModel {
     /// private) so tests can point `SavedGameStore` calls at the same values.
     let savedGamesBaseDir: URL
     let savedGamesDefaults: UserDefaults
+    /// Where the lifetime win/loss/draw tally is persisted -- likewise injectable.
+    let statsDefaults: UserDefaults
 
     public init(
         coach: CoachOrchestrator = CoachOrchestrator(),
         savedGamesBaseDir: URL = SavedGameStore.defaultBaseDir,
-        savedGamesDefaults: UserDefaults = .standard
+        savedGamesDefaults: UserDefaults = .standard,
+        statsDefaults: UserDefaults = .standard
     ) {
         self.coach = coach
         self.coachAvailability = coach.availability
         self.savedGamesBaseDir = savedGamesBaseDir
         self.savedGamesDefaults = savedGamesDefaults
+        self.statsDefaults = statsDefaults
+        self.stats = PlayStatsStore.current(defaults: statsDefaults)
     }
 
     // MARK: Derived
@@ -367,6 +374,7 @@ public final class PlayViewModel {
         resultText = "You resigned."
         status = resultText!
         startGameSummary()
+        recordOutcome()
         persistCheckpoint()
     }
 
@@ -780,6 +788,7 @@ public final class PlayViewModel {
             resultText = matedIsUser ? "Checkmate — you lose." : "Checkmate — you win! 🎉"
             status = resultText!
             startGameSummary()
+            recordOutcome()
             persistCheckpoint()
             return true
         case .stalemate:
@@ -787,11 +796,21 @@ public final class PlayViewModel {
             resultText = "Stalemate — it's a draw."
             status = resultText!
             startGameSummary()
+            recordOutcome()
             persistCheckpoint()
             return true
         default:
             return false
         }
+    }
+
+    /// Tallies the just-finished game into the lifetime win/loss/draw stats.
+    /// Called from `checkGameOver`/`resign` exactly once per real ending --
+    /// never from `load(_:)`, so reopening an already-finished saved game for
+    /// replay doesn't double-count it.
+    private func recordOutcome() {
+        guard let outcome else { return }
+        stats = PlayStatsStore.record(outcome, defaults: statsDefaults)
     }
 
     private func notation(_ sq: Square) -> String {

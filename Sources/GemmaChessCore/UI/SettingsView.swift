@@ -9,8 +9,10 @@ import SwiftUI
 
 public struct SettingsView: View {
     @State private var settings = PlayDisplaySettings()
+    @State private var stats = PlayStatsStore.current()
     @State private var showClearGamesConfirm = false
     @State private var showResetPuzzlesConfirm = false
+    @State private var showResetStatsConfirm = false
     @State private var clearedGames = false
     @State private var resetPuzzles = false
 
@@ -18,6 +20,19 @@ public struct SettingsView: View {
 
     public var body: some View {
         Form {
+            if stats.totalGames > 0 {
+                Section("Statistics") {
+                    HStack {
+                        statColumn("Wins", stats.wins, GemmaTheme.accent)
+                        statColumn("Losses", stats.losses, .red)
+                        statColumn("Draws", stats.draws, .white.opacity(0.7))
+                    }
+                    Button(role: .destructive) { showResetStatsConfirm = true } label: {
+                        Label("Reset statistics", systemImage: "arrow.counterclockwise")
+                    }
+                }
+            }
+
             Section {
                 Stepper("Default engine strength: \(settings.defaultEngineSkill)/20",
                         value: $settings.defaultEngineSkill, in: 0...20)
@@ -99,5 +114,22 @@ public struct SettingsView: View {
                 resetPuzzles = true
             }
         }
+        .confirmationDialog(
+            "Reset your win/loss/draw record? This can't be undone.",
+            isPresented: $showResetStatsConfirm, titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                PlayStatsStore.resetAll()
+                stats = PlayStatsStore.current()
+            }
+        }
+    }
+
+    private func statColumn(_ label: String, _ value: Int, _ color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text("\(value)").font(.title2.weight(.bold).monospacedDigit()).foregroundStyle(color)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 }

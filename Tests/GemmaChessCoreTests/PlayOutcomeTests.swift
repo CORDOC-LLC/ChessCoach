@@ -34,12 +34,18 @@ struct PlayOutcomeTests {
         #expect(vm.outcome == .loss)
     }
 
-    @Test("resigning is .loss")
+    @Test("resigning is .loss and records exactly one loss in stats")
     func resigning() {
         let vm = PlayViewModel.forTesting()
         vm.newGame(asWhite: true)
+        let before = vm.stats
         vm.resign()
         #expect(vm.outcome == .loss)
+        #expect(vm.stats.losses == before.losses + 1)
+
+        // Resigning an already-finished game is a no-op -- no double count.
+        vm.resign()
+        #expect(vm.stats.losses == before.losses + 1)
     }
 
     @Test("stalemate is .draw")

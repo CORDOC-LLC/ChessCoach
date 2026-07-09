@@ -15,7 +15,9 @@ extension PlayViewModel {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("PlayViewModelTests-\(token)", isDirectory: true)
         let defaults = UserDefaults(suiteName: "PlayViewModelTests-\(token)")!
-        return PlayViewModel(coach: coach, savedGamesBaseDir: dir, savedGamesDefaults: defaults)
+        let statsDefaults = UserDefaults(suiteName: "PlayViewModelStatsTests-\(token)")!
+        return PlayViewModel(
+            coach: coach, savedGamesBaseDir: dir, savedGamesDefaults: defaults, statsDefaults: statsDefaults)
     }
 }
 
