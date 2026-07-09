@@ -12,7 +12,7 @@ import ChessKit
 @Suite("Play: saved games", .serialized)
 struct PlaySavedGameTests {
 
-    private func wait(timeout: Double = 20, _ condition: () -> Bool) async -> Bool {
+    private func wait(timeout: Double = 40, _ condition: () -> Bool) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() { return true }

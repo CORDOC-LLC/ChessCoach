@@ -86,11 +86,18 @@ public struct PlayView: View {
                     .frame(maxHeight: 132)
                     .padding(.horizontal, 12)
             }
+            if settings.showOpening, let opening = vm.opening {
+                openingRow(opening)
+            }
+            if settings.showMoveComments {
+                bestMovesCard
+                    .padding(.horizontal, 12)
+            }
             if settings.showCoach {
                 coachCard
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.horizontal, 12)
-            } else {
+            } else if !settings.showMoveComments {
                 Spacer(minLength: 0)
             }
         }
@@ -200,7 +207,9 @@ public struct PlayView: View {
             Section("Show") {
                 Toggle(isOn: $settings.showCaptured) { Label("Captured pieces", systemImage: "trophy") }
                 Toggle(isOn: $settings.showMoveList) { Label("Move list", systemImage: "list.bullet") }
-                Toggle(isOn: $settings.showCoach) { Label("Coach", systemImage: "bubble.left.fill") }
+                Toggle(isOn: $settings.showMoveComments) { Label("Best moves", systemImage: "chart.bar.fill") }
+                Toggle(isOn: $settings.showOpening) { Label("Opening name", systemImage: "book.closed.fill") }
+                Toggle(isOn: $settings.showCoach) { Label("Coach (uses credits)", systemImage: "bubble.left.fill") }
             }
             Section {
                 Button { onNewGame() } label: { Label("New game", systemImage: "arrow.counterclockwise") }
@@ -285,20 +294,36 @@ public struct PlayView: View {
         }
     }
 
-    // MARK: Coach card (verdict + focus line)
+    // MARK: Opening name (free -- local Lichess book lookup, no network)
 
-    private var coachCard: some View {
+    /// The named opening the game has followed so far ("London System · A45"),
+    /// refined live as the line deepens — a persistent teaching label, so the
+    /// user learns what their setup is called while they play it. Entirely
+    /// independent of the Coach toggle: this never touches the network.
+    private func openingRow(_ opening: Openings.Opening) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "book.closed.fill")
+                .font(.caption2).foregroundStyle(GemmaTheme.gold)
+            Text("\(opening.name) · \(opening.eco)")
+                .font(.caption).foregroundStyle(.white.opacity(0.7))
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: Best Moves card (verdict + top-3 candidates + retry — all engine-
+    // only, free, no Gemini/network involved)
+
+    private var bestMovesCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "graduationcap.fill").foregroundStyle(GemmaTheme.accent).font(.footnote)
-                Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Image(systemName: "chart.bar.fill").foregroundStyle(GemmaTheme.gold).font(.footnote)
+                Text("Best Moves").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 if let v = vm.lastVerdict { verdictChip(v) }
                 Spacer(minLength: 4)
-                if vm.isCoaching || vm.isSummarizing {
-                    ProgressView().controlSize(.small)
-                }
                 // The teach-back loop: after a graded slip, take the move back and
-                // find the better one yourself.
+                // find the better one yourself. Free — grading is engine-only.
                 if vm.canRetry {
                     Button { vm.retryLastMove() } label: {
                         Label("Retry", systemImage: "arrow.uturn.backward")
@@ -308,6 +333,47 @@ public struct PlayView: View {
                     }
                     .buttonStyle(PressableStyle())
                 }
+            }
+            if vm.topMoves.isEmpty {
+                Text("Play a move to see how the engine judged it, and its top 3 choices here.")
+                    .font(.footnote).foregroundStyle(.white.opacity(0.6))
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(vm.topMoves.enumerated()), id: \.offset) { index, line in
+                        HStack(spacing: 8) {
+                            Text("\(index + 1).")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.4))
+                                .frame(width: 16, alignment: .trailing)
+                            Text(line.lineSAN.first ?? "—")
+                                .font(.callout.weight(.semibold))
+                                .foregroundStyle(.white)
+                            Spacer(minLength: 8)
+                            Text(line.eval)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .gemmaGlass(cornerRadius: 16)
+    }
+
+    // MARK: Coach card (written explanation + chat — the ONLY piece that spends
+    // Gemini credits)
+
+    private var coachCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "graduationcap.fill").foregroundStyle(GemmaTheme.accent).font(.footnote)
+                Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Spacer(minLength: 4)
+                if vm.isCoaching || vm.isSummarizing {
+                    ProgressView().controlSize(.small)
+                }
                 if vm.coachEnabled {
                     Button { showChat = true } label: {
                         Label("Ask", systemImage: "bubble.left.and.bubble.right.fill")
@@ -316,18 +382,6 @@ public struct PlayView: View {
                             .foregroundStyle(GemmaTheme.accent)
                     }
                     .buttonStyle(PressableStyle())
-                }
-            }
-            // The named opening the game has followed so far ("London System · A45"),
-            // refined live as the line deepens — a persistent teaching label, so the
-            // user learns what their setup is called while they play it.
-            if let opening = vm.opening {
-                HStack(spacing: 5) {
-                    Image(systemName: "book.closed.fill")
-                        .font(.caption2).foregroundStyle(GemmaTheme.gold)
-                    Text("\(opening.name) · \(opening.eco)")
-                        .font(.caption).foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1).minimumScaleFactor(0.7)
                 }
             }
             // The focus line scrolls within the card's bounds so a long note never
