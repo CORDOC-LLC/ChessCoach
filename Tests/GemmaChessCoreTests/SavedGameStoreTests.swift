@@ -66,6 +66,22 @@ struct SavedGameStoreTests {
         #expect(SavedGameStore.loadAll(baseDir: dir).isEmpty)
     }
 
+    @Test("deleteAll removes every saved game and clears the in-progress pointer")
+    func deleteAllClearsEverythingAndThePointer() throws {
+        let dir = tempBaseDir()
+        let defaults = UserDefaults(suiteName: "SavedGameStoreTests-\(UUID().uuidString)")!
+        let a = sample()
+        let b = sample()
+        try SavedGameStore.save(a, baseDir: dir)
+        try SavedGameStore.save(b, baseDir: dir)
+        SavedGameStore.setInProgressGameID(a.id, defaults: defaults)
+
+        SavedGameStore.deleteAll(baseDir: dir, defaults: defaults)
+
+        #expect(SavedGameStore.loadAll(baseDir: dir).isEmpty)
+        #expect(SavedGameStore.inProgressGameID(defaults: defaults) == nil)
+    }
+
     @Test("in-progress game id persists and clears via UserDefaults")
     func inProgressPointer() {
         let defaults = UserDefaults(suiteName: "SavedGameStoreTests-\(UUID().uuidString)")!

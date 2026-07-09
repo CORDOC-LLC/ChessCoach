@@ -49,7 +49,12 @@ public struct PuzzlesContainerView: View {
         }
         .scrollContentBackground(.hidden)
         .navigationTitle("Puzzles")
-        .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home", action: onExit) } }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeadingCompat) { Button("Home", action: onExit) }
+            ToolbarItem(placement: .topBarTrailingCompat) {
+                NavigationLink(destination: SettingsView()) { Image(systemName: "gearshape") }
+            }
+        }
         .task { if vm.catalog == nil { await vm.loadCatalog() } }
     }
 

@@ -111,6 +111,13 @@ public enum SavedGameStore {
         try? FileManager.default.removeItem(at: path(for: id, baseDir: baseDir))
     }
 
+    /// Deletes every saved game (Settings' "Clear all saved games" action) and
+    /// clears the in-progress pointer, since nothing is resumable afterward.
+    public static func deleteAll(baseDir: URL = defaultBaseDir, defaults: UserDefaults = .standard) {
+        for game in loadAll(baseDir: baseDir) { delete(id: game.id, baseDir: baseDir) }
+        setInProgressGameID(nil, defaults: defaults)
+    }
+
     // MARK: - "Which game (if any) is resumable"
 
     /// The id of the in-progress game to offer resuming on launch, or nil.

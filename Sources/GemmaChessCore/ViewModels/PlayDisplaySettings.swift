@@ -29,6 +29,7 @@ public final class PlayDisplaySettings {
         static let showMoveComments = "play.showMoveComments"
         static let showOpening = "play.showOpening"
         static let showCoach    = "play.showCoach"
+        static let defaultEngineSkill = "play.defaultEngineSkill"
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -41,6 +42,7 @@ public final class PlayDisplaySettings {
             Key.showMoveComments: true,
             Key.showOpening: true,
             Key.showCoach: true,
+            Key.defaultEngineSkill: 6,
         ])
         // Seed the observation tracking so @Observable emits on change.
         _showBestMove = defaults.bool(forKey: Key.showBestMove)
@@ -49,6 +51,7 @@ public final class PlayDisplaySettings {
         _showMoveComments = defaults.bool(forKey: Key.showMoveComments)
         _showOpening = defaults.bool(forKey: Key.showOpening)
         _showCoach    = defaults.bool(forKey: Key.showCoach)
+        _defaultEngineSkill = defaults.integer(forKey: Key.defaultEngineSkill)
     }
 
     public var showBestMove: Bool {
@@ -73,5 +76,11 @@ public final class PlayDisplaySettings {
     /// one of these toggles that spends Gemini credits.
     public var showCoach: Bool {
         didSet { defaults.set(showCoach, forKey: Key.showCoach) }
+    }
+    /// Opponent (Stockfish) strength (0-20) to preselect for the next new
+    /// game -- remembers whatever was last played, and is editable directly
+    /// from Settings too.
+    public var defaultEngineSkill: Int {
+        didSet { defaults.set(defaultEngineSkill, forKey: Key.defaultEngineSkill) }
     }
 }

@@ -24,6 +24,19 @@ struct PlayDisplaySettingsTests {
         #expect(s.showMoveComments == true)
         #expect(s.showOpening == true)
         #expect(s.showBestMove == false)   // opt-in
+        #expect(s.defaultEngineSkill == 6)
+    }
+
+    @Test("default engine strength persists and is independent of the other toggles")
+    func defaultEngineSkillPersists() {
+        let d = freshDefaults()
+        do {
+            let s = PlayDisplaySettings(defaults: d)
+            s.defaultEngineSkill = 14
+        }
+        let s2 = PlayDisplaySettings(defaults: d)
+        #expect(s2.defaultEngineSkill == 14)
+        #expect(s2.showCoach == true)
     }
 
     @Test func togglingOneLeavesOthersUnchanged() {

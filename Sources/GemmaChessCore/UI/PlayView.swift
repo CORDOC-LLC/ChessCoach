@@ -11,6 +11,7 @@ public struct PlayContainerView: View {
     var onExit: () -> Void
     @State private var started: Bool
     @State private var sideIsWhite = true
+    @State private var settings = PlayDisplaySettings()
 
     /// `startedInitially`: skip the setup form and go straight to the live
     /// game -- used when `vm` was just loaded from a `SavedGame` (Resume, or
@@ -37,6 +38,7 @@ public struct PlayContainerView: View {
                 }
                 .pickerStyle(.segmented)
                 Stepper("Engine strength: \(vm.skill)/20", value: $vm.skill, in: 0...20)
+                    .onChange(of: vm.skill) { _, new in settings.defaultEngineSkill = new }
                 Text("Coach: \(coachLabel)")
                     .font(.footnote).foregroundStyle(.secondary)
             }
@@ -52,7 +54,13 @@ public struct PlayContainerView: View {
         }
         .scrollContentBackground(.hidden)
         .navigationTitle("Play")
-        .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home", action: onExit) } }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeadingCompat) { Button("Home", action: onExit) }
+            ToolbarItem(placement: .topBarTrailingCompat) {
+                NavigationLink(destination: SettingsView()) { Image(systemName: "gearshape") }
+            }
+        }
+        .onAppear { vm.skill = settings.defaultEngineSkill }
     }
 
     private var coachLabel: String {
@@ -160,32 +168,34 @@ public struct PlayView: View {
 
     // MARK: Header
     //
-    // One dense row: back, a status pill that now also carries the win-probability
-    // pie + eval (so the old advantage chip no longer costs a row of its own), the
-    // hint button, and a "⋯" menu that holds Resign and the show/hide toggles.
+    // One cohesive glass bar rather than several separately-floating pills:
+    // back, status text + win-probability pie + eval, a spacer, then the hint,
+    // Settings, and "⋯" (Resign/show-hide) icon buttons -- all sitting on one
+    // continuous glass background instead of each carrying its own.
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 14) {
             Button(action: onNewGame) {
                 Image(systemName: "chevron.left")
                     .font(.subheadline.weight(.semibold))
-                    .frame(width: 30, height: 30)
-                    .gemmaGlassPill()
             }
             .buttonStyle(PressableStyle())
             .foregroundStyle(GemmaTheme.accent)
 
-            statusPill
+            statusReadout
             Spacer(minLength: 4)
             hintButton
+            settingsButton
             menuButton
         }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .gemmaGlass(cornerRadius: 20)
         .padding(.horizontal, 14)
         .padding(.top, 8)
     }
 
     /// Status text + a compact black/white win-probability pie + the eval number.
-    private var statusPill: some View {
+    private var statusReadout: some View {
         HStack(spacing: 8) {
             if vm.engineThinking || vm.isCoaching { ProgressView().controlSize(.small) }
             Text(vm.status)
@@ -197,8 +207,16 @@ public struct PlayView: View {
                 .font(.subheadline.weight(.bold)).monospacedDigit()
                 .foregroundStyle(.white)
         }
-        .padding(.horizontal, 12).padding(.vertical, 7)
-        .gemmaGlassPill()
+    }
+
+    private var settingsButton: some View {
+        NavigationLink(destination: SettingsView()) {
+            Image(systemName: "gearshape")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(width: 26, height: 26)
+        }
+        .buttonStyle(PressableStyle())
     }
 
     private var menuButton: some View {
@@ -221,8 +239,7 @@ public struct PlayView: View {
             Image(systemName: "ellipsis")
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(.white.opacity(0.8))
-                .frame(width: 30, height: 30)
-                .gemmaGlassPill()
+                .frame(width: 26, height: 26)
         }
         .buttonStyle(PressableStyle())
     }
@@ -254,8 +271,7 @@ public struct PlayView: View {
             Image(systemName: on ? "lightbulb.fill" : "lightbulb")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(on ? GemmaTheme.gold : .white.opacity(0.7))
-                .frame(width: 30, height: 30)
-                .gemmaGlassPill()
+                .frame(width: 26, height: 26)
         }
         .buttonStyle(PressableStyle())
         .disabled(!vm.userToMove || vm.isViewingHistory || vm.gameOver)
