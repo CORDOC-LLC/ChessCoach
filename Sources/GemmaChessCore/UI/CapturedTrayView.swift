@@ -15,9 +15,16 @@ struct CapturedTrayView: View {
     var size: CGFloat = 15
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             ForEach(Array(pieces.enumerated()), id: \.offset) { _, ch in
+                // A black piece's art is a near-black silhouette -- invisible
+                // against this app's dark background outside the board (where
+                // a light/dark square would normally give it contrast). A soft
+                // light backdrop chip fixes that for every piece, not just
+                // black ones, so it doesn't need to special-case color.
                 BoardPiece(ch: ch, size: size)
+                    .padding(3)
+                    .background(Circle().fill(Color.white.opacity(0.14)))
             }
             if advantage > 0 {
                 Text("+\(advantage)")
@@ -26,6 +33,6 @@ struct CapturedTrayView: View {
                     .padding(.leading, 2)
             }
         }
-        .frame(height: size + 3)
+        .frame(height: size + 10)
     }
 }

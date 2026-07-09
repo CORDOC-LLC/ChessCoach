@@ -322,11 +322,11 @@ public struct PlayView: View {
                 Text("Best Moves").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 if let v = vm.lastVerdict { verdictChip(v) }
                 Spacer(minLength: 4)
-                // The teach-back loop: after a graded slip, take the move back and
-                // find the better one yourself. Free — grading is engine-only.
-                if vm.canRetry {
-                    Button { vm.retryLastMove() } label: {
-                        Label("Retry", systemImage: "arrow.uturn.backward")
+                // Learning, not scorekeeping: undo any move, as many times in a
+                // row as you like -- no restriction on how it was graded.
+                if vm.canUndo {
+                    Button { vm.undoLastMove() } label: {
+                        Label("Undo", systemImage: "arrow.uturn.backward")
                             .font(.caption2.weight(.semibold))
                             .labelStyle(.titleAndIcon)
                             .foregroundStyle(GemmaTheme.gold)
