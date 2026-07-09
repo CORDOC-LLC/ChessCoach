@@ -84,4 +84,30 @@ struct ChessLogicTests {
         #expect(fens?.count == 3)  // one FEN per ply, starting position excluded
         #expect(ChessLogic.finalFEN(forPGN: pgn) == fens?.last)
     }
+
+    @Test func noCheckAttackersInAQuietPosition() {
+        #expect(ChessLogic.checkAttackers(forFEN: Self.standard) == nil)
+    }
+
+    @Test("checkAttackers finds the single attacker + king square for Fool's Mate")
+    func checkAttackersOnCheckmate() throws {
+        // 1. f3 e5 2. g4 Qh4# -- the queen on h4 mates the king on e1 along the
+        // h4-e1 diagonal; nothing else attacks e1.
+        let foolsMate = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"
+        #expect(ChessLogic.status(forFEN: foolsMate) == .checkmate)
+
+        let info = try #require(ChessLogic.checkAttackers(forFEN: foolsMate))
+        #expect(info.king == Square("e1"))
+        #expect(info.attackers == [Square("h4")])
+    }
+
+    @Test("checkAttackers also works for check-but-not-mate")
+    func checkAttackersOnPlainCheck() throws {
+        let fen = "4k3/8/8/8/8/8/8/4R2K b - - 0 1"   // rook checks along the e-file
+        #expect(ChessLogic.status(forFEN: fen) == .check)
+
+        let info = try #require(ChessLogic.checkAttackers(forFEN: fen))
+        #expect(info.king == Square("e8"))
+        #expect(info.attackers == [Square("e1")])
+    }
 }

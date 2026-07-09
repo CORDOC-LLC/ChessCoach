@@ -4,6 +4,7 @@
 //  and a running coach panel that grades each of your moves.
 
 import SwiftUI
+import ChessKit
 
 /// Shows the new-game setup until a game is started, then the live game.
 public struct PlayContainerView: View {
@@ -78,6 +79,7 @@ public struct PlayView: View {
     var onNewGame: () -> Void
     @State private var settings = PlayDisplaySettings()
     @State private var showChat = false
+    @State private var showGameOverBanner = false
 
     public init(vm: PlayViewModel, onNewGame: @escaping () -> Void) {
         self.vm = vm; self.onNewGame = onNewGame
@@ -113,6 +115,25 @@ public struct PlayView: View {
         .onChange(of: settings.showCoach, initial: true) { _, showCoach in
             vm.coachDisplayEnabled = showCoach
         }
+        .overlay {
+            // Only on a LIVE transition into game-over (see the onChange below) --
+            // reopening an already-finished game (My Games) shouldn't replay this.
+            if showGameOverBanner, let outcome = vm.outcome {
+                GameOverBanner(resultText: vm.resultText ?? "Game over", outcome: outcome) {
+                    withAnimation(.easeOut(duration: 0.25)) { showGameOverBanner = false }
+                }
+                .transition(.scale(scale: 0.85).combined(with: .opacity))
+            }
+        }
+        .onChange(of: vm.gameOver) { _, isOver in
+            if isOver {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
+                    showGameOverBanner = true
+                }
+            } else {
+                showGameOverBanner = false   // e.g. Undo un-ended the game
+            }
+        }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
@@ -128,6 +149,7 @@ public struct PlayView: View {
             lastMove: vm.displayLastMove,
             selectedSquare: vm.selected,
             legalDots: vm.legalDots,
+            checkSquare: checkInfo?.king,
             onTapSquare: { vm.tap($0) }
         )
         .padding(.leading, 22)
@@ -143,6 +165,13 @@ public struct PlayView: View {
     // Best-move recommendation graphics are shown ONLY while a hint is active (the
     // lightbulb). There is no separate always-on best-move arrow — turning the hint
     // off removes every recommendation arrow from the board.
+
+    /// Whenever the shown position is in check (including checkmate), the checked
+    /// king's square and the piece(s) directly attacking it -- this is what
+    /// actually shows WHY it's check/mate, not just that it is.
+    private var checkInfo: (king: Square, attackers: [Square])? {
+        ChessLogic.checkAttackers(forFEN: vm.displayFEN)
+    }
 
     private var boardArrows: [BoardArrow] {
         var arrows: [BoardArrow] = []
@@ -161,6 +190,12 @@ public struct PlayView: View {
             if let second = hint.secondUCI,
                let a = BoardArrow(uci: second, color: GemmaTheme.gold.opacity(0.9), thick: false) {
                 arrows.append(a)
+            }
+        }
+        // Check/checkmate: an arrow from every attacking piece straight to the king.
+        if let checkInfo {
+            for attacker in checkInfo.attackers {
+                arrows.append(BoardArrow(from: attacker, to: checkInfo.king, color: .red, thick: true))
             }
         }
         return arrows
@@ -473,6 +508,71 @@ public struct PlayView: View {
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(Capsule().fill(color.opacity(0.22)))
         .overlay(Capsule().stroke(color.opacity(0.6), lineWidth: 1))
+    }
+}
+
+/// A brief animated card announcing how the game ended -- makes the moment
+/// impossible to miss, instead of only a small status-pill text change.
+/// Tap anywhere to dismiss (the board underneath still shows the final
+/// position, with the check/checkmate arrows if it ended that way).
+struct GameOverBanner: View {
+    let resultText: String
+    let outcome: PlayViewModel.Outcome
+    var onDismiss: () -> Void
+
+    @State private var appeared = false
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 40, weight: .semibold))
+                .foregroundStyle(tint)
+                .scaleEffect(appeared ? 1 : 0.4)
+                .opacity(appeared ? 1 : 0)
+            Text(title)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.white)
+            Text(resultText)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.75))
+                .multilineTextAlignment(.center)
+            Text("Tap to dismiss")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.4))
+                .padding(.top, 2)
+        }
+        .padding(28)
+        .frame(maxWidth: 300)
+        .gemmaGlass(cornerRadius: 24)
+        .shadow(color: tint.opacity(0.35), radius: 24)
+        .onTapGesture(perform: onDismiss)
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.05)) {
+                appeared = true
+            }
+        }
+    }
+
+    private var icon: String {
+        switch outcome {
+        case .win: return "crown.fill"
+        case .loss: return "flag.fill"
+        case .draw: return "equal.circle.fill"
+        }
+    }
+    private var title: String {
+        switch outcome {
+        case .win: return "You won!"
+        case .loss: return "Game over"
+        case .draw: return "Draw"
+        }
+    }
+    private var tint: Color {
+        switch outcome {
+        case .win: return GemmaTheme.gold
+        case .loss: return .red
+        case .draw: return .white.opacity(0.8)
+        }
     }
 }
 
