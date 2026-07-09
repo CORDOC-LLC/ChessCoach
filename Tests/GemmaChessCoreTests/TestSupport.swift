@@ -18,3 +18,16 @@ extension PlayViewModel {
         return PlayViewModel(coach: coach, savedGamesBaseDir: dir, savedGamesDefaults: defaults)
     }
 }
+
+@MainActor
+extension PuzzleViewModel {
+    /// A `PuzzleViewModel` wired to scratch, per-call storage -- never the
+    /// real Application Support directory or `UserDefaults.standard`.
+    static func forTesting() -> PuzzleViewModel {
+        let token = UUID().uuidString
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PuzzleViewModelTests-\(token)", isDirectory: true)
+        let defaults = UserDefaults(suiteName: "PuzzleViewModelTests-\(token)")!
+        return PuzzleViewModel(progressDefaults: defaults, puzzleBaseDir: dir)
+    }
+}

@@ -19,7 +19,9 @@ public struct GemmaRootView: View {
     /// from a saved game (Resume, or a pick from My Games).
     @State private var playStartedInitially = false
 
-    private enum Mode { case home, play, review, scan, savedGames }
+    @State private var puzzles = PuzzleViewModel()
+
+    private enum Mode { case home, play, review, scan, savedGames, puzzles }
 
     public init(style: GemmaLayoutStyle = .automatic) {}
 
@@ -32,7 +34,8 @@ public struct GemmaRootView: View {
                     onReview: { mode = .review },
                     onScan: { mode = .scan },
                     onResume: { openSavedGame(withID: SavedGameStore.inProgressGameID()) },
-                    onMyGames: { mode = .savedGames }
+                    onMyGames: { mode = .savedGames },
+                    onPuzzles: { mode = .puzzles }
                 )
             case .play:
                 PlayContainerView(vm: play, onExit: { mode = .home }, startedInitially: playStartedInitially)
@@ -52,6 +55,8 @@ public struct GemmaRootView: View {
                     mode = .play
                 })
                 .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
+            case .puzzles:
+                PuzzlesContainerView(vm: puzzles, onExit: { mode = .home })
             }
         }
         .gemmaChrome()
@@ -85,6 +90,7 @@ struct HomeView: View {
     var onScan: () -> Void
     var onResume: () -> Void
     var onMyGames: () -> Void
+    var onPuzzles: () -> Void
     @State private var showLicenses = false
     @State private var showCoachSettings = false
     @State private var showBeginners = false
@@ -157,6 +163,15 @@ struct HomeView: View {
 
             Button(action: onReview) {
                 Label("Review a game", systemImage: "magnifyingglass")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(.white)
+
+            Button(action: onPuzzles) {
+                Label("Puzzles", systemImage: "puzzlepiece.fill")
                     .font(.headline)
                     .frame(maxWidth: .infinity, minHeight: 30)
             }
