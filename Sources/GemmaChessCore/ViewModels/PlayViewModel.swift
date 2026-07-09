@@ -95,9 +95,16 @@ public final class PlayViewModel {
     public private(set) var bestMoveAnalysisCount = 0
     private var bestMoveInFlight: Set<String> = []
 
-    // MARK: Coach card (U7)
+    // MARK: Best Moves (engine-only, free -- no coach/network involved)
     /// Structured engine verdict on the user's latest move.
     public var lastVerdict: MoveVerdict?
+    /// The engine's top candidate moves (best first) for the position BEFORE the
+    /// user's last move -- i.e. what Stockfish actually considered there, for
+    /// comparison against the move played. Cleared on a new game/retry; not
+    /// persisted (recomputed live, not needed for replay).
+    public var topMoves: [EngineLineReport.SubLine] = []
+
+    // MARK: Coach card (U7) -- the one piece that spends Gemini credits
     /// The coach's short "what to focus on" note for the latest move.
     public var lastCoachNote: String?
 
@@ -315,6 +322,7 @@ public final class PlayViewModel {
         bestMoveInFlight = []
         bestMoveAnalysisCount = 0
         lastVerdict = nil
+        topMoves = []
         lastCoachNote = nil
         hint = nil
         opening = nil
@@ -392,15 +400,19 @@ public final class PlayViewModel {
         // until the engine had already replied).
         isCoaching = true
         lastVerdict = nil
+        topMoves = []
         lastCoachNote = nil
         let gen = moveGen
         persistCheckpoint()   // save the user's move even if the app dies right after
         Task {
-            // ONE analysis serves both the verdict chip and the coach's move facts
-            // (this used to be analysed twice). The chip appears right away.
+            // ONE analysis serves the verdict chip, the Best Moves top-3 list, and
+            // the coach's move facts (this used to be analysed twice). multipv 3
+            // gives the top-3 candidates the Best Moves card shows -- free, engine-
+            // only, so it runs and updates regardless of whether the coach is on.
             let moveReport = try? await EngineLine.evaluate(
-                fen: fromFEN, move: uci, depth: GCConfig.liveDepth, multipv: 2)
+                fen: fromFEN, move: uci, depth: GCConfig.liveDepth, multipv: 3)
             guard gen == moveGen else { return }   // retried/new game while analysing
+            topMoves = moveReport?.lines ?? []
             if let mv = moveReport?.move {
                 let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
                 lastVerdict = MoveVerdict(
@@ -447,6 +459,7 @@ public final class PlayViewModel {
         viewingPly = nil
         hint = nil
         lastVerdict = nil
+        topMoves = []
         lastCoachNote = nil
         isCoaching = false
         gameOver = false
@@ -574,6 +587,7 @@ public final class PlayViewModel {
         gameSummary = saved.gameSummary
         moveRecords = saved.moveRecords
         lastVerdict = nil    // not persisted -- the chip is a live-move-only affordance
+        topMoves = []        // likewise
         hint = nil
         selected = nil
         viewingPly = nil

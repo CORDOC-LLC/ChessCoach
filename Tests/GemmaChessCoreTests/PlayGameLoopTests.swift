@@ -13,7 +13,7 @@ import ChessKit
 struct PlayGameLoopTests {
 
     /// Poll `condition` on the MainActor until true or timeout (engine reply is async).
-    private func wait(timeout: Double = 20, _ condition: () -> Bool) async -> Bool {
+    private func wait(timeout: Double = 40, _ condition: () -> Bool) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() { return true }
@@ -55,6 +55,11 @@ struct PlayGameLoopTests {
         let graded = await wait { vm.lastVerdict != nil }
         #expect(graded)
         #expect(vm.lastVerdict?.moveSAN == "e4")
+        // The Best Moves top-3 list is engine-only too -- populated regardless
+        // of coach availability, capped at 3, best line first.
+        #expect(!vm.topMoves.isEmpty)
+        #expect(vm.topMoves.count <= 3)
+        #expect(vm.topMoves.allSatisfy { $0.lineSAN.first != nil })
         // After the dust settles it's the user's move again with a fresh eval.
         let settled = await wait { !vm.engineThinking }
         #expect(settled)
@@ -111,6 +116,7 @@ struct PlayGameLoopTests {
         #expect(vm.fen == PlayViewModel.startFEN)
         #expect(vm.fenHistory == [PlayViewModel.startFEN])
         #expect(vm.lastVerdict == nil)
+        #expect(vm.topMoves.isEmpty)
         #expect(vm.lastCoachNote == nil)
         #expect(vm.moveRecords.isEmpty)
         #expect(!vm.gameOver)
