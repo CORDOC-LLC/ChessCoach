@@ -40,6 +40,7 @@ enum MoveListFormatter {
 
 struct MoveListView: View {
     @Bindable var vm: PlayViewModel
+    @Environment(ThemeStore.self) private var themeStore
 
     /// 0-based index of the ply currently highlighted (viewing cursor, else the live ply).
     private var activePly: Int? {
@@ -51,7 +52,7 @@ struct MoveListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Image(systemName: "list.bullet").foregroundStyle(GemmaTheme.accent)
+                Image(systemName: "list.bullet").foregroundStyle(themeStore.effective.accentColor)
                 Text("Moves").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 Spacer()
                 if vm.isViewingHistory {
@@ -60,7 +61,7 @@ struct MoveListView: View {
                             .font(.caption.weight(.semibold))
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(GemmaTheme.accent)
+                    .foregroundStyle(themeStore.effective.accentColor)
                 }
             }
             .padding(.horizontal).padding(.vertical, 6)
@@ -115,12 +116,12 @@ struct MoveListView: View {
         let isActive = activePly == index
         Text(vm.sanMoves[index])
             .font(.callout.weight(isActive ? .bold : .regular))
-            .foregroundStyle(isActive ? GemmaTheme.accent : .white.opacity(0.9))
+            .foregroundStyle(isActive ? themeStore.effective.accentColor : .white.opacity(0.9))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 2).padding(.horizontal, 6)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isActive ? GemmaTheme.accent.opacity(0.16) : .clear)
+                    .fill(isActive ? themeStore.effective.accentColor.opacity(0.16) : .clear)
             )
             .contentShape(Rectangle())
             .onTapGesture { vm.viewTo(ply: index) }

@@ -9,10 +9,14 @@ public struct EvalBarView: View {
     public var winWhite: Double
     /// Whether White is at the bottom of the board.
     public var whiteAtBottom: Bool
+    /// Inset ring color -- the design reference's `accent2`@40%. Fill colors
+    /// stay fixed black/white regardless of theme.
+    public var ringColor: Color
 
-    public init(winWhite: Double, whiteAtBottom: Bool = true) {
+    public init(winWhite: Double, whiteAtBottom: Bool = true, ringColor: Color = Theme.gambit.accent2Color) {
         self.winWhite = winWhite
         self.whiteAtBottom = whiteAtBottom
+        self.ringColor = ringColor
     }
 
     public var body: some View {
@@ -27,7 +31,7 @@ public struct EvalBarView: View {
                     .frame(height: geo.size.height * bottomFrac)
             }
             .overlay(
-                Rectangle().stroke(Color.gray.opacity(0.5), lineWidth: 0.5)
+                Rectangle().stroke(ringColor.opacity(0.40), lineWidth: 0.5)
             )
         }
         .frame(width: 14)
