@@ -21,6 +21,10 @@ public struct GemmaRootView: View {
 
     @State private var puzzles = PuzzleViewModel()
 
+    /// The active theme, shared with every screen via the environment --
+    /// see Theme/ThemeStore.swift ("Living Themes").
+    @State private var themeStore = ThemeStore()
+
     private enum Mode { case home, play, review, scan, savedGames, puzzles }
 
     public init(style: GemmaLayoutStyle = .automatic) {}
@@ -61,7 +65,8 @@ public struct GemmaRootView: View {
                 PuzzlesContainerView(vm: puzzles, onExit: { mode = .home })
             }
         }
-        .gemmaChrome()
+        .environment(themeStore)
+        .gemmaChrome(theme: themeStore.effective)
     }
 
     private func openSavedGame(withID id: UUID?) {
@@ -103,8 +108,11 @@ struct HomeView: View {
     var onResume: () -> Void
     var onMyGames: () -> Void
     var onPuzzles: () -> Void
+    @Environment(ThemeStore.self) private var themeStore
     @State private var showBeginners = false
+    @State private var showAppearance = false
     @State private var showSettings = false
+    @State private var emblemBreath = false
     /// "Scan a board" needs the managed coach (ChessCoach Pro) — a photo has
     /// to go over the network to be read, unlike everything else in the app.
     private var scanEnabled: Bool { ManagedCoachStore.loadBackendURL() != nil }
@@ -112,6 +120,7 @@ struct HomeView: View {
     /// "Resume" instead of making the user start over from Home.
     private var inProgressGameID: UUID? { SavedGameStore.inProgressGameID() }
     private var hasSavedGames: Bool { !SavedGameStore.loadAll().isEmpty }
+    private var theme: Theme { themeStore.effective }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -123,42 +132,117 @@ struct HomeView: View {
         .frame(maxWidth: 460)
         .frame(maxWidth: .infinity)
         .overlay(alignment: .topTrailing) {
-            Button { showSettings = true } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.8))
-                    .frame(width: 34, height: 34)
-                    .gemmaGlassPill()
-            }
-            .buttonStyle(PressableStyle())
-            .padding(.top, 8)
-            .padding(.trailing, 16)
+            themeChip
+                .padding(.top, 8)
+                .padding(.trailing, 16)
         }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .navigationDestination(isPresented: $showBeginners) { BeginnersView() }
         .navigationDestination(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showAppearance) { AppearanceView() }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 5).repeatForever(autoreverses: true)) {
+                emblemBreath = true
+            }
+        }
+    }
+
+    /// Three overlapping dots (accent/accent2/boardDark) + the active theme's
+    /// name + a chevron — opens the Appearance sheet.
+    private var themeChip: some View {
+        Button { showAppearance = true } label: {
+            HStack(spacing: 6) {
+                HStack(spacing: -5) {
+                    themeDot(theme.accentColor)
+                    themeDot(theme.accent2Color)
+                    themeDot(theme.boardDarkColor)
+                }
+                Text(theme.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.textColor)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(theme.textColor.opacity(0.55))
+            }
+            .padding(.leading, 10).padding(.trailing, 8).padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(theme.surfaceColor.opacity(0.8))
+                    .overlay(Capsule().stroke(theme.accent2Color.opacity(0.24), lineWidth: 1))
+            )
+        }
+        .buttonStyle(PressableStyle())
+    }
+
+    private func themeDot(_ color: Color) -> some View {
+        Circle().fill(color)
+            .frame(width: 13, height: 13)
+            .overlay(Circle().stroke(theme.surfaceColor, lineWidth: 1.5))
     }
 
     private var header: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "crown.fill")
-                .font(.system(size: 54, weight: .semibold))
-                .foregroundStyle(GemmaTheme.accentGradient)
-                .shadow(color: GemmaTheme.accent.opacity(0.55), radius: 20)
+        VStack(spacing: 12) {
+            decoRule
+            emblem
             VStack(spacing: 6) {
                 Text("ChessCoach")
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .tracking(0.3)
-                Text("Play with a coach,\nor review one of your games.")
+                    .font(theme.type.displayFont(size: 44))
+                    .foregroundStyle(theme.textColor)
+                    .tracking(theme.type.letterSpacing)
+                    .textCase(theme.type.uppercased ? .uppercase : nil)
+                Text(theme.name)
+                    .font(.system(size: 9.5, weight: .bold))
+                    .tracking(3)
+                    .textCase(.uppercase)
+                    .foregroundStyle(theme.accent2Color)
+                Text("Play with a coach at your shoulder, or revisit the games that got away.")
                     .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(theme.textColor.opacity(0.55))
                     .multilineTextAlignment(.center)
                     .lineSpacing(2)
+                    .padding(.top, 2)
             }
         }
+    }
+
+    /// A quiet flourish above the wordmark — two gradient lines + a diamond.
+    private var decoRule: some View {
+        HStack(spacing: 10) {
+            decoLine
+            Image(systemName: "diamond.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(theme.accent2Color.opacity(0.9))
+            decoLine
+        }
+        .frame(height: 1)
+    }
+
+    private var decoLine: some View {
+        LinearGradient(
+            colors: [theme.accent2Color.opacity(0), theme.accent2Color.opacity(0.9)],
+            startPoint: .leading, endPoint: .trailing
+        )
+        .frame(width: 50, height: 1)
+    }
+
+    private var emblem: some View {
+        Image(systemName: "crown.fill")
+            .font(.system(size: 42, weight: .semibold))
+            .foregroundStyle(theme.accentColor)
+            .frame(width: 90, height: 90)
+            .background(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(theme.surfaceColor.opacity(0.8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 26, style: .continuous)
+                            .stroke(theme.accentColor.opacity(0.45), lineWidth: 1)
+                    )
+            )
+            .shadow(color: theme.accentColor.opacity(0.34), radius: 40)
+            .scaleEffect(emblemBreath ? 1.04 : 1.0)
+            .opacity(emblemBreath ? 1.0 : 0.85)
     }
 
     private var actions: some View {
@@ -181,7 +265,8 @@ struct HomeView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .tint(inProgressGameID != nil ? .white.opacity(0.16) : GemmaTheme.accent)
+            .tint(inProgressGameID != nil ? theme.textColor.opacity(0.16) : theme.accentColor)
+            .foregroundStyle(inProgressGameID != nil ? theme.textColor : theme.onAccentColor)
 
             Button(action: onReview) {
                 Label("Review a game", systemImage: "magnifyingglass")
@@ -190,7 +275,7 @@ struct HomeView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
-            .tint(.white)
+            .tint(theme.textColor)
 
             Button(action: onPuzzles) {
                 Label("Puzzles", systemImage: "puzzlepiece.fill")
@@ -199,7 +284,7 @@ struct HomeView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
-            .tint(.white)
+            .tint(theme.textColor)
 
             // Everything below is a lower-emphasis, one-tap utility -- grouped into a
             // single glass card (the same language as Play mode's coach/hint cards)
@@ -210,17 +295,20 @@ struct HomeView: View {
             if hasSavedGames {
                 Text("Games are saved on this device only")
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(theme.textColor.opacity(0.4))
             }
         }
         .padding(.horizontal, 32)
         .padding(.bottom, 48)
     }
 
-    /// "New to chess?" is always offered; "Scan a board" and "My Games" only when
-    /// relevant (managed coach configured / at least one saved game).
+    /// "New to chess?" and "Appearance & themes" are always offered; "Scan a
+    /// board" and "My Games" only when relevant (managed coach configured /
+    /// at least one saved game).
     private var moreCard: some View {
         VStack(spacing: 0) {
+            moreRow(icon: "paintpalette.fill", title: "Appearance & themes") { showAppearance = true }
+            rowDivider
             moreRow(icon: "graduationcap.fill", title: "New to chess?") { showBeginners = true }
             if scanEnabled {
                 rowDivider
@@ -230,12 +318,14 @@ struct HomeView: View {
                 rowDivider
                 moreRow(icon: "clock.arrow.circlepath", title: "My Games", action: onMyGames)
             }
+            rowDivider
+            moreRow(icon: "gearshape.fill", title: "Settings") { showSettings = true }
         }
         .gemmaGlass(cornerRadius: 16)
     }
 
     private var rowDivider: some View {
-        Divider().overlay(Color.white.opacity(0.08)).padding(.leading, 46)
+        Divider().overlay(theme.textColor.opacity(0.08)).padding(.leading, 46)
     }
 
     private func moreRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
@@ -243,15 +333,15 @@ struct HomeView: View {
             HStack(spacing: 12) {
                 Image(systemName: icon)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(GemmaTheme.gold)
+                    .foregroundStyle(theme.accent2Color)
                     .frame(width: 22)
                 Text(title)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(theme.textColor.opacity(0.92))
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.3))
+                    .foregroundStyle(theme.textColor.opacity(0.3))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)

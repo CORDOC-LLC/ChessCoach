@@ -80,6 +80,9 @@ public struct PlayView: View {
     @State private var settings = PlayDisplaySettings()
     @State private var showChat = false
     @State private var showGameOverBanner = false
+    @State private var showAppearance = false
+    @Environment(ThemeStore.self) private var themeStore
+    private var theme: Theme { themeStore.effective }
 
     public init(vm: PlayViewModel, onNewGame: @escaping () -> Void) {
         self.vm = vm; self.onNewGame = onNewGame
@@ -140,6 +143,7 @@ public struct PlayView: View {
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
+        .sheet(isPresented: $showAppearance) { AppearanceView() }
     }
 
     // Eval bar is a leading overlay so its height tracks the board exactly
@@ -153,11 +157,15 @@ public struct PlayView: View {
             selectedSquare: vm.selected,
             legalDots: vm.legalDots,
             checkSquare: checkInfo?.king,
+            boardLight: theme.boardLightColor,
+            boardDark: theme.boardDarkColor,
+            highlightColor: theme.accent2Color,
+            accentColor: theme.accentColor,
             onTapSquare: { vm.tap($0) }
         )
         .padding(.leading, 22)
         .overlay(alignment: .leading) {
-            EvalBarView(winWhite: vm.winWhite, whiteAtBottom: vm.playerIsWhite)
+            EvalBarView(winWhite: vm.winWhite, whiteAtBottom: vm.playerIsWhite, ringColor: theme.accent2Color)
                 .frame(width: 14)
         }
         .padding(.horizontal, 12)
@@ -187,11 +195,11 @@ public struct PlayView: View {
         }
         // Hint arrows: best (accent, thick) + alternative (gold, thin). Live board only.
         if let hint = vm.hint, !vm.isViewingHistory {
-            if let a = BoardArrow(uci: hint.bestUCI, color: GemmaTheme.accent, thick: true) {
+            if let a = BoardArrow(uci: hint.bestUCI, color: theme.accentColor, thick: true) {
                 arrows.append(a)
             }
             if let second = hint.secondUCI,
-               let a = BoardArrow(uci: second, color: GemmaTheme.gold.opacity(0.9), thick: false) {
+               let a = BoardArrow(uci: second, color: theme.accent2Color.opacity(0.9), thick: false) {
                 arrows.append(a)
             }
         }
@@ -218,7 +226,7 @@ public struct PlayView: View {
                     .font(.subheadline.weight(.semibold))
             }
             .buttonStyle(PressableStyle())
-            .foregroundStyle(GemmaTheme.accent)
+            .foregroundStyle(theme.accentColor)
 
             statusReadout
             Spacer(minLength: 4)
@@ -238,7 +246,7 @@ public struct PlayView: View {
             if vm.engineThinking || vm.isCoaching { ProgressView().controlSize(.small) }
             Text(vm.status)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(vm.gameOver ? GemmaTheme.accent : .white)
+                .foregroundStyle(vm.gameOver ? theme.accentColor : .white)
                 .lineLimit(1).minimumScaleFactor(0.7)
             WinPie(winWhite: vm.winWhite)
             Text(vm.evalText)
@@ -247,8 +255,12 @@ public struct PlayView: View {
         }
     }
 
+    /// Opens the Appearance sheet directly (not Settings) -- the design
+    /// reference has Play's gear jump straight to theming; the broader
+    /// Settings hub (including its own "Appearance & themes" row) stays
+    /// reachable from Home.
     private var settingsButton: some View {
-        NavigationLink(destination: SettingsView()) {
+        Button { showAppearance = true } label: {
             Image(systemName: "gearshape")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.8))
@@ -308,7 +320,7 @@ public struct PlayView: View {
         return Button { on ? vm.clearHint() : vm.requestHint() } label: {
             Image(systemName: on ? "lightbulb.fill" : "lightbulb")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(on ? GemmaTheme.gold : .white.opacity(0.7))
+                .foregroundStyle(on ? theme.accent2Color : .white.opacity(0.7))
                 .frame(width: 26, height: 26)
         }
         .buttonStyle(PressableStyle())
@@ -322,7 +334,7 @@ public struct PlayView: View {
         if let hint = vm.hint {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Image(systemName: "lightbulb.fill").foregroundStyle(GemmaTheme.gold).font(.footnote)
+                    Image(systemName: "lightbulb.fill").foregroundStyle(theme.accent2Color).font(.footnote)
                     Text(hint.summaryLabel)
                         .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                         .lineLimit(1).minimumScaleFactor(0.8)
@@ -357,7 +369,7 @@ public struct PlayView: View {
     private func openingRow(_ opening: Openings.Opening) -> some View {
         HStack(spacing: 5) {
             Image(systemName: "book.closed.fill")
-                .font(.caption2).foregroundStyle(GemmaTheme.gold)
+                .font(.caption2).foregroundStyle(theme.accent2Color)
             Text("\(opening.name) · \(opening.eco)")
                 .font(.caption).foregroundStyle(.white.opacity(0.7))
                 .lineLimit(1).minimumScaleFactor(0.7)
@@ -372,7 +384,7 @@ public struct PlayView: View {
     private var bestMovesCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "chart.bar.fill").foregroundStyle(GemmaTheme.gold).font(.footnote)
+                Image(systemName: "chart.bar.fill").foregroundStyle(theme.accent2Color).font(.footnote)
                 Text("Best Moves").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 if let v = vm.lastVerdict { verdictChip(v) }
                 Spacer(minLength: 4)
@@ -383,7 +395,7 @@ public struct PlayView: View {
                         Label("Undo", systemImage: "arrow.uturn.backward")
                             .font(.caption2.weight(.semibold))
                             .labelStyle(.titleAndIcon)
-                            .foregroundStyle(GemmaTheme.gold)
+                            .foregroundStyle(theme.accent2Color)
                     }
                     .buttonStyle(PressableStyle())
                 }
@@ -422,7 +434,7 @@ public struct PlayView: View {
     private var coachCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "graduationcap.fill").foregroundStyle(GemmaTheme.accent).font(.footnote)
+                Image(systemName: "graduationcap.fill").foregroundStyle(theme.accentColor).font(.footnote)
                 Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 Spacer(minLength: 4)
                 if vm.isCoaching || vm.isSummarizing {
@@ -433,7 +445,7 @@ public struct PlayView: View {
                         Label("Ask", systemImage: "bubble.left.and.bubble.right.fill")
                             .font(.caption2.weight(.semibold))
                             .labelStyle(.titleAndIcon)
-                            .foregroundStyle(GemmaTheme.accent)
+                            .foregroundStyle(theme.accentColor)
                     }
                     .buttonStyle(PressableStyle())
                 }
@@ -497,7 +509,7 @@ public struct PlayView: View {
     /// Compact color-coded verdict chip ("Qh5 · Blunder", plus "best Nf3" when not
     /// the top move), sized to sit inline in the coach card header.
     private func verdictChip(_ v: MoveVerdict) -> some View {
-        let color = MoveVerdict.color(for: v.classification)
+        let color = MoveVerdict.color(for: v.classification, theme: theme)
         return HStack(spacing: 5) {
             Text("\(v.moveSAN) · \(v.classification.capitalized)")
                 .font(.caption.weight(.bold))
@@ -524,6 +536,7 @@ struct GameOverBanner: View {
     let stats: PlayStats
     var onDismiss: () -> Void
 
+    @Environment(ThemeStore.self) private var themeStore
     @State private var appeared = false
 
     var body: some View {
@@ -577,7 +590,7 @@ struct GameOverBanner: View {
     }
     private var tint: Color {
         switch outcome {
-        case .win: return GemmaTheme.gold
+        case .win: return themeStore.effective.accent2Color
         case .loss: return .red
         case .draw: return .white.opacity(0.8)
         }
@@ -594,8 +607,9 @@ struct WinPie: View {
     var body: some View {
         let frac = max(0, min(1, winWhite / 100))
         return ZStack {
-            Circle().fill(GemmaTheme.pieceBlack)
-            PieSlice(fraction: frac).fill(GemmaTheme.pieceWhite)
+            // Fixed piece fills, matching the board's pieces (never theme-tied).
+            Circle().fill(Color(hex: "#181310"))
+            PieSlice(fraction: frac).fill(Color(hex: "#f4eee0"))
         }
         .frame(width: size, height: size)
         .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 0.5))
@@ -625,7 +639,9 @@ struct PieSlice: Shape {
 struct PlayCoachChatView: View {
     @Bindable var vm: PlayViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(ThemeStore.self) private var themeStore
     @State private var draft = ""
+    private var theme: Theme { themeStore.effective }
 
     var body: some View {
         NavigationStack {
@@ -651,7 +667,9 @@ struct PlayCoachChatView: View {
                 }
                 inputRow
             }
-            .background(GemmaTheme.Background().ignoresSafeArea())
+            .background(
+                ZStack { theme.bgColor; theme.backgroundGradient }.ignoresSafeArea()
+            )
             .navigationTitle("Ask the coach")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -677,7 +695,7 @@ struct PlayCoachChatView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(
-                (isUser ? GemmaTheme.accent.opacity(0.22) : Color.white.opacity(0.08)),
+                (isUser ? theme.accentColor.opacity(0.22) : Color.white.opacity(0.08)),
                 in: RoundedRectangle(cornerRadius: 14))
             if !isUser { Spacer(minLength: 32) }
         }
@@ -694,7 +712,7 @@ struct PlayCoachChatView: View {
             Button(action: send) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(canSend ? GemmaTheme.accent : .white.opacity(0.3))
+                    .foregroundStyle(canSend ? theme.accentColor : .white.opacity(0.3))
             }
             .buttonStyle(.plain)
             .disabled(!canSend)

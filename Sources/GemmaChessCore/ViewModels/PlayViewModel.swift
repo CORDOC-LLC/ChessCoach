@@ -17,15 +17,16 @@ public struct MoveVerdict: Equatable, Sendable {
         self.isBest = isBest; self.betterMoveSAN = betterMoveSAN
     }
 
-    /// Colour for a classification: best/good → accent, inaccuracy → gold,
-    /// mistake → orange, blunder → red.
-    public static func color(for classification: String) -> Color {
+    /// Colour for a classification: best/good → theme accent, inaccuracy →
+    /// theme highlight, mistake/blunder → fixed system colors (not theme-tied
+    /// -- these read as warnings regardless of the active palette).
+    public static func color(for classification: String, theme: Theme) -> Color {
         switch classification.lowercased() {
-        case "best", "good": return GemmaTheme.accent
-        case "inaccuracy": return GemmaTheme.gold
+        case "best", "good": return theme.accentColor
+        case "inaccuracy": return theme.accent2Color
         case "mistake": return .orange
         case "blunder": return .red
-        default: return GemmaTheme.accent
+        default: return theme.accentColor
         }
     }
 }
