@@ -9,17 +9,18 @@ import SwiftUI
 struct PlayCoachCardTests {
 
     @Test func classificationColours() {
-        #expect(MoveVerdict.color(for: "best") == GemmaTheme.accent)
-        #expect(MoveVerdict.color(for: "good") == GemmaTheme.accent)
-        #expect(MoveVerdict.color(for: "inaccuracy") == GemmaTheme.gold)
-        #expect(MoveVerdict.color(for: "mistake") == Color.orange)
-        #expect(MoveVerdict.color(for: "blunder") == Color.red)
+        let theme = Theme.gambit
+        #expect(MoveVerdict.color(for: "best", theme: theme) == theme.accentColor)
+        #expect(MoveVerdict.color(for: "good", theme: theme) == theme.accentColor)
+        #expect(MoveVerdict.color(for: "inaccuracy", theme: theme) == theme.accent2Color)
+        #expect(MoveVerdict.color(for: "mistake", theme: theme) == Color.orange)
+        #expect(MoveVerdict.color(for: "blunder", theme: theme) == Color.red)
     }
 
     @Test func blunderVerdictNamesBetterMove() {
         let v = MoveVerdict(moveSAN: "Qh5", classification: "blunder",
                             isBest: false, betterMoveSAN: "Nf3")
-        #expect(MoveVerdict.color(for: v.classification) == Color.red)
+        #expect(MoveVerdict.color(for: v.classification, theme: .gambit) == Color.red)
         #expect(v.isBest == false)
         #expect(v.betterMoveSAN == "Nf3")
     }
@@ -28,7 +29,7 @@ struct PlayCoachCardTests {
         // The VM nils out betterMove when the move is the engine's top choice.
         let v = MoveVerdict(moveSAN: "Nf3", classification: "best",
                             isBest: true, betterMoveSAN: nil)
-        #expect(MoveVerdict.color(for: v.classification) == GemmaTheme.accent)
+        #expect(MoveVerdict.color(for: v.classification, theme: .gambit) == Theme.gambit.accentColor)
         #expect(v.betterMoveSAN == nil)
     }
 
