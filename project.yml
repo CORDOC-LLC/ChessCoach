@@ -38,6 +38,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: ChessCoach
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_NSCameraUsageDescription: "ChessCoach uses the camera to photograph a physical chess board so it can recognize the position."
         TARGETED_DEVICE_FAMILY: "1,2"
 
   # macOS app — multi-column NavigationSplitView UI (U22).
