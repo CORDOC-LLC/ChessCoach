@@ -19,12 +19,24 @@ public final class CoachOrchestrator: Sendable {
     /// good enough), so there is no local fallback tier. Each backend reports
     /// `.unavailable` when unconfigured, so this list is a transparent
     /// fallthrough — nothing changes until the user opts into one.
+    ///
+    /// Which backends are even IN the list depends on `BuildChannel` (local
+    /// dev installs get both, TestFlight gets Gemini BYOK only, App Store
+    /// production gets the managed subscription only) — see that type's
+    /// header for the reasoning.
     public init(
-        backends: [CoachLLM] = [ManagedCoach(), GeminiCoach()],
+        backends: [CoachLLM] = CoachOrchestrator.defaultBackends(),
         engine: EnginePool = .shared
     ) {
         self.backends = backends
         self.engine = engine
+    }
+
+    public static func defaultBackends(channel: BuildChannel = .current) -> [CoachLLM] {
+        var backends: [CoachLLM] = []
+        if channel.allowsManagedCoach { backends.append(ManagedCoach()) }
+        if channel.allowsGeminiBYOK { backends.append(GeminiCoach()) }
+        return backends
     }
 
     /// The first backend that isn't `.unavailable`, or nil.
