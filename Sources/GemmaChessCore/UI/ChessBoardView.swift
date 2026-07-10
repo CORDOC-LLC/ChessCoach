@@ -154,6 +154,16 @@ public struct ChessBoardView: View {
     /// draws a pulsing red glow so it's visually obvious which king is in
     /// trouble, on top of whatever attacker arrows the caller adds.
     public var checkSquare: Square?
+    /// Theme-driven colors -- explicit params (not read from the environment)
+    /// so this view can render a live editor draft or a mini theme-card
+    /// preview, not just the app's active theme. Defaults to the Gambit
+    /// preset so existing call sites/previews need no changes.
+    public var boardLight: Color
+    public var boardDark: Color
+    /// Last-move highlight + legal-move dot color (the design reference's
+    /// `accent2`/`accent` respectively).
+    public var highlightColor: Color
+    public var accentColor: Color
 
     public init(
         fen: String,
@@ -163,20 +173,26 @@ public struct ChessBoardView: View {
         selectedSquare: Square? = nil,
         legalDots: [Square] = [],
         checkSquare: Square? = nil,
+        boardLight: Color = Theme.gambit.boardLightColor,
+        boardDark: Color = Theme.gambit.boardDarkColor,
+        highlightColor: Color = Theme.gambit.accent2Color,
+        accentColor: Color = Theme.gambit.accentColor,
         onTapSquare: ((Square) -> Void)? = nil
     ) {
         self.fen = fen; self.orientation = orientation
         self.arrows = arrows; self.lastMove = lastMove
         self.selectedSquare = selectedSquare; self.legalDots = legalDots
         self.checkSquare = checkSquare
+        self.boardLight = boardLight; self.boardDark = boardDark
+        self.highlightColor = highlightColor; self.accentColor = accentColor
         self.onTapSquare = onTapSquare
     }
 
     @State private var kingPulse = false
 
-    private let light = GemmaTheme.boardLight
-    private let dark = GemmaTheme.boardDark
-    private let highlight = GemmaTheme.gold.opacity(0.45)
+    private var light: Color { boardLight }
+    private var dark: Color { boardDark }
+    private var highlight: Color { highlightColor.opacity(0.45) }
 
     // MARK: Last-move slide animation
     // We animate ONLY the piece that just moved, as an overlay sliding from `from`
@@ -237,14 +253,14 @@ public struct ChessBoardView: View {
                             // destination square so it isn't drawn twice.
                             let isSlidingTarget = slide.map { $0.to == cellSquare } ?? false
                             if !isSlidingTarget {
-                                BoardPiece(ch: ch, size: sq * 0.88)
+                                BoardPiece(ch: ch, size: sq * 0.88, blackRim: highlightColor)
                             }
                         }
                         if isDot {
                             Circle()
-                                .fill(GemmaTheme.accent.opacity(0.70))
+                                .fill(accentColor.opacity(0.70))
                                 .frame(width: sq * 0.30, height: sq * 0.30)
-                                .shadow(color: GemmaTheme.accent.opacity(0.5), radius: 3)
+                                .shadow(color: accentColor.opacity(0.5), radius: 3)
                         }
                         coordinateLabel(file: file, rank: rank, col: col, row: row, sq: sq, isLight: isLight)
                     }
@@ -263,7 +279,7 @@ public struct ChessBoardView: View {
                 if let slide {
                     let p0 = BoardGeometry.center(slide.from, side: side, whiteAtBottom: whiteBottom)
                     let p1 = BoardGeometry.center(slide.to, side: side, whiteAtBottom: whiteBottom)
-                    BoardPiece(ch: slide.piece, size: sq * 0.88)
+                    BoardPiece(ch: slide.piece, size: sq * 0.88, blackRim: highlightColor)
                         .position(BoardGeometry.lerp(p0, p1, slideProgress))
                         .allowsHitTesting(false)
                 }
@@ -340,6 +356,9 @@ public struct ChessBoardView: View {
 struct BoardPiece: View {
     let ch: Character
     let size: CGFloat
+    /// Outline color for black pieces (the design reference's "black-piece
+    /// rim = accent2" rule) -- white pieces keep a fixed dark outline.
+    var blackRim: Color = Theme.gambit.accent2Color
 
     var body: some View {
         if let image = Self.art(BoardGeometry.pieceCode(for: ch)) {
@@ -349,7 +368,7 @@ struct BoardPiece: View {
                 .frame(width: size, height: size)
                 .shadow(color: .black.opacity(0.28), radius: 0.8, y: 0.6)
         } else if let glyph = BoardGeometry.filledGlyph(for: ch) {
-            PieceGlyph(glyph: glyph, isWhite: ch.isUppercase, size: size)
+            PieceGlyph(glyph: glyph, isWhite: ch.isUppercase, size: size, blackRim: blackRim)
         }
     }
 
@@ -370,10 +389,16 @@ struct PieceGlyph: View {
     let glyph: String
     let isWhite: Bool
     let size: CGFloat
+    var blackRim: Color = Theme.gambit.accent2Color
+
+    /// Piece fills are fixed regardless of theme (per the design reference);
+    /// only the black-piece outline is theme-driven.
+    private static let pieceWhite = Color(hex: "#f4eee0")
+    private static let pieceBlack = Color(hex: "#181310")
 
     var body: some View {
-        let fill = isWhite ? GemmaTheme.pieceWhite : GemmaTheme.pieceBlack
-        let outline = isWhite ? Color.black.opacity(0.85) : Color.white.opacity(0.50)
+        let fill = isWhite ? Self.pieceWhite : Self.pieceBlack
+        let outline = isWhite ? Color.black.opacity(0.85) : blackRim
         ZStack {
             Text(glyph).font(.system(size: size)).foregroundStyle(outline).scaleEffect(1.10)
             Text(glyph).font(.system(size: size)).foregroundStyle(fill)

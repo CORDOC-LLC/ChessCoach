@@ -125,6 +125,14 @@ public extension Theme {
 
     var cardBackgroundColor: Color { surfaceColor.opacity(0.84) }
     var cardBorderColor: Color { accent2Color.opacity(0.22) }
+
+    /// Whether `bg` is light enough that the system chrome (status bar,
+    /// keyboard, system controls) should render for a light background --
+    /// same luminance formula as `onAccentColor`, applied to `bg` instead.
+    var isLightBackground: Bool {
+        let (r, g, b) = Color.hexComponents(bg)
+        return (0.299 * r + 0.587 * g + 0.114 * b) > 0.6
+    }
 }
 
 // MARK: - Presets

@@ -13,6 +13,7 @@ struct CapturedTrayView: View {
     let advantage: Int
     /// Glyph size; small by default for the inline strip.
     var size: CGFloat = 15
+    @Environment(ThemeStore.self) private var themeStore
 
     var body: some View {
         HStack(spacing: 2) {
@@ -33,7 +34,7 @@ struct CapturedTrayView: View {
             if advantage > 0 {
                 Text("+\(advantage)")
                     .font(.caption2.weight(.bold)).monospacedDigit()
-                    .foregroundStyle(GemmaTheme.accent)
+                    .foregroundStyle(themeStore.effective.accentColor)
                     .padding(.leading, 2)
             }
         }
