@@ -111,6 +111,7 @@ public struct PlayView: View {
                 Spacer(minLength: 0)
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .padding(.bottom, 8)
         .onChange(of: settings.showCoach, initial: true) { _, showCoach in
             vm.coachDisplayEnabled = showCoach
