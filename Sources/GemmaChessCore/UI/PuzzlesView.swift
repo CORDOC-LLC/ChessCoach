@@ -8,6 +8,7 @@ import SwiftUI
 public struct PuzzlesContainerView: View {
     @Bindable var vm: PuzzleViewModel
     var onExit: () -> Void
+    @Environment(ThemeStore.self) private var themeStore
 
     public init(vm: PuzzleViewModel, onExit: @escaping () -> Void) {
         self.vm = vm; self.onExit = onExit
@@ -72,10 +73,10 @@ public struct PuzzlesContainerView: View {
                 if vm.downloadingTheme == theme.theme {
                     ProgressView()
                 } else if vm.isDownloaded(theme.theme) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(GemmaTheme.accent)
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(themeStore.effective.accentColor)
                 } else {
                     Label("\(Int(theme.sizeKB)) KB", systemImage: "arrow.down.circle")
-                        .font(.caption).foregroundStyle(GemmaTheme.gold)
+                        .font(.caption).foregroundStyle(themeStore.effective.accent2Color)
                 }
             }
         }
@@ -98,6 +99,8 @@ public struct PuzzlesContainerView: View {
 struct PuzzleSessionView: View {
     @Bindable var vm: PuzzleViewModel
     var onExit: () -> Void
+    @Environment(ThemeStore.self) private var themeStore
+    private var theme: Theme { themeStore.effective }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -121,7 +124,7 @@ struct PuzzleSessionView: View {
                     .gemmaGlassPill()
             }
             .buttonStyle(PressableStyle())
-            .foregroundStyle(GemmaTheme.accent)
+            .foregroundStyle(theme.accentColor)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(PuzzleThemeInfo.displayName(for: vm.activeTheme ?? ""))
@@ -145,6 +148,10 @@ struct PuzzleSessionView: View {
                 lastMove: vm.lastMove,
                 selectedSquare: vm.selected,
                 legalDots: vm.legalDots,
+                boardLight: theme.boardLightColor,
+                boardDark: theme.boardDarkColor,
+                highlightColor: theme.accent2Color,
+                accentColor: theme.accentColor,
                 onTapSquare: { vm.tap($0) }
             )
             .padding(.horizontal, 22)
@@ -156,7 +163,7 @@ struct PuzzleSessionView: View {
 
     private var completionCard: some View {
         VStack(spacing: 10) {
-            Image(systemName: "party.popper.fill").font(.largeTitle).foregroundStyle(GemmaTheme.gold)
+            Image(systemName: "party.popper.fill").font(.largeTitle).foregroundStyle(theme.accent2Color)
             Text("That's every puzzle in this pack for now.")
                 .font(.headline).foregroundStyle(.white)
             Text("\(vm.sessionSolvedCount) solved this session — nice work.")
@@ -201,9 +208,9 @@ struct PuzzleSessionView: View {
     }
     private func color(for feedback: PuzzleFeedback) -> Color {
         switch feedback {
-        case .correct: return GemmaTheme.accent
+        case .correct: return theme.accentColor
         case .incorrect: return .red
-        case .solved: return GemmaTheme.gold
+        case .solved: return theme.accent2Color
         }
     }
 }

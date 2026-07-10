@@ -13,17 +13,25 @@ public struct SettingsView: View {
     @State private var showClearGamesConfirm = false
     @State private var showResetPuzzlesConfirm = false
     @State private var showResetStatsConfirm = false
+    @State private var showAppearance = false
     @State private var clearedGames = false
     @State private var resetPuzzles = false
+    @Environment(ThemeStore.self) private var themeStore
 
     public init() {}
 
     public var body: some View {
         Form {
+            Section {
+                Button { showAppearance = true } label: {
+                    Label("Appearance & themes", systemImage: "paintpalette.fill")
+                }
+            }
+
             if stats.totalGames > 0 {
                 Section("Statistics") {
                     HStack {
-                        statColumn("Wins", stats.wins, GemmaTheme.accent)
+                        statColumn("Wins", stats.wins, themeStore.effective.accentColor)
                         statColumn("Losses", stats.losses, .red)
                         statColumn("Draws", stats.draws, .white.opacity(0.7))
                     }
@@ -79,14 +87,14 @@ public struct SettingsView: View {
                 }
                 if clearedGames {
                     Label("Cleared.", systemImage: "checkmark.circle.fill")
-                        .font(.footnote).foregroundStyle(GemmaTheme.accent)
+                        .font(.footnote).foregroundStyle(themeStore.effective.accentColor)
                 }
                 Button(role: .destructive) { showResetPuzzlesConfirm = true } label: {
                     Label("Reset puzzle progress", systemImage: "arrow.counterclockwise")
                 }
                 if resetPuzzles {
                     Label("Reset.", systemImage: "checkmark.circle.fill")
-                        .font(.footnote).foregroundStyle(GemmaTheme.accent)
+                        .font(.footnote).foregroundStyle(themeStore.effective.accentColor)
                 }
             }
 
@@ -123,6 +131,7 @@ public struct SettingsView: View {
                 stats = PlayStatsStore.current()
             }
         }
+        .sheet(isPresented: $showAppearance) { AppearanceView() }
     }
 
     private func statColumn(_ label: String, _ value: Int, _ color: Color) -> some View {
