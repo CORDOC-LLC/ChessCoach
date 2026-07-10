@@ -8,6 +8,11 @@
 
 import SwiftUI
 import PhotosUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// What the scanner is doing right now.
 private enum ScanPhase: Equatable {
@@ -27,6 +32,9 @@ public struct BoardScannerView: View {
 
     @State private var phase: ScanPhase = .picking
     @State private var photoItem: PhotosPickerItem?
+    #if os(iOS)
+    @State private var showCamera = false
+    #endif
     @State private var intent: ScanIntent = .ask
     @State private var question = ""
     @State private var answer: String?
@@ -58,9 +66,20 @@ public struct BoardScannerView: View {
     private var pickerSection: some View {
         let isRecognizing = phase == .recognizing
         return Section {
+            #if os(iOS)
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button {
+                    showCamera = true
+                } label: {
+                    Label(isRecognizing ? "Reading the board…" : "Take a photo",
+                          systemImage: "camera.fill")
+                }
+                .disabled(isRecognizing)
+            }
+            #endif
             PhotosPicker(selection: $photoItem, matching: .images) {
                 Label(isRecognizing ? "Reading the board…" : "Choose a photo",
-                      systemImage: "camera.viewfinder")
+                      systemImage: "photo.on.rectangle")
             }
             .disabled(isRecognizing)
             if isRecognizing {
@@ -76,6 +95,18 @@ public struct BoardScannerView: View {
             guard let newItem else { return }
             Task { await recognize(newItem) }
         }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraCaptureView(
+                onCapture: { data in
+                    showCamera = false
+                    Task { await recognize(data: data) }
+                },
+                onCancel: { showCamera = false }
+            )
+            .ignoresSafeArea()
+        }
+        #endif
     }
 
     private func previewSection(fen: String) -> some View {
@@ -143,14 +174,23 @@ public struct BoardScannerView: View {
     // MARK: - Actions
 
     private func recognize(_ item: PhotosPickerItem) async {
+        guard let data = (try? await item.loadTransferable(type: Data.self)) ?? nil else {
+            phase = .failed("Couldn't load that photo. Try another.")
+            return
+        }
+        await recognize(data: data)
+    }
+
+    /// Downscales/recompresses the photo before sending — a full-resolution
+    /// camera photo (often 10+ MB, more once base64-encoded) blows past the
+    /// managed backend's serverless request-body limit (HTTP 413). The vision
+    /// model doesn't need more than ~1600px on the long edge to read a board.
+    private func recognize(data: Data) async {
         phase = .recognizing
         answer = nil
         do {
-            guard let data = try await item.loadTransferable(type: Data.self) else {
-                phase = .failed("Couldn't load that photo. Try another.")
-                return
-            }
-            let fen = try await ManagedVisionClient.recognizeBoard(imageData: data)
+            let upload = downscaledJPEG(data) ?? data
+            let fen = try await ManagedVisionClient.recognizeBoard(imageData: upload)
             phase = .recognized(fen: fen)
         } catch let e as BoardRecognitionFailure {
             phase = .failed(e.reason)
@@ -176,3 +216,71 @@ public struct BoardScannerView: View {
         }
     }
 }
+
+/// Resizes to at most `maxDimension` on the long edge and re-encodes as JPEG
+/// at `quality` — shrinks a multi-megabyte camera photo down to a payload
+/// the managed backend's request-body limit can accept.
+private func downscaledJPEG(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
+    #if canImport(UIKit)
+    guard let image = UIImage(data: data) else { return nil }
+    let size = image.size
+    let scale = min(1, maxDimension / max(size.width, size.height))
+    let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+    let renderer = UIGraphicsImageRenderer(size: newSize)
+    let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
+    return resized.jpegData(compressionQuality: quality)
+    #elseif canImport(AppKit)
+    guard let image = NSImage(data: data) else { return nil }
+    let size = image.size
+    let scale = min(1, maxDimension / max(size.width, size.height))
+    let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+    let resized = NSImage(size: newSize)
+    resized.lockFocus()
+    image.draw(in: NSRect(origin: .zero, size: newSize))
+    resized.unlockFocus()
+    guard let tiff = resized.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
+    return bitmap.representation(using: .jpeg, properties: [.compressionFactor: quality])
+    #else
+    return nil
+    #endif
+}
+
+#if os(iOS)
+/// Wraps `UIImagePickerController`'s camera source — SwiftUI has no native
+/// camera-capture view (PhotosPicker only reaches the library).
+private struct CameraCaptureView: UIViewControllerRepresentable {
+    var onCapture: (Data) -> Void
+    var onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraCaptureView
+        init(_ parent: CameraCaptureView) { self.parent = parent }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            if let image = info[.originalImage] as? UIImage, let data = image.jpegData(compressionQuality: 0.9) {
+                parent.onCapture(data)
+            } else {
+                parent.onCancel()
+            }
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.onCancel()
+        }
+    }
+}
+#endif
