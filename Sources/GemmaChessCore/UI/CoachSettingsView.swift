@@ -25,6 +25,7 @@ public struct CoachSettingsView: View {
     @State private var debugToken: String = ManagedCoachStore.loadDebugToken() ?? ""
     @State private var debugModel: String = ManagedCoachStore.loadDebugModel() ?? ""
     @State private var managedSaved = false
+    @Environment(ThemeStore.self) private var themeStore
 
     public init(channel: BuildChannel = .current) {
         self.channel = channel
@@ -92,7 +93,7 @@ public struct CoachSettingsView: View {
                     Label(ManagedCoachStore.loadBackendURL() != nil ? "Saved." : "Removed.",
                           systemImage: "checkmark.circle.fill")
                         .font(.footnote)
-                        .foregroundStyle(GemmaTheme.accent)
+                        .foregroundStyle(themeStore.effective.accentColor)
                 }
                 if ManagedCoachStore.loadBackendURL() != nil {
                     NavigationLink("Usage & Cost") { ManagedUsageView() }
@@ -166,7 +167,7 @@ public struct CoachSettingsView: View {
                 Label(GeminiKeyStore.load() != nil ? "Saved." : "Key removed.",
                       systemImage: "checkmark.circle.fill")
                     .font(.footnote)
-                    .foregroundStyle(GemmaTheme.accent)
+                    .foregroundStyle(themeStore.effective.accentColor)
             }
         }
     }
