@@ -42,7 +42,7 @@ public enum ManagedUsageClient {
         session: URLSession = .shared,
         backendURL: @Sendable () -> String? = { ManagedCoachStore.loadBackendURL() },
         debugToken: @Sendable () -> String? = { ManagedCoachStore.loadDebugToken() },
-        appUserId: @Sendable () -> String = { ManagedCoachStore.debugAppUserId() }
+        appUserId: @Sendable () -> String = { ManagedCoachStore.appUserId() }
     ) async throws -> ManagedUsageReport {
         guard let base = backendURL(), !base.isEmpty else {
             throw CoachError("Managed coach isn't configured.")

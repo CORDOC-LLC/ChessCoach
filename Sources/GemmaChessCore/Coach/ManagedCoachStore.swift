@@ -1,16 +1,16 @@
 //  ManagedCoachStore.swift
 //  Configuration for the managed (paid-tier, developer-hosted) coach backend.
 //
-//  Two pieces persist here, and both are TEMPORARY scaffolding for local
-//  testing before RevenueCat is wired in client-side (see plan KTD-8, unit
-//  U6): the backend URL and a debug bypass token, letting the developer
-//  exercise the real chesscoach-gateway deployment (Gateway, Neon ledger,
-//  App Attest) end-to-end without first building the RevenueCat purchase
-//  flow. Once U6 lands, `appUserId` switches to reading RevenueCat's
-//  `Purchases.shared.appUserID` instead of the generated UUID here — nothing
-//  else in ManagedCoach needs to change, since both are read via a closure.
+//  The backend URL and debug bypass token here remain local-testing/TestFlight
+//  scaffolding (see each property's own header). `appUserId()` reads
+//  RevenueCat's `Purchases.shared.appUserID` once the SDK is configured
+//  (real subscriber identity, tied to receipts) and falls back to a generated,
+//  persisted UUID before that (e.g. SPM unit tests, or a build that never
+//  calls `ProEntitlementStore.configure`) -- nothing else in ManagedCoach
+//  needs to change, since both are read via a closure.
 
 import Foundation
+import RevenueCat
 #if canImport(Security)
 import Security
 #endif
@@ -98,11 +98,14 @@ public enum ManagedCoachStore {
         }
     }
 
-    /// A stable per-install identifier used as `appUserId` until RevenueCat
-    /// (U6) replaces it with a real subscriber identity. Generated once,
-    /// persisted, never regenerated — so ledger/quota testing is consistent
-    /// across app launches.
-    public static func debugAppUserId() -> String {
+    /// RevenueCat's subscriber identity once the SDK is configured (real
+    /// installs); otherwise a generated, persisted UUID so ledger/quota
+    /// testing is still consistent across app launches (unit tests, or a
+    /// build that never calls `ProEntitlementStore.configure`).
+    public static func appUserId() -> String {
+        if Purchases.isConfigured {
+            return Purchases.shared.appUserID
+        }
         if let existing = UserDefaults.standard.string(forKey: appUserIdKey) {
             return existing
         }

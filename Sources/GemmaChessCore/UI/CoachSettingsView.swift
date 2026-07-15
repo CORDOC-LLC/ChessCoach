@@ -26,6 +26,8 @@ public struct CoachSettingsView: View {
     @State private var debugModel: String = ManagedCoachStore.loadDebugModel() ?? ""
     @State private var managedSaved = false
     @Environment(ThemeStore.self) private var themeStore
+    @State private var proStore = ProEntitlementStore.shared
+    @State private var showPaywall = false
 
     /// Only meaningful when `offersChoice` -- which backend answers. Persisted
     /// via `CoachBackendPreference`; see that type for why this needs to be an
@@ -73,6 +75,9 @@ public struct CoachSettingsView: View {
             }
         }
         .navigationTitle("Coach Settings")
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+        }
     }
 
     // MARK: ChessCoach Pro (managed)
@@ -136,13 +141,23 @@ public struct CoachSettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 NavigationLink("Usage & Cost") { ManagedUsageView() }
+            } else if proStore.isProActive {
+                Label("ChessCoach Pro is active.", systemImage: "checkmark.seal.fill")
+                    .font(.footnote)
+                    .foregroundStyle(themeStore.effective.accentColor)
+                Button("Restore Purchases") {
+                    Task { try? await proStore.restore() }
+                }
+                .font(.footnote)
             } else {
-                // App Store production, RevenueCat not wired up yet (U6) --
-                // this becomes the real subscribe/manage-subscription UI once
-                // it is. No debug fields ship to real users.
-                Text("ChessCoach Pro subscriptions are coming soon.")
+                Text("Subscribe to ChessCoach Pro for written coaching on every move -- no API key needed.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                Button("Subscribe") { showPaywall = true }
+                Button("Restore Purchases") {
+                    Task { try? await proStore.restore() }
+                }
+                .font(.footnote)
             }
         }
     }
