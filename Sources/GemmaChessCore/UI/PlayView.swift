@@ -443,7 +443,7 @@ public struct PlayView: View {
                     ProgressView().controlSize(.small)
                 }
                 if vm.coachEnabled {
-                    Button { showChat = true } label: {
+                    Button { openChat() } label: {
                         Label("Ask", systemImage: "bubble.left.and.bubble.right.fill")
                             .font(.caption2.weight(.semibold))
                             .labelStyle(.titleAndIcon)
@@ -513,7 +513,7 @@ public struct PlayView: View {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(theme.textColor.opacity(0.65))
-                if BuildChannel.current == .appStore {
+                if BuildChannel.current.requiresProEntitlement {
                     Button("Subscribe to ChessCoach Pro") { showPaywall = true }
                         .font(.caption.weight(.semibold))
                 }
@@ -541,6 +541,17 @@ public struct PlayView: View {
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(Capsule().fill(color.opacity(0.22)))
         .overlay(Capsule().stroke(color.opacity(0.6), lineWidth: 1))
+    }
+
+    /// Opens coach chat, unless this channel requires an active
+    /// entitlement and the user doesn't have one -- shows the paywall
+    /// instead (see `BuildChannel.requiresProEntitlement`).
+    private func openChat() {
+        if BuildChannel.current.requiresProEntitlement, !ProEntitlementStore.shared.isProActive {
+            showPaywall = true
+        } else {
+            showChat = true
+        }
     }
 }
 

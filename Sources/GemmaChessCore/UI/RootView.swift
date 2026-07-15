@@ -26,6 +26,7 @@ public struct GemmaRootView: View {
     @State private var themeStore = ThemeStore()
 
     @State private var showOnboarding = !OnboardingStore.hasCompleted()
+    @State private var showPaywall = false
 
     private enum Mode { case home, play, review, scan, savedGames, puzzles }
 
@@ -38,7 +39,7 @@ public struct GemmaRootView: View {
                 HomeView(
                     onPlay: { playStartedInitially = false; mode = .play },
                     onReview: { mode = .review },
-                    onScan: { mode = .scan },
+                    onScan: { openScan() },
                     onResume: { openSavedGame(withID: SavedGameStore.inProgressGameID()) },
                     onMyGames: { mode = .savedGames },
                     onPuzzles: { mode = .puzzles }
@@ -81,6 +82,18 @@ public struct GemmaRootView: View {
                 .frame(minWidth: 480, minHeight: 640)
         }
         #endif
+        .sheet(isPresented: $showPaywall) { PaywallView().environment(themeStore) }
+    }
+
+    /// "Scan a board" needs the managed coach -- shows the paywall instead
+    /// when this channel requires an entitlement the user doesn't have yet
+    /// (see `BuildChannel.requiresProEntitlement`).
+    private func openScan() {
+        if BuildChannel.current.requiresProEntitlement, !ProEntitlementStore.shared.isProActive {
+            showPaywall = true
+        } else {
+            mode = .scan
+        }
     }
 
     private func openSavedGame(withID id: UUID?) {
