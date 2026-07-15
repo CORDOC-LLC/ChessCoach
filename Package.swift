@@ -20,6 +20,8 @@ let package = Package(
         .package(url: "https://github.com/chesskit-app/chesskit-swift.git", from: "0.17.0"),
         // Stockfish 17 compiled from source behind an async/await UCI API (GPLv3).
         .package(url: "https://github.com/chesskit-app/chesskit-engine.git", from: "0.7.0"),
+        // RevenueCat — StoreKit subscription purchases + entitlement checks for ChessCoach Pro (plan KTD-8, U6).
+        .package(url: "https://github.com/RevenueCat/purchases-ios", from: "5.80.3"),
     ],
     targets: [
         .target(
@@ -27,6 +29,7 @@ let package = Package(
             dependencies: [
                 .product(name: "ChessKit", package: "chesskit-swift"),
                 .product(name: "ChessKitEngine", package: "chesskit-engine"),
+                .product(name: "RevenueCat", package: "purchases-ios"),
             ],
             path: "Sources/GemmaChessCore",
             resources: [

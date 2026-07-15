@@ -81,6 +81,7 @@ public struct PlayView: View {
     @State private var showChat = false
     @State private var showGameOverBanner = false
     @State private var showAppearance = false
+    @State private var showPaywall = false
     @Environment(ThemeStore.self) private var themeStore
     private var theme: Theme { themeStore.effective }
 
@@ -144,6 +145,7 @@ public struct PlayView: View {
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .sheet(isPresented: $showAppearance) { AppearanceView() }
+        .sheet(isPresented: $showPaywall) { PaywallView() }
     }
 
     // Eval bar is a leading overlay so its height tracks the board exactly
@@ -511,6 +513,10 @@ public struct PlayView: View {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(theme.textColor.opacity(0.65))
+                if BuildChannel.current == .appStore {
+                    Button("Subscribe to ChessCoach Pro") { showPaywall = true }
+                        .font(.caption.weight(.semibold))
+                }
             }
         } else if vm.lastVerdict == nil {
             Text("Make a move — I'll comment as you play.")

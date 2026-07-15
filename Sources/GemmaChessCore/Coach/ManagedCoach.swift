@@ -7,9 +7,9 @@
 //
 //  Entitlement is checked server-side (RevenueCat, plan KTD-8) — this file
 //  just attaches `appUserId` and an optional App Attest header to every call.
-//  Until U6 wires up RevenueCat client-side, `appUserId`/backend URL/debug
-//  token all come from `ManagedCoachStore`, which is deliberately temporary
-//  scaffolding for local testing (see that file's header comment).
+//  `appUserId`/backend URL/debug token all come from `ManagedCoachStore`,
+//  which reads the real RevenueCat subscriber ID once the SDK is configured
+//  (see that file's header comment).
 
 import Foundation
 #if canImport(FoundationNetworking)
@@ -32,7 +32,7 @@ public final class ManagedCoach: CoachLLM, Sendable {
         session: URLSession = .shared,
         backendURL: @escaping @Sendable () -> String? = { ManagedCoachStore.loadBackendURL() },
         debugToken: @escaping @Sendable () -> String? = { ManagedCoachStore.loadDebugToken() },
-        appUserId: @escaping @Sendable () -> String? = { ManagedCoachStore.debugAppUserId() },
+        appUserId: @escaping @Sendable () -> String? = { ManagedCoachStore.appUserId() },
         debugModel: @escaping @Sendable () -> String? = { ManagedCoachStore.loadDebugModel() }
     ) {
         self.session = session
