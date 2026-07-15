@@ -15,6 +15,7 @@ public struct SettingsView: View {
     @State private var showResetStatsConfirm = false
     @State private var showAppearance = false
     @State private var showOnboarding = false
+    @State private var showPaywall = false
     @State private var clearedGames = false
     @State private var resetPuzzles = false
     @Environment(ThemeStore.self) private var themeStore
@@ -104,6 +105,15 @@ public struct SettingsView: View {
                 NavigationLink("Open Source Licenses") { LicensesView() }
                 NavigationLink("New to chess?") { BeginnersView() }
             }
+
+            if BuildChannel.current != .appStore {
+                Section {
+                    Button("Preview Paywall") { showPaywall = true }
+                } footer: {
+                    Text("Local/TestFlight only -- lets you check the paywall's look without needing "
+                        + "a real purchase flow.")
+                }
+            }
         }
         .navigationTitle("Settings")
         .confirmationDialog(
@@ -134,6 +144,7 @@ public struct SettingsView: View {
             }
         }
         .sheet(isPresented: $showAppearance) { AppearanceView() }
+        .sheet(isPresented: $showPaywall) { PaywallView() }
         #if os(iOS)
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingView(onFinish: { showOnboarding = false })

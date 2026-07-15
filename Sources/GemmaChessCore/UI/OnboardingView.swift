@@ -23,6 +23,7 @@ public struct OnboardingView: View {
 
     @Environment(ThemeStore.self) private var themeStore
     @State private var pageIndex = 0
+    @State private var showPaywall = false
 
     private var theme: Theme { themeStore.effective }
 
@@ -77,6 +78,9 @@ public struct OnboardingView: View {
             ZStack { theme.bgColor; theme.backgroundGradient }.ignoresSafeArea()
         )
         .preferredColorScheme(theme.isLightBackground ? .light : .dark)
+        .sheet(isPresented: $showPaywall, onDismiss: finish) {
+            PaywallView().environment(themeStore)
+        }
     }
 
     private var skipRow: some View {
@@ -151,7 +155,12 @@ public struct OnboardingView: View {
             if pageIndex < Self.pages.count - 1 {
                 withAnimation { pageIndex += 1 }
             } else {
-                finish()
+                OnboardingStore.markCompleted()
+                if BuildChannel.current.requiresProEntitlement {
+                    showPaywall = true
+                } else {
+                    finish()
+                }
             }
         } label: {
             Text(pageIndex < Self.pages.count - 1 ? "Next" : "Get Started")

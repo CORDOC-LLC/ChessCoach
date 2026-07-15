@@ -50,4 +50,11 @@ public enum BuildChannel: Equatable, Sendable {
     public var allowsManagedCoach: Bool {
         true
     }
+
+    /// Whether pro-gated features (coach chat, board scan) should check
+    /// `ProEntitlementStore.isProActive` before running and show the paywall
+    /// instead when it's false. Only App Store production actually gates --
+    /// local and TestFlight already get ChessCoach Pro without a
+    /// subscription (see this file's header).
+    public var requiresProEntitlement: Bool { self == .appStore }
 }
