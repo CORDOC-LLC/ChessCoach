@@ -120,7 +120,8 @@ public final class ManagedCoach: CoachLLM, Sendable {
         switch http.statusCode {
         case 200..<300: return
         case 402: throw CoachError("You've reached this month's coaching limit. It resets on your next renewal.")
-        case 403: throw CoachError("ChessCoach Pro isn't active. Subscribe in Settings for the managed coach.")
+        case 403: throw CoachError("ChessCoach Pro isn't active right now. In Coach Settings, try switching to "
+            + "\"Bring your own key\" with your own Gemini key, or try again shortly.")
         case 429: throw CoachError("The managed coach is busy. Try again in a moment.")
         default:
             let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""

@@ -27,17 +27,45 @@ public struct CoachSettingsView: View {
     @State private var managedSaved = false
     @Environment(ThemeStore.self) private var themeStore
 
+    /// Only meaningful when `offersChoice` -- which backend answers. Persisted
+    /// via `CoachBackendPreference`; see that type for why this needs to be an
+    /// explicit, user-driven choice rather than a fixed priority order.
+    @State private var backendChoice: CoachBackendChoice = CoachBackendPreference.current()
+
+    /// Whether this channel even offers a choice between the two backends
+    /// (local dev and TestFlight do; App Store production is managed-only).
+    private var offersChoice: Bool { channel.allowsManagedCoach && channel.allowsGeminiBYOK }
+
     public init(channel: BuildChannel = .current) {
         self.channel = channel
     }
 
     public var body: some View {
         Form {
-            if channel.allowsManagedCoach { managedCoachSection }
-            if channel == .local, !debugToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if offersChoice {
+                Section {
+                    Picker("Coach backend", selection: $backendChoice) {
+                        Text("ChessCoach Pro").tag(CoachBackendChoice.managed)
+                        Text("Bring your own key").tag(CoachBackendChoice.byok)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: backendChoice) { _, newValue in CoachBackendPreference.set(newValue) }
+                } footer: {
+                    Text(channel == .testFlight
+                        ? "ChessCoach Pro works out of the box for TestFlight testers. If it's not " +
+                          "responding, switch to your own Gemini key below."
+                        : "Switch between the managed backend (debug-configured below) and your own Gemini key.")
+                }
+            }
+
+            if channel.allowsManagedCoach, !offersChoice || backendChoice == .managed {
+                managedCoachSection
+            }
+            if channel == .local, backendChoice == .managed,
+               !debugToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 modelOverrideSection
             }
-            if channel.allowsGeminiBYOK {
+            if channel.allowsGeminiBYOK, !offersChoice || backendChoice == .byok {
                 geminiIntroSection
                 geminiKeySection
                 geminiModelSection
@@ -55,8 +83,7 @@ public struct CoachSettingsView: View {
             if channel == .local {
                 Text("For local testing before subscriptions are wired up: point at your own "
                     + "chesscoach-gateway deployment and, if it has a debug bypass token "
-                    + "configured, paste that too. This backend takes priority over the Gemini "
-                    + "key below whenever it's configured.")
+                    + "configured, paste that too.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 TextField("Backend URL (e.g. https://your-app.vercel.app)", text: $backendURL)
