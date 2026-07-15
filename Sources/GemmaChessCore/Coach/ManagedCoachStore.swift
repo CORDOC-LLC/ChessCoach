@@ -78,8 +78,15 @@ public enum ManagedCoachStore {
     /// The chesscoach-gateway deployment base URL (e.g.
     /// `https://chesscoach-gateway.vercel.app`), or nil when not configured --
     /// `ManagedCoach.availability` reports `.unavailable` in that case.
+    ///
+    /// On TestFlight, falls back to the production deployment automatically
+    /// (no user configuration needed) -- see `loadDebugToken()`'s header for
+    /// why this is safe/expected only on that channel.
     public static func loadBackendURL() -> String? {
-        UserDefaults.standard.string(forKey: backendURLKey)
+        if let saved = UserDefaults.standard.string(forKey: backendURLKey), !saved.isEmpty {
+            return saved
+        }
+        return BuildChannel.current == .testFlight ? managedCoachProductionURL : nil
     }
 
     public static func saveBackendURL(_ url: String?) {
@@ -104,9 +111,45 @@ public enum ManagedCoachStore {
         return generated
     }
 
+    /// Set once at app launch from the app target's gitignored, generated
+    /// `ManagedCoachSecrets.swift` (see `scripts/gen-project.sh`) -- this
+    /// package never contains the secret itself, only this injection point.
+    nonisolated(unsafe) private static var injectedTestFlightToken: String?
+
+    /// Wires the TestFlight-only managed-coach debug token in from the app
+    /// target. Call once, at launch (see `GemmaChessApp.swift`). No-op for
+    /// any build that doesn't call it (local dev running from Xcode/SPM
+    /// tests never does) -- `loadDebugToken()` simply has nothing to fall
+    /// back to in that case.
+    public static func configureTestFlightToken(_ token: String) {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        injectedTestFlightToken = trimmed.isEmpty ? nil : trimmed
+    }
+
     /// The debug bypass token (Keychain — it's a credential, not a preference:
     /// possessing it skips the backend's real entitlement check entirely).
+    ///
+    /// On TestFlight, falls back to `injectedTestFlightToken` (see
+    /// `configureTestFlightToken(_:)`, sourced from `local.env`'s
+    /// `MANAGED_TESTFLIGHT_TOKEN` at build time -- see `scripts/gen-project.sh`).
+    /// This lets TestFlight testers use the managed coach against the
+    /// developer's own Gemini budget with zero setup, ahead of RevenueCat
+    /// being wired up (see chesscoach-gateway's `entitlementGate.ts`).
+    /// Deliberately gated to `.testFlight` only: App Store production must
+    /// go through a real entitlement check once RevenueCat lands, and this
+    /// token is a SHARED secret extractable from the compiled binary --
+    /// acceptable for a capped-quota beta, never for production. Rotate
+    /// `CHESSCOACH_DEBUG_BYPASS_TOKEN` (server) + `MANAGED_TESTFLIGHT_TOKEN`
+    /// (local.env) together if abused.
     public static func loadDebugToken() -> String? {
+        if let saved = loadUserDebugToken(), !saved.isEmpty {
+            return saved
+        }
+        guard BuildChannel.current == .testFlight else { return nil }
+        return injectedTestFlightToken
+    }
+
+    private static func loadUserDebugToken() -> String? {
         #if canImport(Security)
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

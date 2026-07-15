@@ -21,3 +21,11 @@ build/
 
 # Local signing config (see local.env.example)
 local.env
+
+# Generated from local.env by scripts/gen-project.sh -- never hand-edit or commit.
+Apps/GemmaChessiOS/ManagedCoachSecrets.swift
+
+# chesscoach-gateway is its own private repo (see chesscoach-gateway/README.md
+# for why it's separate: GPLv3 disclosure boundary). It lives here on disk for
+# convenience but is never part of this (public) repo's history.
+chesscoach-gateway/

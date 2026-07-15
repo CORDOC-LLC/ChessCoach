@@ -3,9 +3,13 @@
 //  which coach backends are even offered:
 //    - local (Xcode/devicectl install, no App Store receipt): both ChessCoach
 //      Pro (debug backend URL/token) and Gemini BYOK, for development.
-//    - testFlight (sandboxReceipt): Gemini BYOK only. Keeps external beta
-//      testers off the not-yet-launched RevenueCat purchase flow entirely --
-//      they just paste their own key.
+//    - testFlight (sandboxReceipt): BOTH ChessCoach Pro (auto-configured via
+//      a baked-in debug-bypass token against the developer's own Gemini
+//      budget -- see ManagedCoachStore.loadDebugToken()) and Gemini BYOK.
+//      No paywall surface: the managed coach "just works" for testers with
+//      zero setup, and BYOK stays available as an alternative. This is
+//      pre-RevenueCat scaffolding -- once the subscription flow lands, this
+//      may tighten to match App Store production.
 //    - appStore (receipt): ChessCoach Pro (managed, RevenueCat-entitled) only.
 //      No BYOK in production -- the whole point is the subscription.
 //
@@ -44,9 +48,6 @@ public enum BuildChannel: Equatable, Sendable {
 
     /// Whether the managed ChessCoach Pro backend should be offered at all.
     public var allowsManagedCoach: Bool {
-        switch self {
-        case .local, .appStore: return true
-        case .testFlight: return false
-        }
+        true
     }
 }
