@@ -14,14 +14,16 @@ public final class CoachOrchestrator: Sendable {
 
     /// Default priority: the managed, developer-hosted coach first (paid tier
     /// or, for now, local debug testing — see `ManagedCoachStore`), then Gemini
-    /// when the user has set their own API key. Both are network backends —
-    /// on-device Foundation Models/Gemma were tried and dropped (quality wasn't
-    /// good enough), so there is no local fallback tier. Each backend reports
-    /// `.unavailable` when unconfigured, so this list is a transparent
-    /// fallthrough — nothing changes until the user opts into one.
+    /// when the user has set their own API key -- unless `CoachBackendPreference`
+    /// explicitly says otherwise (see `active` below and that type's header).
+    /// Both are network backends — on-device Foundation Models/Gemma were tried
+    /// and dropped (quality wasn't good enough), so there is no local fallback
+    /// tier. Each backend reports `.unavailable` when unconfigured, so this
+    /// list is a transparent fallthrough — nothing changes until the user
+    /// opts into one.
     ///
     /// Which backends are even IN the list depends on `BuildChannel` (local
-    /// dev installs get both, TestFlight gets Gemini BYOK only, App Store
+    /// dev and TestFlight installs get both managed + Gemini BYOK, App Store
     /// production gets the managed subscription only) — see that type's
     /// header for the reasoning.
     public init(
@@ -39,12 +41,23 @@ public final class CoachOrchestrator: Sendable {
         return backends
     }
 
-    /// The first backend that isn't `.unavailable`, or nil.
+    /// The backend that answers. On channels offering both the managed coach
+    /// and Gemini BYOK (local, TestFlight), respects the user's explicit
+    /// `CoachBackendPreference` -- see that type's header for why this can't
+    /// just be a fixed priority order. Elsewhere (App Store production, or
+    /// only one backend configured/available), falls back to "first backend
+    /// that isn't unavailable".
     private var active: CoachLLM? {
-        backends.first {
-            if case .unavailable = $0.availability { return false }
+        func isAvailable(_ backend: CoachLLM) -> Bool {
+            if case .unavailable = backend.availability { return false }
             return true
         }
+        if BuildChannel.current.allowsManagedCoach, BuildChannel.current.allowsGeminiBYOK,
+           CoachBackendPreference.current() == .byok,
+           let gemini = backends.first(where: { $0 is GeminiCoach }), isAvailable(gemini) {
+            return gemini
+        }
+        return backends.first(where: isAvailable)
     }
 
     /// State for the UI: which backend will answer, or why none can.
