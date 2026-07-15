@@ -246,12 +246,12 @@ public struct PlayView: View {
             if vm.engineThinking || vm.isCoaching { ProgressView().controlSize(.small) }
             Text(vm.status)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(vm.gameOver ? theme.accentColor : .white)
+                .foregroundStyle(vm.gameOver ? theme.accentColor : theme.textColor)
                 .lineLimit(1).minimumScaleFactor(0.7)
             WinPie(winWhite: vm.winWhite)
             Text(vm.evalText)
                 .font(.subheadline.weight(.bold)).monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.textColor)
         }
     }
 
@@ -263,7 +263,7 @@ public struct PlayView: View {
         Button { showAppearance = true } label: {
             Image(systemName: "gearshape")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(theme.textColor.opacity(0.8))
                 .frame(width: 26, height: 26)
         }
         .buttonStyle(PressableStyle())
@@ -288,7 +288,7 @@ public struct PlayView: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.subheadline.weight(.bold))
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(theme.textColor.opacity(0.8))
                 .frame(width: 26, height: 26)
         }
         .buttonStyle(PressableStyle())
@@ -320,7 +320,7 @@ public struct PlayView: View {
         return Button { on ? vm.clearHint() : vm.requestHint() } label: {
             Image(systemName: on ? "lightbulb.fill" : "lightbulb")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(on ? theme.accent2Color : .white.opacity(0.7))
+                .foregroundStyle(on ? theme.accent2Color : theme.textColor.opacity(0.7))
                 .frame(width: 26, height: 26)
         }
         .buttonStyle(PressableStyle())
@@ -336,20 +336,20 @@ public struct PlayView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "lightbulb.fill").foregroundStyle(theme.accent2Color).font(.footnote)
                     Text(hint.summaryLabel)
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
                         .lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength: 4)
                     if hint.isLoading { ProgressView().controlSize(.small) }
                     Button { vm.clearHint() } label: {
                         Image(systemName: "xmark")
-                            .font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.6))
+                            .font(.caption.weight(.bold)).foregroundStyle(theme.textColor.opacity(0.6))
                             .frame(width: 22, height: 22)
                     }
                     .buttonStyle(.plain)
                 }
                 if let rationale = hint.rationale, !rationale.isEmpty {
                     Text(rationale.asCoachMarkdown)
-                        .font(.footnote).foregroundStyle(.white.opacity(0.9))
+                        .font(.footnote).foregroundStyle(theme.textColor.opacity(0.9))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -371,7 +371,7 @@ public struct PlayView: View {
             Image(systemName: "book.closed.fill")
                 .font(.caption2).foregroundStyle(theme.accent2Color)
             Text("\(opening.name) · \(opening.eco)")
-                .font(.caption).foregroundStyle(.white.opacity(0.7))
+                .font(.caption).foregroundStyle(theme.textColor.opacity(0.7))
                 .lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -385,7 +385,7 @@ public struct PlayView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "chart.bar.fill").foregroundStyle(theme.accent2Color).font(.footnote)
-                Text("Best Moves").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Text("Best Moves").font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
                 if let v = vm.lastVerdict { verdictChip(v) }
                 Spacer(minLength: 4)
                 // Learning, not scorekeeping: undo any move, as many times in a
@@ -402,22 +402,22 @@ public struct PlayView: View {
             }
             if vm.topMoves.isEmpty {
                 Text("Play a move to see how the engine judged it, and its top 3 choices here.")
-                    .font(.footnote).foregroundStyle(.white.opacity(0.6))
+                    .font(.footnote).foregroundStyle(theme.textColor.opacity(0.6))
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(vm.topMoves.enumerated()), id: \.offset) { index, line in
                         HStack(spacing: 8) {
                             Text("\(index + 1).")
                                 .font(.caption.monospacedDigit())
-                                .foregroundStyle(.white.opacity(0.4))
+                                .foregroundStyle(theme.textColor.opacity(0.4))
                                 .frame(width: 16, alignment: .trailing)
                             Text(line.lineSAN.first ?? "—")
                                 .font(.callout.weight(.semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(theme.textColor)
                             Spacer(minLength: 8)
                             Text(line.eval)
                                 .font(.caption.monospacedDigit())
-                                .foregroundStyle(.white.opacity(0.6))
+                                .foregroundStyle(theme.textColor.opacity(0.6))
                         }
                     }
                 }
@@ -435,7 +435,7 @@ public struct PlayView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "graduationcap.fill").foregroundStyle(theme.accentColor).font(.footnote)
-                Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
                 Spacer(minLength: 4)
                 if vm.isCoaching || vm.isSummarizing {
                     ProgressView().controlSize(.small)
@@ -470,39 +470,51 @@ public struct PlayView: View {
             if let note = vm.note(forPly: ply), !note.isEmpty {
                 Text(note.asCoachMarkdown)
                     .font(.callout)
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(theme.textColor.opacity(0.92))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             } else {
                 Text("No coach note recorded for this move.")
-                    .font(.footnote).foregroundStyle(.white.opacity(0.6))
+                    .font(.footnote).foregroundStyle(theme.textColor.opacity(0.6))
             }
         // At game over the debrief takes the card: what mattered, the habit, the
         // one thing to practice.
         } else if vm.gameOver, let summary = vm.gameSummary, !summary.isEmpty {
             Text(summary.asCoachMarkdown)
                 .font(.callout)
-                .foregroundStyle(.white.opacity(0.92))
+                .foregroundStyle(theme.textColor.opacity(0.92))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         } else if vm.gameOver, vm.isSummarizing {
             Text("Looking back over the game…")
-                .font(.footnote).foregroundStyle(.white.opacity(0.6))
+                .font(.footnote).foregroundStyle(theme.textColor.opacity(0.6))
         } else if let note = vm.lastCoachNote, !note.isEmpty {
             Text(note.asCoachMarkdown)
                 .font(.callout)
-                .foregroundStyle(.white.opacity(0.92))
+                .foregroundStyle(theme.textColor.opacity(0.92))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         } else if vm.isCoaching {
             Text("Reading the position…")
-                .font(.footnote).foregroundStyle(.white.opacity(0.6))
+                .font(.footnote).foregroundStyle(theme.textColor.opacity(0.6))
         } else if !vm.coachEnabled {
             Text("Engine review only on this device. I'll still grade your moves.")
-                .font(.footnote).foregroundStyle(.white.opacity(0.6))
+                .font(.footnote).foregroundStyle(theme.textColor.opacity(0.6))
+        } else if let error = vm.lastCoachError {
+            // A configuration/entitlement/network failure -- shown specifically
+            // (rather than a silent blank card) so it's obvious what to fix,
+            // e.g. during TestFlight testing.
+            VStack(alignment: .leading, spacing: 3) {
+                Label("Coach unavailable", systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(theme.textColor.opacity(0.65))
+            }
         } else if vm.lastVerdict == nil {
             Text("Make a move — I'll comment as you play.")
-                .font(.footnote).foregroundStyle(.white.opacity(0.6))
+                .font(.footnote).foregroundStyle(theme.textColor.opacity(0.6))
         }
     }
 
@@ -515,10 +527,10 @@ public struct PlayView: View {
                 .font(.caption.weight(.bold))
             if let better = v.betterMoveSAN, !v.isBest {
                 Text("best \(better)")
-                    .font(.caption2).foregroundStyle(.white.opacity(0.75))
+                    .font(.caption2).foregroundStyle(theme.textColor.opacity(0.75))
             }
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(theme.textColor)
         .lineLimit(1).minimumScaleFactor(0.7)
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(Capsule().fill(color.opacity(0.22)))
@@ -538,6 +550,7 @@ struct GameOverBanner: View {
 
     @Environment(ThemeStore.self) private var themeStore
     @State private var appeared = false
+    private var theme: Theme { themeStore.effective }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -548,18 +561,18 @@ struct GameOverBanner: View {
                 .opacity(appeared ? 1 : 0)
             Text(title)
                 .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.textColor)
             Text(resultText)
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.75))
+                .foregroundStyle(theme.textColor.opacity(0.75))
                 .multilineTextAlignment(.center)
             Text("\(stats.wins)W · \(stats.losses)L · \(stats.draws)D")
                 .font(.caption.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.55))
+                .foregroundStyle(theme.textColor.opacity(0.55))
                 .padding(.top, 4)
             Text("Tap to dismiss")
                 .font(.caption2)
-                .foregroundStyle(.white.opacity(0.4))
+                .foregroundStyle(theme.textColor.opacity(0.4))
                 .padding(.top, 2)
         }
         .padding(28)
@@ -592,7 +605,7 @@ struct GameOverBanner: View {
         switch outcome {
         case .win: return themeStore.effective.accent2Color
         case .loss: return .red
-        case .draw: return .white.opacity(0.8)
+        case .draw: return theme.textColor.opacity(0.8)
         }
     }
 }
@@ -651,7 +664,7 @@ struct PlayCoachChatView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             if vm.chat.isEmpty {
                                 Text("Ask anything about this position — \"why was that a mistake?\", \"what's my plan?\", \"is my king safe?\"")
-                                    .font(.footnote).foregroundStyle(.white.opacity(0.55))
+                                    .font(.footnote).foregroundStyle(theme.textColor.opacity(0.55))
                                     .padding(.top, 8)
                             }
                             ForEach(Array(vm.chat.enumerated()), id: \.offset) { i, msg in
@@ -690,12 +703,12 @@ struct PlayCoachChatView: View {
                 } else {
                     Text(isUser ? AttributedString(msg.text) : msg.text.asCoachMarkdown)
                         .font(.callout)
-                        .foregroundStyle(.white.opacity(isUser ? 0.95 : 0.92))
+                        .foregroundStyle(theme.textColor.opacity(isUser ? 0.95 : 0.92))
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(
-                (isUser ? theme.accentColor.opacity(0.22) : Color.white.opacity(0.08)),
+                (isUser ? theme.accentColor.opacity(0.22) : theme.textColor.opacity(0.08)),
                 in: RoundedRectangle(cornerRadius: 14))
             if !isUser { Spacer(minLength: 32) }
         }
@@ -707,12 +720,12 @@ struct PlayCoachChatView: View {
                 .lineLimit(1...4)
                 .textFieldStyle(.plain)
                 .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(Color.white.opacity(0.08), in: Capsule())
+                .background(theme.textColor.opacity(0.08), in: Capsule())
                 .onSubmit(send)
             Button(action: send) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(canSend ? theme.accentColor : .white.opacity(0.3))
+                    .foregroundStyle(canSend ? theme.accentColor : theme.textColor.opacity(0.3))
             }
             .buttonStyle(.plain)
             .disabled(!canSend)

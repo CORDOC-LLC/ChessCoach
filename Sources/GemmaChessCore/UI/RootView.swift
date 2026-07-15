@@ -25,6 +25,8 @@ public struct GemmaRootView: View {
     /// see Theme/ThemeStore.swift ("Living Themes").
     @State private var themeStore = ThemeStore()
 
+    @State private var showOnboarding = !OnboardingStore.hasCompleted()
+
     private enum Mode { case home, play, review, scan, savedGames, puzzles }
 
     public init(style: GemmaLayoutStyle = .automatic) {}
@@ -67,6 +69,18 @@ public struct GemmaRootView: View {
         }
         .environment(themeStore)
         .gemmaChrome(theme: themeStore.effective)
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showOnboarding) {
+            OnboardingView(onFinish: { showOnboarding = false })
+                .environment(themeStore)
+        }
+        #else
+        .sheet(isPresented: $showOnboarding) {
+            OnboardingView(onFinish: { showOnboarding = false })
+                .environment(themeStore)
+                .frame(minWidth: 480, minHeight: 640)
+        }
+        #endif
     }
 
     private func openSavedGame(withID id: UUID?) {
@@ -123,18 +137,24 @@ struct HomeView: View {
     private var theme: Theme { themeStore.effective }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            header
-            Spacer()
-            actions
+        ScrollView {
+            VStack(spacing: 0) {
+                header
+                    .padding(.top, 64)
+                actions
+                    .padding(.top, 28)
+            }
+            .frame(maxWidth: 460)
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: 460)
-        .frame(maxWidth: .infinity)
+        .scrollBounceBehavior(.basedOnSize)
         .overlay(alignment: .topTrailing) {
-            themeChip
-                .padding(.top, 8)
-                .padding(.trailing, 16)
+            HStack(spacing: 8) {
+                themeChip
+                settingsButton
+            }
+            .padding(.top, 12)
+            .padding(.trailing, 16)
         }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
@@ -147,6 +167,17 @@ struct HomeView: View {
                 emblemBreath = true
             }
         }
+    }
+
+    private var settingsButton: some View {
+        Button { showSettings = true } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.textColor.opacity(0.8))
+                .frame(width: 34, height: 34)
+        }
+        .background(Circle().fill(theme.surfaceColor.opacity(0.8)))
+        .buttonStyle(PressableStyle())
     }
 
     /// Three overlapping dots (accent/accent2/boardDark) + the active theme's
@@ -302,13 +333,13 @@ struct HomeView: View {
         .padding(.bottom, 48)
     }
 
-    /// "New to chess?" and "Appearance & themes" are always offered; "Scan a
-    /// board" and "My Games" only when relevant (managed coach configured /
-    /// at least one saved game).
+    /// "New to chess?" is always offered; "Scan a board" and "My Games" only
+    /// when relevant (managed coach configured / at least one saved game).
+    /// Appearance and Settings live in the top-trailing controls instead of
+    /// here, so this card stays short and Home doesn't need to scroll on a
+    /// typical device.
     private var moreCard: some View {
         VStack(spacing: 0) {
-            moreRow(icon: "paintpalette.fill", title: "Appearance & themes") { showAppearance = true }
-            rowDivider
             moreRow(icon: "graduationcap.fill", title: "New to chess?") { showBeginners = true }
             if scanEnabled {
                 rowDivider
@@ -318,10 +349,14 @@ struct HomeView: View {
                 rowDivider
                 moreRow(icon: "clock.arrow.circlepath", title: "My Games", action: onMyGames)
             }
-            rowDivider
-            moreRow(icon: "gearshape.fill", title: "Settings") { showSettings = true }
         }
-        .gemmaGlass(cornerRadius: 16)
+        // A plain themed card, NOT `.gemmaGlass()` -- Liquid Glass is meant for
+        // floating/navigation chrome, never scrolling content (see GemmaTheme.swift's
+        // header comment). Using real glass here, inside Home's ScrollView, produced
+        // a visibly glitchy floating box as it tried to track scroll position.
+        .background(theme.cardBackgroundColor)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var rowDivider: some View {
