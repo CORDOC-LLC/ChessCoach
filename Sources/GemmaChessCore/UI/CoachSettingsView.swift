@@ -98,6 +98,17 @@ public struct CoachSettingsView: View {
                 if ManagedCoachStore.loadBackendURL() != nil {
                     NavigationLink("Usage & Cost") { ManagedUsageView() }
                 }
+            } else if channel == .testFlight {
+                // Auto-configured via a baked-in debug token (see
+                // ManagedCoachStore.loadDebugToken()) -- no setup, no fields,
+                // no paywall. Ahead of RevenueCat, this is what makes
+                // TestFlight actually usable for beta testers.
+                Text("ChessCoach Pro is on for TestFlight builds -- no setup needed. "
+                    + "It runs against the developer's own budget while testing, so keep "
+                    + "usage reasonable.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                NavigationLink("Usage & Cost") { ManagedUsageView() }
             } else {
                 // App Store production, RevenueCat not wired up yet (U6) --
                 // this becomes the real subscribe/manage-subscription UI once
