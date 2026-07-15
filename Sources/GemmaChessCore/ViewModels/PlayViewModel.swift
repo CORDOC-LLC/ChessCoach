@@ -121,6 +121,12 @@ public final class PlayViewModel {
     // MARK: Coach card (U7) -- the one piece that spends Gemini credits
     /// The coach's short "what to focus on" note for the latest move.
     public var lastCoachNote: String?
+    /// The reason the last coach request failed (network error, missing
+    /// config, "not entitled", etc.), so a misconfigured backend shows up as
+    /// a specific message instead of just silence -- surfaced in the coach
+    /// card whenever there's no note/summary to show instead. Cleared at the
+    /// start of every new coach request.
+    public var lastCoachError: String?
 
     // MARK: On-demand hint
     /// The current hint, or nil when none is shown. Set by `requestHint`, cleared by
@@ -304,7 +310,9 @@ public final class PlayViewModel {
                     hint?.rationale = partial
                 }
             } catch {
-                // No rationale — the arrows and SANs still stand on their own.
+                // No rationale — the arrows and SANs still stand on their own,
+                // but the coach card (shared error slot) shows why it failed.
+                if position == fen { lastCoachError = (error as? CoachError)?.message ?? error.localizedDescription }
             }
             if position == fen { hint?.isLoading = false }
         }
@@ -519,6 +527,7 @@ public final class PlayViewModel {
             playerSide: playerIsWhite ? .white : .black,
             opening: opening?.name, records: moveRecords)
         isSummarizing = true
+        lastCoachError = nil
         let gen = moveGen
         Task {
             defer { if gen == moveGen { isSummarizing = false } }
@@ -530,7 +539,9 @@ public final class PlayViewModel {
                 }
                 if gen == moveGen { persistCheckpoint() }
             } catch {
-                // No debrief — the result banner still stands.
+                // No debrief — the result banner still stands, but say why.
+                guard gen == moveGen else { return }
+                lastCoachError = (error as? CoachError)?.message ?? error.localizedDescription
             }
         }
     }
@@ -704,6 +715,7 @@ public final class PlayViewModel {
             facts += "\n- The opponent then replied \(reply)."
             question += " Then, in one more short sentence, tell me what the opponent's reply \(reply) is trying to do."
         }
+        lastCoachError = nil
         do {
             let stream = try await coach.answerStream(
                 question: question,
@@ -720,7 +732,11 @@ public final class PlayViewModel {
                 moveNotes[userPly] = note
             }
         } catch {
-            // Leave the note empty; the engine verdict chip still stands on its own.
+            // The engine verdict chip still stands on its own -- but surface
+            // WHY the note didn't come through (missing config, not entitled,
+            // network error) instead of leaving the card silently blank.
+            if let gen, gen != moveGen { return }
+            lastCoachError = (error as? CoachError)?.message ?? error.localizedDescription
         }
     }
 
