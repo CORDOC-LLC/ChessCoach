@@ -140,7 +140,7 @@ struct HomeView: View {
         ScrollView {
             VStack(spacing: 0) {
                 header
-                    .padding(.top, 64)
+                    .padding(.top, 40)
                 actions
                     .padding(.top, 28)
             }
@@ -299,27 +299,17 @@ struct HomeView: View {
             .tint(inProgressGameID != nil ? theme.textColor.opacity(0.16) : theme.accentColor)
             .foregroundStyle(inProgressGameID != nil ? theme.textColor : theme.onAccentColor)
 
-            Button(action: onReview) {
-                Label("Review a game", systemImage: "magnifyingglass")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 30)
+            // Review + Puzzles side by side instead of stacked full-width --
+            // this pair reads as "secondary things you might also do," so a
+            // 2-column row halves their vertical footprint without losing
+            // legibility (this is what was forcing Home to scroll).
+            HStack(spacing: 12) {
+                secondaryActionCard(icon: "magnifyingglass", title: "Review a game", action: onReview)
+                secondaryActionCard(icon: "puzzlepiece.fill", title: "Puzzles", action: onPuzzles)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .tint(theme.textColor)
-
-            Button(action: onPuzzles) {
-                Label("Puzzles", systemImage: "puzzlepiece.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 30)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .tint(theme.textColor)
 
             // Everything below is a lower-emphasis, one-tap utility -- grouped into a
-            // single glass card (the same language as Play mode's coach/hint cards)
-            // instead of stacking near-identical outlined pills for each one.
+            // single card instead of stacking near-identical outlined pills for each one.
             moreCard
                 .padding(.top, 6)
 
@@ -331,6 +321,29 @@ struct HomeView: View {
         }
         .padding(.horizontal, 32)
         .padding(.bottom, 48)
+    }
+
+    /// A compact, icon-over-label card for a secondary action -- half the
+    /// width of a full-width button, used in a 2-column row.
+    private func secondaryActionCard(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: icon)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(theme.accent2Color)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(theme.textColor)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+        }
+        .buttonStyle(PressableStyle())
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(theme.textColor.opacity(0.16), lineWidth: 1)
+        )
     }
 
     /// "New to chess?" is always offered; "Scan a board" and "My Games" only
