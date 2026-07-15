@@ -53,7 +53,7 @@ struct MoveListView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Image(systemName: "list.bullet").foregroundStyle(themeStore.effective.accentColor)
-                Text("Moves").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Text("Moves").font(.subheadline.weight(.semibold)).foregroundStyle(themeStore.effective.textColor)
                 Spacer()
                 if vm.isViewingHistory {
                     Button { vm.returnToLive() } label: {
@@ -65,14 +65,14 @@ struct MoveListView: View {
                 }
             }
             .padding(.horizontal).padding(.vertical, 6)
-            Divider().overlay(Color.white.opacity(0.1))
+            Divider().overlay(themeStore.effective.textColor.opacity(0.1))
 
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         if vm.sanMoves.isEmpty {
                             Text("No moves yet.")
-                                .font(.footnote).foregroundStyle(.white.opacity(0.5))
+                                .font(.footnote).foregroundStyle(themeStore.effective.textColor.opacity(0.5))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal).padding(.vertical, 6)
                         }
@@ -98,7 +98,7 @@ struct MoveListView: View {
         HStack(spacing: 0) {
             Text("\(row + 1).")
                 .font(.callout.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(themeStore.effective.textColor.opacity(0.45))
                 .frame(width: 34, alignment: .leading)
             plyCell(index: whiteIdx)
             if blackIdx < vm.sanMoves.count {
@@ -116,7 +116,7 @@ struct MoveListView: View {
         let isActive = activePly == index
         Text(vm.sanMoves[index])
             .font(.callout.weight(isActive ? .bold : .regular))
-            .foregroundStyle(isActive ? themeStore.effective.accentColor : .white.opacity(0.9))
+            .foregroundStyle(isActive ? themeStore.effective.accentColor : themeStore.effective.textColor.opacity(0.9))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 2).padding(.horizontal, 6)
             .background(

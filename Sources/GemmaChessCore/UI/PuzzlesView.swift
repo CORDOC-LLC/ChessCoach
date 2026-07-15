@@ -128,9 +128,9 @@ struct PuzzleSessionView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(PuzzleThemeInfo.displayName(for: vm.activeTheme ?? ""))
-                    .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
                 Text("\(min(vm.puzzleIndex + 1, vm.sessionTotalCount))/\(vm.sessionTotalCount) · \(vm.sessionSolvedCount) solved this session")
-                    .font(.caption2).foregroundStyle(.white.opacity(0.6))
+                    .font(.caption2).foregroundStyle(theme.textColor.opacity(0.6))
             }
             Spacer()
         }
@@ -165,9 +165,9 @@ struct PuzzleSessionView: View {
         VStack(spacing: 10) {
             Image(systemName: "party.popper.fill").font(.largeTitle).foregroundStyle(theme.accent2Color)
             Text("That's every puzzle in this pack for now.")
-                .font(.headline).foregroundStyle(.white)
+                .font(.headline).foregroundStyle(theme.textColor)
             Text("\(vm.sessionSolvedCount) solved this session — nice work.")
-                .font(.subheadline).foregroundStyle(.white.opacity(0.7))
+                .font(.subheadline).foregroundStyle(theme.textColor.opacity(0.7))
             Button("Back to themes", action: onExit)
                 .buttonStyle(.borderedProminent)
         }
@@ -185,7 +185,7 @@ struct PuzzleSessionView: View {
                 }
                 Text(vm.status)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.textColor)
                 Spacer()
                 if vm.feedback == .solved {
                     Button("Next puzzle") { vm.nextPuzzle() }

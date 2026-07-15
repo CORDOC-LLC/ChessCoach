@@ -14,6 +14,7 @@ public struct SettingsView: View {
     @State private var showResetPuzzlesConfirm = false
     @State private var showResetStatsConfirm = false
     @State private var showAppearance = false
+    @State private var showOnboarding = false
     @State private var clearedGames = false
     @State private var resetPuzzles = false
     @Environment(ThemeStore.self) private var themeStore
@@ -33,7 +34,7 @@ public struct SettingsView: View {
                     HStack {
                         statColumn("Wins", stats.wins, themeStore.effective.accentColor)
                         statColumn("Losses", stats.losses, .red)
-                        statColumn("Draws", stats.draws, .white.opacity(0.7))
+                        statColumn("Draws", stats.draws, themeStore.effective.textColor.opacity(0.7))
                     }
                     Button(role: .destructive) { showResetStatsConfirm = true } label: {
                         Label("Reset statistics", systemImage: "arrow.counterclockwise")
@@ -99,6 +100,7 @@ public struct SettingsView: View {
             }
 
             Section {
+                Button("How ChessCoach works") { showOnboarding = true }
                 NavigationLink("Open Source Licenses") { LicensesView() }
                 NavigationLink("New to chess?") { BeginnersView() }
             }
@@ -132,6 +134,16 @@ public struct SettingsView: View {
             }
         }
         .sheet(isPresented: $showAppearance) { AppearanceView() }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showOnboarding) {
+            OnboardingView(onFinish: { showOnboarding = false })
+        }
+        #else
+        .sheet(isPresented: $showOnboarding) {
+            OnboardingView(onFinish: { showOnboarding = false })
+                .frame(minWidth: 480, minHeight: 640)
+        }
+        #endif
     }
 
     private func statColumn(_ label: String, _ value: Int, _ color: Color) -> some View {
