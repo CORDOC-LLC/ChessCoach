@@ -19,8 +19,21 @@ import AppKit
 private enum ScanPhase: Equatable {
     case picking
     case recognizing
-    case recognized(fen: String)
+    /// The scan came back; the user is checking/correcting the position.
+    case reviewing
+    /// The user confirmed the position looks right; show Ask/Play options.
+    case confirmed
     case failed(String)
+}
+
+/// What tapping a board square does while reviewing.
+private enum ReviewTool: Equatable {
+    /// No tool armed: first tap picks up a piece, second tap drops it.
+    case move
+    /// A palette piece is armed: every tap stamps that piece.
+    case place(kind: Piece.Kind, color: Piece.Color)
+    /// Eraser armed: every tap empties the square.
+    case erase
 }
 
 /// What the user wants to do with a recognized position.
@@ -41,12 +54,16 @@ public struct BoardScannerView: View {
     @State private var answer: String?
     @State private var isAsking = false
     @State private var sideIsWhite = true
-    /// The live, possibly-hand-corrected position -- distinct from the
-    /// original scanned FEN kept in `phase` so "Reset to scanned" can
-    /// discard edits. Vision recognition isn't always exact (lighting,
-    /// piece style, angle), so the preview board is editable, not read-only.
+    /// The live, possibly-hand-corrected position -- distinct from
+    /// `scannedFEN` so "Reset to scanned" can discard edits. Vision
+    /// recognition isn't always exact (lighting, piece style, angle), so
+    /// the user reviews and corrects the board before confirming.
     @State private var editedFEN = ""
-    @State private var editingSquare: Square?
+    /// The FEN exactly as the vision model returned it.
+    @State private var scannedFEN = ""
+    @State private var tool: ReviewTool = .move
+    /// The square whose piece is "picked up" while the move tool is active.
+    @State private var pickedSquare: Square?
     private let coach = CoachOrchestrator()
 
     public init(onStartGame: @escaping (_ fen: String, _ asWhite: Bool) -> Void) {
@@ -58,8 +75,10 @@ public struct BoardScannerView: View {
             switch phase {
             case .picking, .recognizing:
                 pickerSection
-            case .recognized(let scannedFEN):
-                previewSection(scannedFEN: scannedFEN)
+            case .reviewing:
+                reviewSection
+            case .confirmed:
+                confirmedSection
                 intentSection(fen: editedFEN)
             case .failed(let message):
                 pickerSection
@@ -116,81 +135,170 @@ public struct BoardScannerView: View {
         #endif
     }
 
-    /// The recognized board, editable: tap a square to fix whatever the
-    /// vision model got wrong before playing or asking the coach about it.
-    /// No vision model reads every real photo perfectly (lighting, piece
-    /// style, angle), so this is the safety net that makes the feature
-    /// trustworthy even when recognition isn't exact.
-    private func previewSection(scannedFEN: String) -> some View {
+    /// The review step: the user checks the scanned board against their
+    /// real one and fixes anything the vision model got wrong -- move a
+    /// piece (tap it, tap where it goes), add pieces from the palette, or
+    /// erase -- then explicitly confirms before playing or asking the
+    /// coach. No vision model reads every real photo perfectly, so this
+    /// step is what makes the feature trustworthy.
+    private var reviewSection: some View {
         Section {
+            Text(reviewInstruction)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
             ChessBoardView(
                 fen: editedFEN, orientation: .white, arrows: [], lastMove: nil,
-                selectedSquare: editingSquare, legalDots: [],
-                onTapSquare: { square in
-                    editingSquare = (editingSquare == square) ? nil : square
-                }
+                selectedSquare: pickedSquare, legalDots: [],
+                onTapSquare: handleReviewTap
             )
             .aspectRatio(1, contentMode: .fit)
             .listRowInsets(EdgeInsets())
-            .padding(.top)
 
-            if let square = editingSquare {
-                pieceEditorRow(square: square)
-            } else {
-                Text("Tap a square to fix anything the scan got wrong.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            palette
 
             HStack {
                 if editedFEN != scannedFEN {
-                    Button("Reset to scanned") { editedFEN = scannedFEN; editingSquare = nil }
-                        .font(.footnote)
+                    Button("Reset to scanned") {
+                        editedFEN = scannedFEN
+                        tool = .move
+                        pickedSquare = nil
+                    }
+                    .font(.footnote)
                 }
                 Spacer()
                 Button("Scan a different photo") {
-                    phase = .picking; photoItem = nil; answer = nil; editingSquare = nil
+                    phase = .picking; photoItem = nil; answer = nil
+                    tool = .move; pickedSquare = nil
                 }
                 .font(.footnote)
             }
+
+            Button {
+                tool = .move
+                pickedSquare = nil
+                phase = .confirmed
+            } label: {
+                Text("Looks right — continue")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
         } header: {
-            Text("Recognized position")
+            Text("Check the board")
+        } footer: {
+            Text("Compare with your real board and fix any differences before continuing.")
         }
     }
 
-    /// One piece per button (6 white, 6 black) plus "Empty" -- tapping one
-    /// places it on `square` and closes the editor for that square.
-    private func pieceEditorRow(square: Square) -> some View {
+    private var reviewInstruction: String {
+        switch tool {
+        case .move:
+            if pickedSquare != nil {
+                return "Now tap the square where that piece should go."
+            }
+            return "To move a piece, tap it, then tap its square. To add a piece, pick one below, then tap the board."
+        case .place(let kind, let color):
+            return "Tap any square to place \(FENBoardEditor.glyph(kind: kind, color: color)). Tap it below again when done."
+        case .erase:
+            return "Tap any square to clear it. Tap ✕ below again when done."
+        }
+    }
+
+    /// One tap handler for all three tools. Move: pick up, then drop
+    /// (dropping onto an occupied square replaces that piece; tapping the
+    /// picked square again puts it back). Place/erase: stamp every tap.
+    private func handleReviewTap(_ square: Square) {
+        switch tool {
+        case .place(let kind, let color):
+            editedFEN = FENBoardEditor.settingSquare(square, to: (kind, color), inFEN: editedFEN)
+        case .erase:
+            editedFEN = FENBoardEditor.settingSquare(square, to: nil, inFEN: editedFEN)
+        case .move:
+            if let from = pickedSquare {
+                if from != square, let piece = FENBoardEditor.piece(at: from, inFEN: editedFEN) {
+                    editedFEN = FENBoardEditor.settingSquare(from, to: nil, inFEN: editedFEN)
+                    editedFEN = FENBoardEditor.settingSquare(square, to: piece, inFEN: editedFEN)
+                }
+                pickedSquare = nil
+            } else if FENBoardEditor.piece(at: square, inFEN: editedFEN) != nil {
+                pickedSquare = square
+            }
+        }
+    }
+
+    /// Piece palette: 6 white, 6 black, and an eraser. Tapping one arms it
+    /// as a stamp (highlighted); tapping it again returns to move mode.
+    private var palette: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ForEach(Piece.Kind.allCases, id: \.self) { kind in
-                    pieceButton(kind: kind, color: .white, square: square)
+                    paletteButton(kind: kind, color: .white)
                 }
                 ForEach(Piece.Kind.allCases, id: \.self) { kind in
-                    pieceButton(kind: kind, color: .black, square: square)
+                    paletteButton(kind: kind, color: .black)
                 }
-                Button {
-                    editedFEN = FENBoardEditor.settingSquare(square, to: nil, inFEN: editedFEN)
-                    editingSquare = nil
-                } label: {
+                paletteToggle(isActive: tool == .erase, activate: { tool = .erase }) {
                     Text("✕").font(.title3).frame(width: 40, height: 40)
                 }
-                .buttonStyle(.bordered)
             }
             .padding(.vertical, 4)
         }
     }
 
-    private func pieceButton(kind: Piece.Kind, color: Piece.Color, square: Square) -> some View {
-        Button {
-            editedFEN = FENBoardEditor.settingSquare(square, to: (kind, color), inFEN: editedFEN)
-            editingSquare = nil
-        } label: {
+    private func paletteButton(kind: Piece.Kind, color: Piece.Color) -> some View {
+        paletteToggle(
+            isActive: tool == .place(kind: kind, color: color),
+            activate: { tool = .place(kind: kind, color: color) }
+        ) {
             Text(FENBoardEditor.glyph(kind: kind, color: color))
                 .font(.title2)
                 .frame(width: 40, height: 40)
         }
-        .buttonStyle(.bordered)
+    }
+
+    @ViewBuilder
+    private func paletteToggle<Label: View>(
+        isActive: Bool,
+        activate: @escaping () -> Void,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        let button = Button {
+            pickedSquare = nil
+            if isActive { tool = .move } else { activate() }
+        } label: {
+            label()
+        }
+        if isActive {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button.buttonStyle(.bordered)
+        }
+    }
+
+    /// The confirmed position: a small read-only preview with a way back
+    /// into editing, followed by the Ask/Play options.
+    private var confirmedSection: some View {
+        Section {
+            ChessBoardView(
+                fen: editedFEN, orientation: .white, arrows: [], lastMove: nil,
+                selectedSquare: nil, legalDots: [], onTapSquare: { _ in }
+            )
+            .aspectRatio(1, contentMode: .fit)
+            .listRowInsets(EdgeInsets())
+            .padding(.top)
+
+            HStack {
+                Button("Edit position") { phase = .reviewing }
+                    .font(.footnote)
+                Spacer()
+                Button("Scan a different photo") {
+                    phase = .picking; photoItem = nil; answer = nil
+                }
+                .font(.footnote)
+            }
+        } header: {
+            Text("Your position")
+        }
     }
 
     @ViewBuilder
@@ -267,8 +375,10 @@ public struct BoardScannerView: View {
         do {
             let fen = try await ManagedVisionClient.recognizeBoard(imageData: upload)
             editedFEN = fen
-            editingSquare = nil
-            phase = .recognized(fen: fen)
+            scannedFEN = fen
+            tool = .move
+            pickedSquare = nil
+            phase = .reviewing
         } catch let e as BoardRecognitionFailure {
             phase = .failed(e.reason)
         } catch let e as CoachError {
