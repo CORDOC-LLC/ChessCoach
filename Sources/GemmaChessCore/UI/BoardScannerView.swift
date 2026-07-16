@@ -226,14 +226,16 @@ public struct BoardScannerView: View {
 
 /// Resizes to at most `maxDimension` on the long edge, then re-encodes as
 /// JPEG -- backing off quality (and, if still too large, dimension) until
-/// the result fits `maxBytes`. The vision model doesn't need more than
-/// ~1600px on the long edge to read a board, so this rarely needs more than
-/// one pass; the backoff loop exists purely as a safety net so an unusually
-/// large or detailed source photo can never produce a payload that blows
-/// past the platform's request-body limit.
+/// the result fits `maxBytes`. 1024px is a Gemini cost lever, not just a
+/// payload-size one: Gemini tiles images into ~768x768 chunks and bills
+/// per tile, so a board photo (a simple, high-contrast 8x8 grid -- not a
+/// texture-heavy image) doesn't need 1600px worth of tiles to read
+/// reliably. The backoff loop below is a separate safety net so an
+/// unusually large or detailed source photo can never produce a payload
+/// that blows past the platform's request-body limit.
 private func downscaledJPEG(
     _ data: Data,
-    maxDimension: CGFloat = 1600,
+    maxDimension: CGFloat = 1024,
     maxBytes: Int = 2_000_000
 ) -> Data? {
     #if canImport(UIKit)
