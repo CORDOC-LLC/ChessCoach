@@ -8,6 +8,7 @@
 
 import SwiftUI
 import PhotosUI
+import ChessKit
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -40,6 +41,12 @@ public struct BoardScannerView: View {
     @State private var answer: String?
     @State private var isAsking = false
     @State private var sideIsWhite = true
+    /// The live, possibly-hand-corrected position -- distinct from the
+    /// original scanned FEN kept in `phase` so "Reset to scanned" can
+    /// discard edits. Vision recognition isn't always exact (lighting,
+    /// piece style, angle), so the preview board is editable, not read-only.
+    @State private var editedFEN = ""
+    @State private var editingSquare: Square?
     private let coach = CoachOrchestrator()
 
     public init(onStartGame: @escaping (_ fen: String, _ asWhite: Bool) -> Void) {
@@ -51,9 +58,9 @@ public struct BoardScannerView: View {
             switch phase {
             case .picking, .recognizing:
                 pickerSection
-            case .recognized(let fen):
-                previewSection(fen: fen)
-                intentSection(fen: fen)
+            case .recognized(let scannedFEN):
+                previewSection(scannedFEN: scannedFEN)
+                intentSection(fen: editedFEN)
             case .failed(let message):
                 pickerSection
                 Section { Text(message).foregroundStyle(.red) }
@@ -109,20 +116,81 @@ public struct BoardScannerView: View {
         #endif
     }
 
-    private func previewSection(fen: String) -> some View {
-        Section("Recognized position") {
+    /// The recognized board, editable: tap a square to fix whatever the
+    /// vision model got wrong before playing or asking the coach about it.
+    /// No vision model reads every real photo perfectly (lighting, piece
+    /// style, angle), so this is the safety net that makes the feature
+    /// trustworthy even when recognition isn't exact.
+    private func previewSection(scannedFEN: String) -> some View {
+        Section {
             ChessBoardView(
-                fen: fen, orientation: .white, arrows: [], lastMove: nil,
-                selectedSquare: nil, legalDots: [], onTapSquare: nil
+                fen: editedFEN, orientation: .white, arrows: [], lastMove: nil,
+                selectedSquare: editingSquare, legalDots: [],
+                onTapSquare: { square in
+                    editingSquare = (editingSquare == square) ? nil : square
+                }
             )
             .aspectRatio(1, contentMode: .fit)
             .listRowInsets(EdgeInsets())
-            .padding()
-            Button("Scan a different photo") {
-                phase = .picking; photoItem = nil; answer = nil
+            .padding(.top)
+
+            if let square = editingSquare {
+                pieceEditorRow(square: square)
+            } else {
+                Text("Tap a square to fix anything the scan got wrong.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
-            .font(.footnote)
+
+            HStack {
+                if editedFEN != scannedFEN {
+                    Button("Reset to scanned") { editedFEN = scannedFEN; editingSquare = nil }
+                        .font(.footnote)
+                }
+                Spacer()
+                Button("Scan a different photo") {
+                    phase = .picking; photoItem = nil; answer = nil; editingSquare = nil
+                }
+                .font(.footnote)
+            }
+        } header: {
+            Text("Recognized position")
         }
+    }
+
+    /// One piece per button (6 white, 6 black) plus "Empty" -- tapping one
+    /// places it on `square` and closes the editor for that square.
+    private func pieceEditorRow(square: Square) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(Piece.Kind.allCases, id: \.self) { kind in
+                    pieceButton(kind: kind, color: .white, square: square)
+                }
+                ForEach(Piece.Kind.allCases, id: \.self) { kind in
+                    pieceButton(kind: kind, color: .black, square: square)
+                }
+                Button {
+                    editedFEN = FENBoardEditor.settingSquare(square, to: nil, inFEN: editedFEN)
+                    editingSquare = nil
+                } label: {
+                    Text("✕").font(.title3).frame(width: 40, height: 40)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func pieceButton(kind: Piece.Kind, color: Piece.Color, square: Square) -> some View {
+        Button {
+            editedFEN = FENBoardEditor.settingSquare(square, to: (kind, color), inFEN: editedFEN)
+            editingSquare = nil
+        } label: {
+            Text(FENBoardEditor.glyph(kind: kind, color: color))
+                .font(.title2)
+                .frame(width: 40, height: 40)
+        }
+        .buttonStyle(.bordered)
     }
 
     @ViewBuilder
@@ -198,6 +266,8 @@ public struct BoardScannerView: View {
         }
         do {
             let fen = try await ManagedVisionClient.recognizeBoard(imageData: upload)
+            editedFEN = fen
+            editingSquare = nil
             phase = .recognized(fen: fen)
         } catch let e as BoardRecognitionFailure {
             phase = .failed(e.reason)
@@ -226,17 +296,17 @@ public struct BoardScannerView: View {
 
 /// Resizes to at most `maxDimension` on the long edge, then re-encodes as
 /// JPEG -- backing off quality (and, if still too large, dimension) until
-/// the result fits `maxBytes`. 1024px is a Gemini cost lever, not just a
-/// payload-size one: Gemini tiles images into ~768x768 chunks and bills
-/// per tile, so a board photo (a simple, high-contrast 8x8 grid -- not a
-/// texture-heavy image) doesn't need 1600px worth of tiles to read
-/// reliably. The backoff loop below is a separate safety net so an
-/// unusually large or detailed source photo can never produce a payload
-/// that blows past the platform's request-body limit.
+/// the result fits `maxBytes`. 1600px, not the smaller 1024px tried
+/// earlier: recognition accuracy on real photos (mis-set pieces) matters
+/// far more than the Gemini tile/token savings a lower resolution bought --
+/// getting the position wrong makes the feature useless regardless of cost.
+/// The backoff loop below is a separate safety net so an unusually large or
+/// detailed source photo can never produce a payload that blows past the
+/// platform's request-body limit.
 private func downscaledJPEG(
     _ data: Data,
-    maxDimension: CGFloat = 1024,
-    maxBytes: Int = 2_000_000
+    maxDimension: CGFloat = 1600,
+    maxBytes: Int = 3_000_000
 ) -> Data? {
     #if canImport(UIKit)
     guard let image = UIImage(data: data) else { return nil }

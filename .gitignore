@@ -29,3 +29,13 @@ Apps/GemmaChessiOS/ManagedCoachSecrets.swift
 # for why it's separate: GPLv3 disclosure boundary). It lives here on disk for
 # convenience but is never part of this (public) repo's history.
 chesscoach-gateway/
+
+# chesscoach-website is likewise its own separate private repo (see
+# chesscoach-website/README.md) -- pure marketing/legal content, no reason to
+# be open source, and kept separate from chesscoach-gateway too so routine
+# copy changes don't add review overhead to the payment-critical service.
+chesscoach-website/
+
+# Playwright MCP debug artifacts (screenshots/snapshots/console logs from
+# ad hoc browser verification) -- ephemeral, never meant to be committed.
+.playwright-mcp/
