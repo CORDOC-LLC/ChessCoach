@@ -34,6 +34,26 @@ struct FENBoardEditorTests {
         #expect(result == "8/8/8/8/3n4/8/8/8 b Kq e3 4 12")
     }
 
+    @Test("piece(at:) reads occupied and empty squares correctly")
+    func pieceAtSquare() {
+        let e1 = FENBoardEditor.piece(at: Square("e1"), inFEN: startFEN)
+        #expect(e1?.kind == .king && e1?.color == .white)
+        let d8 = FENBoardEditor.piece(at: Square("d8"), inFEN: startFEN)
+        #expect(d8?.kind == .queen && d8?.color == .black)
+        #expect(FENBoardEditor.piece(at: Square("e4"), inFEN: startFEN) == nil)
+    }
+
+    @Test("moving a piece = clear source + set destination")
+    func movePieceViaTwoEdits() {
+        guard let knight = FENBoardEditor.piece(at: Square("g1"), inFEN: startFEN) else {
+            Issue.record("expected a knight on g1")
+            return
+        }
+        var fen = FENBoardEditor.settingSquare(Square("g1"), to: nil, inFEN: startFEN)
+        fen = FENBoardEditor.settingSquare(Square("f3"), to: knight, inFEN: fen)
+        #expect(fen == "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1")
+    }
+
     @Test("a round trip of place-then-clear returns to the original FEN")
     func placeThenClearRoundTrips() {
         let placed = FENBoardEditor.settingSquare(Square("h8"), to: (.rook, .white), inFEN: startFEN)

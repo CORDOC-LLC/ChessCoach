@@ -26,6 +26,29 @@ enum FENBoardEditor {
         return fields.joined(separator: " ")
     }
 
+    /// The piece currently on `square`, or nil when empty (or the FEN is
+    /// malformed).
+    static func piece(at square: Square, inFEN fen: String) -> (kind: Piece.Kind, color: Piece.Color)? {
+        let fields = fen.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+        guard let placement = fields.first else { return nil }
+        let grid = placementGrid(placement)
+        let fileIndex = square.file.number - 1
+        let rankIndex = 8 - square.rank.value
+        guard grid.indices.contains(rankIndex), grid[rankIndex].indices.contains(fileIndex),
+              let ch = grid[rankIndex][fileIndex] else { return nil }
+        let kind: Piece.Kind
+        switch Character(ch.lowercased()) {
+        case "p": kind = .pawn
+        case "n": kind = .knight
+        case "b": kind = .bishop
+        case "r": kind = .rook
+        case "q": kind = .queen
+        case "k": kind = .king
+        default: return nil
+        }
+        return (kind, ch.isUppercase ? .white : .black)
+    }
+
     static func glyph(kind: Piece.Kind, color: Piece.Color) -> String {
         let white: [Piece.Kind: String] = [
             .pawn: "♙", .knight: "♘", .bishop: "♗", .rook: "♖", .queen: "♕", .king: "♔",
