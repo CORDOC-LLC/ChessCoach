@@ -182,14 +182,21 @@ public struct BoardScannerView: View {
     }
 
     /// Downscales/recompresses the photo before sending — a full-resolution
-    /// camera photo (often 10+ MB, more once base64-encoded) blows past the
-    /// managed backend's serverless request-body limit (HTTP 413). The vision
-    /// model doesn't need more than ~1600px on the long edge to read a board.
+    /// camera photo (often 10+ MB, more once base64-encoded) blows past
+    /// Vercel's ~4.5 MB serverless request-body limit (HTTP 413,
+    /// FUNCTION_PAYLOAD_TOO_LARGE) -- a hard platform ceiling the gateway
+    /// can't raise. Never uploads the raw, undownscaled photo: if
+    /// `downscaledJPEG` can't produce a small-enough image (undecodable
+    /// data, or still oversized even at its smallest attempt), fail with a
+    /// clear message instead of silently sending something that will 413.
     private func recognize(data: Data) async {
         phase = .recognizing
         answer = nil
+        guard let upload = downscaledJPEG(data) else {
+            phase = .failed("Couldn't process that photo. Try another, ideally a clear top-down shot.")
+            return
+        }
         do {
-            let upload = downscaledJPEG(data) ?? data
             let fen = try await ManagedVisionClient.recognizeBoard(imageData: upload)
             phase = .recognized(fen: fen)
         } catch let e as BoardRecognitionFailure {
@@ -217,29 +224,56 @@ public struct BoardScannerView: View {
     }
 }
 
-/// Resizes to at most `maxDimension` on the long edge and re-encodes as JPEG
-/// at `quality` — shrinks a multi-megabyte camera photo down to a payload
-/// the managed backend's request-body limit can accept.
-private func downscaledJPEG(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
+/// Resizes to at most `maxDimension` on the long edge, then re-encodes as
+/// JPEG -- backing off quality (and, if still too large, dimension) until
+/// the result fits `maxBytes`. The vision model doesn't need more than
+/// ~1600px on the long edge to read a board, so this rarely needs more than
+/// one pass; the backoff loop exists purely as a safety net so an unusually
+/// large or detailed source photo can never produce a payload that blows
+/// past the platform's request-body limit.
+private func downscaledJPEG(
+    _ data: Data,
+    maxDimension: CGFloat = 1600,
+    maxBytes: Int = 2_000_000
+) -> Data? {
     #if canImport(UIKit)
     guard let image = UIImage(data: data) else { return nil }
-    let size = image.size
-    let scale = min(1, maxDimension / max(size.width, size.height))
-    let newSize = CGSize(width: size.width * scale, height: size.height * scale)
-    let renderer = UIGraphicsImageRenderer(size: newSize)
-    let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
-    return resized.jpegData(compressionQuality: quality)
+    var dimension = maxDimension
+    for _ in 0..<3 {
+        let size = image.size
+        let scale = min(1, dimension / max(size.width, size.height))
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
+        for quality: CGFloat in [0.7, 0.5, 0.3] {
+            if let jpeg = resized.jpegData(compressionQuality: quality), jpeg.count <= maxBytes {
+                return jpeg
+            }
+        }
+        dimension /= 2
+    }
+    return nil
     #elseif canImport(AppKit)
     guard let image = NSImage(data: data) else { return nil }
-    let size = image.size
-    let scale = min(1, maxDimension / max(size.width, size.height))
-    let newSize = CGSize(width: size.width * scale, height: size.height * scale)
-    let resized = NSImage(size: newSize)
-    resized.lockFocus()
-    image.draw(in: NSRect(origin: .zero, size: newSize))
-    resized.unlockFocus()
-    guard let tiff = resized.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
-    return bitmap.representation(using: .jpeg, properties: [.compressionFactor: quality])
+    var dimension = maxDimension
+    for _ in 0..<3 {
+        let size = image.size
+        let scale = min(1, dimension / max(size.width, size.height))
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let resized = NSImage(size: newSize)
+        resized.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: newSize))
+        resized.unlockFocus()
+        guard let tiff = resized.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
+        for quality: CGFloat in [0.7, 0.5, 0.3] {
+            if let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: quality]),
+               jpeg.count <= maxBytes {
+                return jpeg
+            }
+        }
+        dimension /= 2
+    }
+    return nil
     #else
     return nil
     #endif
