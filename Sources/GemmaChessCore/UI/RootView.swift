@@ -153,7 +153,7 @@ struct HomeView: View {
         ScrollView {
             VStack(spacing: 0) {
                 header
-                    .padding(.top, 40)
+                    .padding(.top, 64)
                 actions
                     .padding(.top, 28)
             }
@@ -340,16 +340,16 @@ struct HomeView: View {
     /// width of a full-width button, used in a 2-column row.
     private func secondaryActionCard(icon: String, title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .center, spacing: 10) {
                 Image(systemName: icon)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(theme.accent2Color)
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(theme.textColor)
-                    .multilineTextAlignment(.leading)
+                    .multilineTextAlignment(.center)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
             .padding(14)
         }
         .buttonStyle(PressableStyle())
