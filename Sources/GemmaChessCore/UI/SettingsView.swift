@@ -56,7 +56,7 @@ public struct SettingsView: View {
                 Toggle(isOn: $settings.showCaptured) { Label("Captured pieces", systemImage: "trophy") }
                 Toggle(isOn: $settings.showMoveList) { Label("Move list", systemImage: "list.bullet") }
                 Toggle(isOn: $settings.showMoveComments) {
-                    Label("Best moves", systemImage: "chart.bar.fill")
+                    Label("Move review", systemImage: "chart.bar.fill")
                 }
                 Toggle(isOn: $settings.showOpening) {
                     Label("Opening name", systemImage: "book.closed.fill")
