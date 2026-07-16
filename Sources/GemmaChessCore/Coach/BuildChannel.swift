@@ -13,10 +13,21 @@
 //    - appStore (receipt): ChessCoach Pro (managed, RevenueCat-entitled) only.
 //      No BYOK in production -- the whole point is the subscription.
 //
-//  Detection is the standard technique: `Bundle.main.appStoreReceiptURL`'s
-//  last path component is "sandboxReceipt" for TestFlight (and Xcode's own
-//  StoreKit testing) and "receipt" for a real App Store install; a
-//  Xcode/devicectl development install has no receipt file at all.
+//  Detection matches the same technique already proven in production on
+//  DictaWiz (FreeVoiceReaderApp/StoreKitManager.isTestFlight): check
+//  `appStoreReceiptURL`'s filename directly, with NO `FileManager.fileExists`
+//  guard -- that extra existence check was this file's original bug. It's
+//  possible for a genuine TestFlight/App Store install to have a receipt URL
+//  whose backing file isn't yet materialized on disk at the moment this
+//  property is first read, and requiring it caused real TestFlight installs
+//  to be silently misreported as `.local`. The filename alone (nil for a
+//  local Xcode/devicectl install, "sandboxReceipt" for TestFlight, "receipt"
+//  for App Store) is reliable without that check. Local vs. non-local is
+//  cross-checked against build configuration (`#if DEBUG`), since a local
+//  `xcodebuild build` is always Debug while archives (TestFlight/App Store,
+//  via `scripts/upload-testflight.sh`) are always Release -- this also
+//  guards against a Debug-configuration receipt quirk being misread as a
+//  real distribution channel.
 
 import Foundation
 
@@ -25,17 +36,12 @@ public enum BuildChannel: Equatable, Sendable {
     case testFlight
     case appStore
 
-    /// `appStoreReceiptURL` is deprecated in favor of StoreKit 2's async
-    /// `AppTransaction.shared`/`.environment` -- deliberately not using that
-    /// here: this needs to be a plain synchronous property usable from
-    /// CoachOrchestrator's init and view bodies, and the receipt-URL filename
-    /// trick still works correctly for exactly this purpose (channel
-    /// detection, not entitlement verification).
     public static var current: BuildChannel {
-        guard let url = Bundle.main.appStoreReceiptURL,
-              FileManager.default.fileExists(atPath: url.path)
-        else { return .local }
-        return url.lastPathComponent == "sandboxReceipt" ? .testFlight : .appStore
+        #if DEBUG
+        return .local
+        #else
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt" ? .testFlight : .appStore
+        #endif
     }
 
     /// Whether the user's own Gemini API key (BYOK) should be offered at all.
