@@ -82,6 +82,7 @@ public struct PlayView: View {
     @State private var showGameOverBanner = false
     @State private var showAppearance = false
     @State private var showPaywall = false
+    @State private var showHintTip = !HintTipStore.hasSeenTip()
     @Environment(ThemeStore.self) private var themeStore
     private var theme: Theme { themeStore.effective }
 
@@ -92,6 +93,7 @@ public struct PlayView: View {
     public var body: some View {
         VStack(spacing: 8) {
             header
+            if showHintTip { hintTipBubble }
             board
             if settings.showCaptured { capturedRow }
             if vm.hint != nil { hintCard }
@@ -218,8 +220,10 @@ public struct PlayView: View {
     //
     // One cohesive glass bar rather than several separately-floating pills:
     // back, status text + win-probability pie + eval, a spacer, then the hint,
-    // Settings, and "⋯" (Resign/show-hide) icon buttons -- all sitting on one
-    // continuous glass background instead of each carrying its own.
+    // Undo, and "⋯" (Appearance/Resign/show-hide) icon buttons -- all sitting
+    // on one continuous glass background instead of each carrying its own.
+    // Appearance lives inside the "⋯" menu rather than its own icon, so the
+    // bar only surfaces the two things you reach for mid-game (hint, undo).
 
     private var header: some View {
         HStack(spacing: 14) {
@@ -233,13 +237,40 @@ public struct PlayView: View {
             statusReadout
             Spacer(minLength: 4)
             hintButton
-            settingsButton
+            undoButton
             menuButton
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .gemmaGlass(cornerRadius: 20)
         .padding(.horizontal, 14)
         .padding(.top, 8)
+    }
+
+    /// A one-time callout explaining what the lightbulb does, since an
+    /// icon-only toggle in a glass header isn't self-explanatory on first
+    /// use. Dismisses (and never shows again) on tap, or the first time the
+    /// hint button itself is used.
+    private var hintTipBubble: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "lightbulb.fill").foregroundStyle(theme.accent2Color).font(.caption)
+            Text("Tap the bulb for the engine's best move here.")
+                .font(.caption).foregroundStyle(theme.textColor.opacity(0.85))
+            Spacer(minLength: 4)
+            Button { dismissHintTip() } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.bold)).foregroundStyle(theme.textColor.opacity(0.5))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .gemmaGlass(cornerRadius: 12)
+        .padding(.horizontal, 14)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private func dismissHintTip() {
+        HintTipStore.markSeen()
+        withAnimation { showHintTip = false }
     }
 
     /// Status text + a compact black/white win-probability pie + the eval number.
@@ -257,18 +288,20 @@ public struct PlayView: View {
         }
     }
 
-    /// Opens the Appearance sheet directly (not Settings) -- the design
-    /// reference has Play's gear jump straight to theming; the broader
-    /// Settings hub (including its own "Appearance & themes" row) stays
-    /// reachable from Home.
-    private var settingsButton: some View {
-        Button { showAppearance = true } label: {
-            Image(systemName: "gearshape")
+    /// Learning, not scorekeeping: undo any move, as many times in a row as
+    /// you like, regardless of how it was graded. Lives in the header (not
+    /// the Move Review card below) since it's a mid-game action you reach
+    /// for constantly, not something tied to reading engine feedback.
+    private var undoButton: some View {
+        Button { vm.undoLastMove() } label: {
+            Image(systemName: "arrow.uturn.backward")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(theme.textColor.opacity(0.8))
+                .foregroundStyle(vm.canUndo ? theme.textColor.opacity(0.8) : theme.textColor.opacity(0.25))
                 .frame(width: 26, height: 26)
         }
         .buttonStyle(PressableStyle())
+        .disabled(!vm.canUndo)
+        .accessibilityLabel("Undo last move")
     }
 
     private var menuButton: some View {
@@ -277,9 +310,12 @@ public struct PlayView: View {
             Section("Show") {
                 Toggle(isOn: $settings.showCaptured) { Label("Captured pieces", systemImage: "trophy") }
                 Toggle(isOn: $settings.showMoveList) { Label("Move list", systemImage: "list.bullet") }
-                Toggle(isOn: $settings.showMoveComments) { Label("Best moves", systemImage: "chart.bar.fill") }
+                Toggle(isOn: $settings.showMoveComments) { Label("Move review", systemImage: "chart.bar.fill") }
                 Toggle(isOn: $settings.showOpening) { Label("Opening name", systemImage: "book.closed.fill") }
                 Toggle(isOn: $settings.showCoach) { Label("Coach (uses credits)", systemImage: "bubble.left.fill") }
+            }
+            Section {
+                Button { showAppearance = true } label: { Label("Appearance & themes", systemImage: "paintpalette.fill") }
             }
             Section {
                 Button { onNewGame() } label: { Label("New game", systemImage: "arrow.counterclockwise") }
@@ -294,6 +330,7 @@ public struct PlayView: View {
                 .frame(width: 26, height: 26)
         }
         .buttonStyle(PressableStyle())
+        .accessibilityLabel("More options")
     }
 
     // MARK: Captured row
@@ -319,7 +356,10 @@ public struct PlayView: View {
     /// hint (best + alternative arrows + rationale), tap again to hide them.
     private var hintButton: some View {
         let on = vm.hint != nil
-        return Button { on ? vm.clearHint() : vm.requestHint() } label: {
+        return Button {
+            if showHintTip { dismissHintTip() }
+            on ? vm.clearHint() : vm.requestHint()
+        } label: {
             Image(systemName: on ? "lightbulb.fill" : "lightbulb")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(on ? theme.accent2Color : theme.textColor.opacity(0.7))
@@ -327,6 +367,8 @@ public struct PlayView: View {
         }
         .buttonStyle(PressableStyle())
         .disabled(!vm.userToMove || vm.isViewingHistory || vm.gameOver)
+        .accessibilityLabel(on ? "Hide best move hint" : "Show best move hint")
+        .accessibilityHint("Shows the engine's best move for the current position.")
     }
 
     // MARK: Hint card (best + alternative + rationale, dismissible)
@@ -380,30 +422,22 @@ public struct PlayView: View {
         .padding(.horizontal, 16)
     }
 
-    // MARK: Best Moves card (verdict + top-3 candidates + retry — all engine-
-    // only, free, no Gemini/network involved)
+    // MARK: Move Review card (verdict on the move you just played + the top-3
+    // continuations the engine considered there -- all engine-only, free, no
+    // Gemini/network involved). Distinct from the hint (lightbulb): this is
+    // always-on feedback about a move already played; the hint is an
+    // on-demand suggestion for the move about to be played.
 
     private var bestMovesCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "chart.bar.fill").foregroundStyle(theme.accent2Color).font(.footnote)
-                Text("Best Moves").font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+                Text("Move Review").font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
                 if let v = vm.lastVerdict { verdictChip(v) }
                 Spacer(minLength: 4)
-                // Learning, not scorekeeping: undo any move, as many times in a
-                // row as you like -- no restriction on how it was graded.
-                if vm.canUndo {
-                    Button { vm.undoLastMove() } label: {
-                        Label("Undo", systemImage: "arrow.uturn.backward")
-                            .font(.caption2.weight(.semibold))
-                            .labelStyle(.titleAndIcon)
-                            .foregroundStyle(theme.accent2Color)
-                    }
-                    .buttonStyle(PressableStyle())
-                }
             }
             if vm.topMoves.isEmpty {
-                Text("Play a move to see how the engine judged it, and its top 3 choices here.")
+                Text("Play a move and I'll grade it here, with the engine's top 3 choices.")
                     .font(.footnote).foregroundStyle(theme.textColor.opacity(0.6))
             } else {
                 VStack(alignment: .leading, spacing: 4) {
