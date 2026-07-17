@@ -9,10 +9,8 @@
 import SwiftUI
 import PhotosUI
 import ChessKit
-#if canImport(UIKit)
+#if os(iOS)
 import UIKit
-#elseif canImport(AppKit)
-import AppKit
 #endif
 
 /// What the scanner is doing right now.
@@ -71,22 +69,32 @@ public struct BoardScannerView: View {
     }
 
     public var body: some View {
-        Form {
-            switch phase {
-            case .picking, .recognizing:
-                pickerSection
-            case .reviewing:
-                reviewSection
-            case .confirmed:
-                confirmedSection
-                intentSection(fen: editedFEN)
-            case .failed(let message):
-                pickerSection
-                Section { Text(message).foregroundStyle(.red) }
+        ZStack {
+            Form {
+                switch phase {
+                case .picking, .recognizing:
+                    pickerSection
+                case .reviewing:
+                    reviewSection
+                case .confirmed:
+                    confirmedSection
+                    intentSection(fen: editedFEN)
+                case .failed(let message):
+                    pickerSection
+                    Section { Text(message).foregroundStyle(.red) }
+                }
             }
+            .scrollContentBackground(.hidden)
         }
-        .scrollContentBackground(.hidden)
         .navigationTitle("Scan a Board")
+        /// Prevent screen from auto-locking while recognizing — Gemini
+        /// vision can take 10+ seconds on slow connections, and a blank
+        /// screen mid-recognition looks like a hang.
+        .onAppear { updateIdleTimer() }
+        .onChange(of: phase) { _, _ in updateIdleTimer() }
+        #if os(iOS)
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        #endif
     }
 
     private var pickerSection: some View {
@@ -348,6 +356,14 @@ public struct BoardScannerView: View {
     }
 
     // MARK: - Actions
+
+    #if os(iOS)
+    private func updateIdleTimer() {
+        UIApplication.shared.isIdleTimerDisabled = (phase == .recognizing)
+    }
+    #else
+    private func updateIdleTimer() {}
+    #endif
 
     private func recognize(_ item: PhotosPickerItem) async {
         guard let data = (try? await item.loadTransferable(type: Data.self)) ?? nil else {
