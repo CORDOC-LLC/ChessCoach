@@ -9,13 +9,16 @@ public struct PuzzlesContainerView: View {
     @Bindable var vm: PuzzleViewModel
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
+    @State private var showingRush = false
 
     public init(vm: PuzzleViewModel, onExit: @escaping () -> Void) {
         self.vm = vm; self.onExit = onExit
     }
 
     public var body: some View {
-        if vm.activeTheme != nil {
+        if showingRush {
+            PuzzleRushView(onExit: { showingRush = false })
+        } else if vm.activeTheme != nil {
             PuzzleSessionView(vm: vm, onExit: { vm.endSession() })
         } else {
             themeList
@@ -29,6 +32,22 @@ public struct PuzzlesContainerView: View {
                     + "Downloads once per theme, then works offline.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+            Section {
+                Button {
+                    showingRush = true
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Puzzle Rush").font(.subheadline.weight(.semibold))
+                            Text("Timed run — solve as many as you can.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "timer").foregroundStyle(themeStore.effective.accentColor)
+                    }
+                }
+                .buttonStyle(.plain)
             }
             if let error = vm.catalogError, vm.catalog == nil {
                 Section {
