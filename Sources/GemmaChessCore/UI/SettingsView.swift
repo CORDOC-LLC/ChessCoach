@@ -13,11 +13,15 @@ public struct SettingsView: View {
     @State private var showClearGamesConfirm = false
     @State private var showResetPuzzlesConfirm = false
     @State private var showResetStatsConfirm = false
+    @State private var showResetOpeningTrainerConfirm = false
+    @State private var showResetPuzzleRatingConfirm = false
     @State private var showAppearance = false
     @State private var showOnboarding = false
     @State private var showPaywall = false
     @State private var clearedGames = false
     @State private var resetPuzzles = false
+    @State private var resetOpeningTrainer = false
+    @State private var resetPuzzleRating = false
     @Environment(ThemeStore.self) private var themeStore
 
     public init() {}
@@ -98,6 +102,20 @@ public struct SettingsView: View {
                     Label("Reset.", systemImage: "checkmark.circle.fill")
                         .font(.footnote).foregroundStyle(themeStore.effective.accentColor)
                 }
+                Button(role: .destructive) { showResetPuzzleRatingConfirm = true } label: {
+                    Label("Reset puzzle rating", systemImage: "arrow.counterclockwise")
+                }
+                if resetPuzzleRating {
+                    Label("Reset.", systemImage: "checkmark.circle.fill")
+                        .font(.footnote).foregroundStyle(themeStore.effective.accentColor)
+                }
+                Button(role: .destructive) { showResetOpeningTrainerConfirm = true } label: {
+                    Label("Reset opening trainer progress", systemImage: "arrow.counterclockwise")
+                }
+                if resetOpeningTrainer {
+                    Label("Reset.", systemImage: "checkmark.circle.fill")
+                        .font(.footnote).foregroundStyle(themeStore.effective.accentColor)
+                }
             }
 
             Section {
@@ -141,6 +159,24 @@ public struct SettingsView: View {
             Button("Reset", role: .destructive) {
                 PlayStatsStore.resetAll()
                 stats = PlayStatsStore.current()
+            }
+        }
+        .confirmationDialog(
+            "Reset your puzzle rating back to the starting value?",
+            isPresented: $showResetPuzzleRatingConfirm, titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                PuzzleRatingStore.reset()
+                resetPuzzleRating = true
+            }
+        }
+        .confirmationDialog(
+            "Reset opening trainer progress? Every line's familiarity starts over.",
+            isPresented: $showResetOpeningTrainerConfirm, titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                OpeningTrainerStore.resetAll()
+                resetOpeningTrainer = true
             }
         }
         .sheet(isPresented: $showAppearance) { AppearanceView() }

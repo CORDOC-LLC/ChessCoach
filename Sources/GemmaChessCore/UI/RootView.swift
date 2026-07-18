@@ -20,6 +20,7 @@ public struct GemmaRootView: View {
     @State private var playStartedInitially = false
 
     @State private var puzzles = PuzzleViewModel()
+    @State private var openingTrainer = OpeningTrainerViewModel()
 
     /// The active theme, shared with every screen via the environment --
     /// see Theme/ThemeStore.swift ("Living Themes").
@@ -28,7 +29,7 @@ public struct GemmaRootView: View {
     @State private var showOnboarding = !OnboardingStore.hasCompleted()
     @State private var showPaywall = false
 
-    private enum Mode { case home, play, review, scan, savedGames, puzzles }
+    private enum Mode { case home, play, review, scan, savedGames, puzzles, openingTrainer, gameImport }
 
     public init(style: GemmaLayoutStyle = .automatic) {}
 
@@ -42,7 +43,9 @@ public struct GemmaRootView: View {
                     onScan: { openScan() },
                     onResume: { openSavedGame(withID: SavedGameStore.inProgressGameID()) },
                     onMyGames: { mode = .savedGames },
-                    onPuzzles: { mode = .puzzles }
+                    onPuzzles: { mode = .puzzles },
+                    onOpeningTrainer: { mode = .openingTrainer },
+                    onGameImport: { mode = .gameImport }
                 )
             case .play:
                 PlayContainerView(vm: play, onExit: { mode = .home }, startedInitially: playStartedInitially)
@@ -66,6 +69,12 @@ public struct GemmaRootView: View {
                 .toolbar { settingsToolbarItem }
             case .puzzles:
                 PuzzlesContainerView(vm: puzzles, onExit: { mode = .home })
+            case .openingTrainer:
+                OpeningTrainerContainerView(vm: openingTrainer, onExit: { mode = .home })
+            case .gameImport:
+                GameImportView()
+                    .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
+                    .toolbar { settingsToolbarItem }
             }
         }
         .environment(themeStore)
@@ -135,6 +144,8 @@ struct HomeView: View {
     var onResume: () -> Void
     var onMyGames: () -> Void
     var onPuzzles: () -> Void
+    var onOpeningTrainer: () -> Void
+    var onGameImport: () -> Void
     @Environment(ThemeStore.self) private var themeStore
     @State private var showBeginners = false
     @State private var showAppearance = false
@@ -367,6 +378,10 @@ struct HomeView: View {
     private var moreCard: some View {
         VStack(spacing: 0) {
             moreRow(icon: "graduationcap.fill", title: "New to chess?") { showBeginners = true }
+            rowDivider
+            moreRow(icon: "book.closed.fill", title: "Opening trainer", action: onOpeningTrainer)
+            rowDivider
+            moreRow(icon: "square.and.arrow.down", title: "Import a game", action: onGameImport)
             if scanEnabled {
                 rowDivider
                 moreRow(icon: "camera.viewfinder", title: "Scan a board", action: onScan)
