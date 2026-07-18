@@ -34,6 +34,19 @@ public struct PuzzlesContainerView: View {
                     .foregroundStyle(.secondary)
             }
             Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Puzzle rating").font(.subheadline.weight(.semibold))
+                        Text("Local only, puzzle-solving skill — not a rating of your overall play.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text("\(vm.rating)")
+                        .font(.title3.weight(.bold).monospacedDigit())
+                        .foregroundStyle(themeStore.effective.accentColor)
+                }
+            }
+            Section {
                 Button {
                     showingRush = true
                 } label: {
