@@ -18,6 +18,13 @@
 //   - `floor` = 400 -- a losing streak (especially early, before the
 //     rating has climbed off its seed) can't drag the number into
 //     nonsensical territory.
+//
+//  Write-through to iCloud (plan U7): every update also mirrors into the
+//  injected `iCloudProgressSync` so the rating carries across the user's
+//  own devices via their own iCloud. Ratings are a scalar, not a set, so
+//  remote merges are last-write-wins (see
+//  `iCloudProgressSync.MergeStrategy.lastWriteWins`), unlike the solved-ID
+//  sets in `PuzzleProgressStore`.
 
 import Foundation
 
@@ -26,7 +33,10 @@ public enum PuzzleRatingStore {
     public static let kFactor = 24.0
     public static let floor = 400
 
-    private static let key = "puzzles.rating"
+    // Internal (not private) so `iCloudProgressSync` can register the
+    // matching remote-merge rule against the same key -- single source of
+    // truth for the key shape.
+    static let key = "puzzles.rating"
 
     /// The solver's current puzzle rating, or `defaultRating` on a fresh
     /// install (nothing persisted yet).
@@ -43,7 +53,8 @@ public enum PuzzleRatingStore {
     public static func update(
         puzzleRating: Int,
         correct: Bool,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        sync: iCloudProgressSync = .shared
     ) -> Int {
         let userRating = currentRating(defaults: defaults)
         let expected = 1.0 / (1.0 + pow(10.0, Double(puzzleRating - userRating) / 400.0))
@@ -51,6 +62,7 @@ public enum PuzzleRatingStore {
         let delta = kFactor * (actual - expected)
         let newRating = max(floor, Int((Double(userRating) + delta).rounded()))
         defaults.set(newRating, forKey: key)
+        sync.write(key: key, value: newRating)
         return newRating
     }
 }
