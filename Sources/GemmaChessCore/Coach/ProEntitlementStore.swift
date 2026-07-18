@@ -13,6 +13,21 @@
 import Foundation
 import RevenueCat
 
+/// Thrown by `requireProOrThrow()` when the running channel requires an
+/// active Pro entitlement (see `BuildChannel.requiresProEntitlement`) and
+/// the caller doesn't have one. A distinct type -- not `CoachError` -- so
+/// call sites can tell "not entitled" apart from a generic backend/network
+/// failure and present `PaywallView` specifically, instead of a generic
+/// error message.
+public struct ProRequiredError: Error, Equatable, Sendable {
+    public init() {}
+
+    /// A short, user-facing explanation, for call sites that fold this into
+    /// an existing generic error-message slot (e.g. `PlayViewModel.lastCoachError`)
+    /// rather than presenting `PaywallView` directly.
+    public var message: String { "ChessCoach Pro subscription required." }
+}
+
 @MainActor
 @Observable
 public final class ProEntitlementStore {
@@ -72,5 +87,33 @@ public final class ProEntitlementStore {
     public func restore() async throws {
         let info = try await Purchases.shared.restorePurchases()
         isProActive = info.entitlements[Self.entitlementID]?.isActive == true
+    }
+
+    // MARK: Uniform Pro-entitlement gate (U1)
+
+    /// The single, uniform Pro-entitlement check -- call this at the top of
+    /// every code path that reaches ChessCoach's backend (coach chat, hint
+    /// rationale, board-scan vision, end-of-game summary), replacing the
+    /// scattered/incomplete per-screen checks that predate this. A no-op on
+    /// any channel that doesn't require the entitlement at all (local/
+    /// TestFlight dev builds bypass unconditionally, unchanged from today --
+    /// see `BuildChannel.requiresProEntitlement`'s header for why); on
+    /// App Store production, throws `ProRequiredError` unless `isProActive`
+    /// is true.
+    ///
+    /// `channel` defaults to `.current` but is overridable so tests can
+    /// drive both branches deterministically without needing a real
+    /// distribution channel.
+    public func requireProOrThrow(channel: BuildChannel = .current) throws {
+        try Self.requireProOrThrow(channel: channel, isProActive: isProActive)
+    }
+
+    /// Pure/static form of the same check, taking `isProActive` explicitly.
+    /// `isProActive` is otherwise `private(set)` on the singleton (only ever
+    /// changed by a real purchase/restore/refresh) -- this lets tests exercise
+    /// both entitlement states without driving RevenueCat.
+    public nonisolated static func requireProOrThrow(channel: BuildChannel, isProActive: Bool) throws {
+        guard channel.requiresProEntitlement else { return }
+        guard isProActive else { throw ProRequiredError() }
     }
 }

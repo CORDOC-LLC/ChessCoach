@@ -5,6 +5,12 @@
 //  chesscoach-gateway's `/api/vision`) — the recognized FEN then drives
 //  ChessBoardView's preview and PlayViewModel's game entirely on-device, same
 //  as every other position in the app.
+//
+//  `recognize(data:)` checks `ProEntitlementStore.shared.requireProOrThrow()`
+//  before doing any local work or firing the vision request -- a non-Pro
+//  build on a gated channel shows `PaywallView` instead of ever reaching the
+//  network. `ask(fen:)` goes through `CoachOrchestrator`, which applies the
+//  same gate itself (see that type's header).
 
 import SwiftUI
 import PhotosUI
@@ -62,6 +68,11 @@ public struct BoardScannerView: View {
     @State private var tool: ReviewTool = .move
     /// The square whose piece is "picked up" while the move tool is active.
     @State private var pickedSquare: Square?
+    /// Shown when `ProEntitlementStore.requireProOrThrow()` fails -- i.e. this
+    /// channel requires Pro and the user doesn't have it active. Checked
+    /// before the vision call fires (see `recognize(data:)`), so a non-Pro
+    /// build never reaches the network for a scan.
+    @State private var showPaywall = false
     private let coach = CoachOrchestrator()
 
     public init(onStartGame: @escaping (_ fen: String, _ asWhite: Bool) -> Void) {
@@ -95,6 +106,7 @@ public struct BoardScannerView: View {
         #if os(iOS)
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         #endif
+        .sheet(isPresented: $showPaywall) { PaywallView() }
     }
 
     private var pickerSection: some View {
@@ -384,6 +396,18 @@ public struct BoardScannerView: View {
     private func recognize(data: Data) async {
         phase = .recognizing
         answer = nil
+        // Gate BEFORE any local work (downscaling) or network call -- a
+        // non-Pro build on a gated channel never reaches Gemini vision.
+        do {
+            try await ProEntitlementStore.shared.requireProOrThrow()
+        } catch is ProRequiredError {
+            phase = .picking
+            showPaywall = true
+            return
+        } catch {
+            phase = .failed(error.localizedDescription)
+            return
+        }
         guard let upload = downscaledJPEG(data) else {
             phase = .failed("Couldn't process that photo. Try another, ideally a clear top-down shot.")
             return
@@ -412,6 +436,8 @@ public struct BoardScannerView: View {
         do {
             let reply = try await coach.answer(question: q, fen: fen)
             answer = reply.answer
+        } catch is ProRequiredError {
+            showPaywall = true
         } catch let e as CoachError {
             answer = e.message
         } catch {
