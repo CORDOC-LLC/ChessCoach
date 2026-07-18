@@ -54,6 +54,30 @@ struct FENBoardEditorTests {
         #expect(fen == "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1")
     }
 
+    @Test("rotating the start position 180° swaps the armies' halves and mirrors files")
+    func rotate180StartPosition() {
+        let rotated = FENBoardEditor.rotated180(fen: startFEN)
+        #expect(rotated == "RNBKQBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbkqbnr w - - 0 1")
+        // Rotating twice restores placement (castling/ep stay cleared).
+        let twice = FENBoardEditor.rotated180(fen: rotated)
+        #expect(twice == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1")
+    }
+
+    @Test("rotation clears castling and en passant but keeps side to move and counters")
+    func rotationClearsRights() {
+        let fen = "8/8/8/8/3P4/8/8/8 b KQkq e3 4 12"
+        let rotated = FENBoardEditor.rotated180(fen: fen)
+        #expect(rotated == "8/8/8/4P3/8/8/8/8 b - - 4 12")
+    }
+
+    @Test("looksRotated flags an upside-down scan and passes a normal one")
+    func detectsRotation() {
+        #expect(!FENBoardEditor.looksRotated(fen: startFEN))
+        #expect(FENBoardEditor.looksRotated(fen: FENBoardEditor.rotated180(fen: startFEN)))
+        // Kings only, same rank: no clear separation, don't second-guess.
+        #expect(!FENBoardEditor.looksRotated(fen: "8/8/8/3kK3/8/8/8/8 w - - 0 1"))
+    }
+
     @Test("a round trip of place-then-clear returns to the original FEN")
     func placeThenClearRoundTrips() {
         let placed = FENBoardEditor.settingSquare(Square("h8"), to: (.rook, .white), inFEN: startFEN)

@@ -3,6 +3,8 @@
 //  net material delta ("+N") when that side is ahead. Pure presentation — the caller
 //  passes the already-diffed pieces (see `CapturedMaterial`). Deliberately tiny and
 //  unboxed so it can sit inline in the info strip without eating vertical space.
+//  Wraps onto extra rows instead of overflowing the screen when one side has
+//  captured a lot of material (e.g. many pawns late in a long game).
 
 import SwiftUI
 
@@ -16,7 +18,7 @@ struct CapturedTrayView: View {
     @Environment(ThemeStore.self) private var themeStore
 
     var body: some View {
-        HStack(spacing: 2) {
+        WrappingRow(spacing: 2, rowSpacing: 2) {
             ForEach(Array(pieces.enumerated()), id: \.offset) { _, ch in
                 // A black piece's art is a near-black silhouette -- a faint
                 // backdrop still isn't enough contrast against this app's dark
@@ -38,6 +40,46 @@ struct CapturedTrayView: View {
                     .padding(.leading, 2)
             }
         }
-        .frame(height: size + 10)
+        .frame(minHeight: size + 10)
+    }
+}
+
+/// A leading-aligned flow layout: children lay out left-to-right and wrap to a
+/// new row when the proposed width runs out, instead of overflowing.
+struct WrappingRow: Layout {
+    var spacing: CGFloat = 2
+    var rowSpacing: CGFloat = 2
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, width: CGFloat = 0
+        for sub in subviews {
+            let s = sub.sizeThatFits(.unspecified)
+            if x > 0, x + s.width > maxWidth {
+                x = 0; y += rowHeight + rowSpacing; rowHeight = 0
+            }
+            x += s.width + spacing
+            rowHeight = max(rowHeight, s.height)
+            width = max(width, x - spacing)
+        }
+        return CGSize(width: width, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let maxWidth = bounds.width
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for sub in subviews {
+            let s = sub.sizeThatFits(.unspecified)
+            if x > 0, x + s.width > maxWidth {
+                x = 0; y += rowHeight + rowSpacing; rowHeight = 0
+            }
+            sub.place(
+                at: CGPoint(x: bounds.minX + x, y: bounds.minY + y + s.height / 2),
+                anchor: .leading,
+                proposal: ProposedViewSize(s)
+            )
+            x += s.width + spacing
+            rowHeight = max(rowHeight, s.height)
+        }
     }
 }
