@@ -28,7 +28,14 @@ public enum Openings {
     /// one-time cost paid by the first classification, then reused for the process.
     /// Best-effort: a missing/corrupt data file contributes nothing (callers
     /// degrade to no name).
-    static let book: [String: Opening] = loadBook()
+    static let book: [String: Opening] = loadAll().book
+
+    /// Every vendored ECO line, in its raw move-sequence form -- the Opening
+    /// Trainer's source of practiceable lines. Unlike `book` (keyed by final
+    /// position, one entry per position -- later duplicates overwrite earlier
+    /// ones), this keeps every named line's own move-by-move path so a line can
+    /// be replayed and drilled ply by ply.
+    public static let lines: [OpeningLine] = loadAll().lines
 
     /// A classified opening: its ECO code and human-readable name.
     public struct Opening: Equatable, Sendable {
@@ -38,6 +45,37 @@ public enum Openings {
         public init(eco: String, name: String) {
             self.eco = eco
             self.name = name
+        }
+    }
+
+    /// One named ECO line as an ordered sequence of SAN moves from the starting
+    /// position -- what the Opening Trainer replays and quizzes against.
+    public struct OpeningLine: Equatable, Sendable, Identifiable {
+        public let eco: String
+        public let name: String
+        /// SAN moves in play order, e.g. `["e4", "c5", "Nf3", "d6"]`.
+        public let sanMoves: [String]
+
+        public init(eco: String, name: String, sanMoves: [String]) {
+            self.eco = eco
+            self.name = name
+            self.sanMoves = sanMoves
+        }
+
+        /// Stable identity for persistence and list diffing: ECO lines can repeat
+        /// (transpositions/sub-variations sharing a code), so the code alone
+        /// isn't unique -- the full name plus move count disambiguates.
+        public var id: String { "\(eco)|\(name)|\(sanMoves.count)" }
+    }
+
+    /// Case-insensitive substring search over both ECO code and name, e.g.
+    /// `"sicilian"` or `"B20"`. Empty query returns every line.
+    public static func search(_ query: String) -> [OpeningLine] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return lines }
+        return lines.filter {
+            $0.name.range(of: trimmed, options: .caseInsensitive) != nil
+                || $0.eco.range(of: trimmed, options: .caseInsensitive) != nil
         }
     }
 
@@ -82,8 +120,12 @@ public enum Openings {
         return fields[0..<3].joined(separator: " ")
     }
 
-    private static func loadBook() -> [String: Opening] {
+    /// Parses every vendored TSV row once, building both the position-keyed
+    /// `book` (for classification) and the ordered `lines` (for the trainer)
+    /// from the same pass -- one file read, one movetext parse per row.
+    private static func loadAll() -> (book: [String: Opening], lines: [OpeningLine]) {
         var book: [String: Opening] = [:]
+        var lines: [OpeningLine] = []
         for letter in ["a", "b", "c", "d", "e"] {
             guard let url = Bundle.module.url(forResource: letter, withExtension: "tsv", subdirectory: "eco"),
                   let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
@@ -96,11 +138,27 @@ public enum Openings {
                 let name = String(columns[1])
                 let movetext = String(columns[2])
 
+                let sanMoves = sanMoves(fromMovetext: movetext)
+                if !sanMoves.isEmpty {
+                    lines.append(OpeningLine(eco: eco, name: name, sanMoves: sanMoves))
+                }
+
                 guard let fen = ChessLogic.finalFEN(forPGN: movetext),
                       let key = positionKey(fromFEN: fen) else { continue }
                 book[key] = Opening(eco: eco, name: name)
             }
         }
-        return book
+        return (book, lines)
+    }
+
+    /// Strips move numbers (`"1."`, `"12..."`) from a movetext string, leaving
+    /// just the SAN moves in play order. The vendored dataset is already plain
+    /// SAN with no NAGs/comments/results, so whitespace-splitting plus a
+    /// move-number filter is enough -- no need for a full PGN move-text parser.
+    private static func sanMoves(fromMovetext movetext: String) -> [String] {
+        movetext.split(separator: " ", omittingEmptySubsequences: true).compactMap { token in
+            let isMoveNumber = token.allSatisfy { $0.isNumber || $0 == "." }
+            return isMoveNumber ? nil : String(token)
+        }
     }
 }
