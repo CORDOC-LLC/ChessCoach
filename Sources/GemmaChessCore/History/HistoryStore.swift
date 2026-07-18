@@ -397,3 +397,23 @@ public struct HistoryStore: Sendable {
     /// Round to 1 decimal (round-half-to-even), matching Python's `round(x, 1)`.
     static func round1(_ x: Double) -> Double { (x * 10).rounded(.toNearestOrEven) / 10 }
 }
+
+extension HistoryStore {
+    /// Analyze `pgn` and append the result to history under `identity` -- the single
+    /// hand-off point from "have a PGN" to "it's in this device's game history",
+    /// shared by every import route (paste, Chess.com/Lichess account fetch) so none
+    /// of them need to duplicate the analyze-then-record glue that `ReviewViewModel.
+    /// analyze` already does for the manual-paste/review flow. Callers that already
+    /// hold a `ReviewSession` should call `recordGame(_:identity:)` directly instead.
+    @discardableResult
+    public static func analyzeAndRecordGame(
+        pgn: String,
+        player: String = "auto",
+        identity: PlayerIdentity = PlayerIdentity(),
+        store: HistoryStore = HistoryStore()
+    ) async throws -> ReviewSession {
+        let session = try await GameAnalyzer.analyzeGame(pgn: pgn, player: player)
+        store.recordGame(session, identity: identity)
+        return session
+    }
+}
