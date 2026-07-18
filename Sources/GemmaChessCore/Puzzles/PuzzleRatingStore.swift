@@ -65,4 +65,10 @@ public enum PuzzleRatingStore {
         sync.write(key: key, value: newRating)
         return newRating
     }
+
+    /// Settings' "Reset puzzle rating" action -- back to `defaultRating`.
+    public static func reset(defaults: UserDefaults = .standard, sync: iCloudProgressSync = .shared) {
+        defaults.removeObject(forKey: key)
+        sync.write(key: key, value: defaultRating)
+    }
 }
