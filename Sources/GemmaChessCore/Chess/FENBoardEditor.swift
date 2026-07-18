@@ -59,6 +59,44 @@ enum FENBoardEditor {
         return (color == .white ? white : black)[kind] ?? "?"
     }
 
+    /// Returns the FEN with the piece placement rotated 180° -- what you need
+    /// when a board photo was taken from Black's side, so the vision model
+    /// read rank 8 as rank 1 and file h as file a. Castling and en passant
+    /// are reset to "-" (square identities changed, so any scanned rights
+    /// are meaningless after rotation); side to move and counters pass through.
+    static func rotated180(fen: String) -> String {
+        var fields = fen.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        guard !fields.isEmpty else { return fen }
+        let grid = placementGrid(fields[0])
+        let rotated = grid.reversed().map { Array($0.reversed()) }
+        fields[0] = placementString(rotated)
+        if fields.count > 2 { fields[2] = "-" }   // castling
+        if fields.count > 3 { fields[3] = "-" }   // en passant
+        return fields.joined(separator: " ")
+    }
+
+    /// True when the placement looks upside down -- White's pieces sit mostly
+    /// in the top half (ranks 5-8) and Black's mostly in the bottom half.
+    /// Used to auto-correct a board photographed from Black's side.
+    static func looksRotated(fen: String) -> Bool {
+        let placement = fen.split(separator: " ", maxSplits: 1).first.map(String.init) ?? fen
+        let grid = placementGrid(placement)
+        var whiteSum = 0, whiteCount = 0, blackSum = 0, blackCount = 0
+        for (rowIndex, row) in grid.enumerated() {
+            let rank = 8 - rowIndex
+            for cell in row {
+                guard let ch = cell else { continue }
+                if ch.isUppercase { whiteSum += rank; whiteCount += 1 }
+                else { blackSum += rank; blackCount += 1 }
+            }
+        }
+        guard whiteCount > 0, blackCount > 0 else { return false }
+        let whiteAvg = Double(whiteSum) / Double(whiteCount)
+        let blackAvg = Double(blackSum) / Double(blackCount)
+        // Require a clear separation, not a toss-up, before second-guessing the scan.
+        return whiteAvg > blackAvg + 1.0
+    }
+
     private static func fenChar(kind: Piece.Kind, color: Piece.Color) -> Character {
         let letter: Character
         switch kind {

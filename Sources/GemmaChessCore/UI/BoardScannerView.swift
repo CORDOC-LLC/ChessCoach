@@ -165,6 +165,14 @@ public struct BoardScannerView: View {
 
             palette
 
+            Button {
+                editedFEN = FENBoardEditor.rotated180(fen: editedFEN)
+                pickedSquare = nil
+            } label: {
+                Label("Rotate board 180°", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+            }
+            .font(.footnote)
+
             HStack {
                 if editedFEN != scannedFEN {
                     Button("Reset to scanned") {
@@ -389,7 +397,14 @@ public struct BoardScannerView: View {
             return
         }
         do {
-            let fen = try await ManagedVisionClient.recognizeBoard(imageData: upload)
+            var fen = try await ManagedVisionClient.recognizeBoard(imageData: upload)
+            // Photos taken from Black's side often come back 180°-rotated
+            // (the model reads the nearest edge as rank 1). When White's
+            // pieces clearly sit in the top half, un-rotate before showing --
+            // the user can still hit "Rotate board 180°" if we guessed wrong.
+            if FENBoardEditor.looksRotated(fen: fen) {
+                fen = FENBoardEditor.rotated180(fen: fen)
+            }
             editedFEN = fen
             scannedFEN = fen
             tool = .move
