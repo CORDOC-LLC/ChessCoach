@@ -4,6 +4,14 @@
 //  `coach_summary_ai()`. Backends are tried in priority order; the first non-
 //  unavailable one wins. When none is available, the UI hides chat and keeps the
 //  engine-only review.
+//
+//  Every method that reaches a backend (`answer`, `answerStream`, `summaryStream`,
+//  `gameSummary`) opens with `ProEntitlementStore.shared.requireProOrThrow()` --
+//  the single, uniform Pro-entitlement gate (see that method's header). This is
+//  the one interception point for ALL coach call sites (chat, hint rationale,
+//  per-move notes, end-of-game summary), so callers (`PlayViewModel`,
+//  `BoardScannerView`) don't each need their own check -- they only need to
+//  catch `ProRequiredError` and trigger their paywall presentation.
 
 import Foundation
 
@@ -83,6 +91,7 @@ public final class CoachOrchestrator: Sendable {
         sessionID: String? = nil,
         depth: Int = GCConfig.defaultDepth
     ) async throws -> CoachReply {
+        try await ProEntitlementStore.shared.requireProOrThrow()
         guard let backend = active else {
             throw CoachError("The on-device coach isn't available on this device. The engine review still works.")
         }
@@ -114,6 +123,7 @@ public final class CoachOrchestrator: Sendable {
         sessionID: String? = nil,
         depth: Int = GCConfig.defaultDepth
     ) async throws -> AsyncThrowingStream<String, Error> {
+        try await ProEntitlementStore.shared.requireProOrThrow()
         guard let backend = active else {
             throw CoachError("The on-device coach isn't available on this device. The engine review still works.")
         }
@@ -162,7 +172,8 @@ public final class CoachOrchestrator: Sendable {
 
     /// Streaming end-of-game summary from a ready-made facts block (Play mode's
     /// live-graded games). Same persona as `gameSummary`, no engine work.
-    public func summaryStream(facts: String) throws -> AsyncThrowingStream<String, Error> {
+    public func summaryStream(facts: String) async throws -> AsyncThrowingStream<String, Error> {
+        try await ProEntitlementStore.shared.requireProOrThrow()
         guard let backend = active else {
             throw CoachError("The on-device coach isn't available on this device.")
         }
@@ -175,6 +186,7 @@ public final class CoachOrchestrator: Sendable {
     /// A written end-of-game summary, grounded in pre-computed game facts.
     /// Mirrors `coach_summary_ai()`.
     public func gameSummary(_ input: CoachGameInput, profileFacts: String? = nil) async throws -> String {
+        try await ProEntitlementStore.shared.requireProOrThrow()
         guard let backend = active else {
             throw CoachError("The on-device coach isn't available on this device.")
         }
