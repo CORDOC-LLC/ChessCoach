@@ -10,6 +10,7 @@ public struct PuzzlesContainerView: View {
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
     @State private var showingRush = false
+    @State private var streak = PuzzleStreakStore.currentStreak()
 
     public init(vm: PuzzleViewModel, onExit: @escaping () -> Void) {
         self.vm = vm; self.onExit = onExit
@@ -44,6 +45,19 @@ public struct PuzzlesContainerView: View {
                     Text("\(vm.rating)")
                         .font(.title3.weight(.bold).monospacedDigit())
                         .foregroundStyle(themeStore.effective.accentColor)
+                }
+                if streak > 0 {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Daily streak").font(.subheadline.weight(.semibold))
+                            Text("Solve at least one puzzle a day to keep it going.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Label("\(streak)", systemImage: "flame.fill")
+                            .font(.title3.weight(.bold).monospacedDigit())
+                            .foregroundStyle(themeStore.effective.accent2Color)
+                    }
                 }
             }
             Section {
@@ -89,6 +103,7 @@ public struct PuzzlesContainerView: View {
             }
         }
         .task { if vm.catalog == nil { await vm.loadCatalog() } }
+        .onAppear { streak = PuzzleStreakStore.currentStreak() }
     }
 
     private func themeRow(_ theme: PuzzleThemeInfo) -> some View {
@@ -145,6 +160,9 @@ struct PuzzleSessionView: View {
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
+        .onChange(of: vm.sessionSolvedCount) { old, new in
+            if new > old { PuzzleStreakStore.recordSolve() }
+        }
     }
 
     private var header: some View {
