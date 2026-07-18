@@ -36,10 +36,18 @@ public final class PuzzleViewModel {
     public var feedback: PuzzleFeedback?
     public var solverIsWhite = true
     public private(set) var sessionSolvedCount = 0
+    /// Local Elo-lite puzzle-solving rating (see `PuzzleRatingStore`) --
+    /// puzzle-solving skill only, not a claim about overall playing
+    /// strength. Kept in sync as attempts are scored.
+    public private(set) var rating: Int
 
     private var dests: [Square: [Square]] = [:]
     private var moveCursor = 0
     private var sessionGen = 0
+    /// Whether the current puzzle's attempt has already been scored against
+    /// the rating -- a puzzle is scored once (first wrong move, or once
+    /// fully solved), so retrying after a miss doesn't double-count.
+    private var currentAttemptRated = false
     /// Where solved-puzzle progress is tracked, and where downloaded packs are
     /// cached -- both injectable so tests use scratch storage instead of the
     /// real Application Support directory / UserDefaults.standard.
@@ -52,6 +60,7 @@ public final class PuzzleViewModel {
     ) {
         self.progressDefaults = progressDefaults
         self.puzzleBaseDir = puzzleBaseDir
+        self.rating = PuzzleRatingStore.currentRating(defaults: progressDefaults)
     }
 
     // MARK: Derived
@@ -140,6 +149,7 @@ public final class PuzzleViewModel {
         selected = nil
         lastMove = nil
         feedback = nil
+        currentAttemptRated = false
         applyAutoMove()   // the setup move -- reveals the actual puzzle position
         solverIsWhite = ChessLogic.sideToMove(forFEN: fen) == .white
         refreshDests()
@@ -166,6 +176,7 @@ public final class PuzzleViewModel {
         guard attempted == expected else {
             feedback = .incorrect
             status = "Not quite — try again."
+            scoreAttempt(puzzle: puzzle, correct: false)
             return
         }
         guard let next = ChessLogic.fen(afterMove: attempted, fromFEN: fromFEN) else { return }
@@ -199,9 +210,19 @@ public final class PuzzleViewModel {
         if let puzzle = currentPuzzle, let theme = activeTheme {
             PuzzleProgressStore.markSolved(puzzle.id, theme: theme, defaults: progressDefaults)
             sessionSolvedCount += 1
+            scoreAttempt(puzzle: puzzle, correct: true)
         }
         feedback = .solved
         status = "Solved!"
+    }
+
+    /// Scores this puzzle against the rating exactly once per attempt --
+    /// the first wrong move fails it (a retry after a miss doesn't count
+    /// again), or a full solve without any miss counts as correct.
+    private func scoreAttempt(puzzle: Puzzle, correct: Bool) {
+        guard !currentAttemptRated else { return }
+        currentAttemptRated = true
+        rating = PuzzleRatingStore.update(puzzleRating: puzzle.rating, correct: correct, defaults: progressDefaults)
     }
 
     // MARK: Helpers
