@@ -309,6 +309,12 @@ public final class PlayViewModel {
                     guard position == fen, hint != nil else { return }
                     hint?.rationale = partial
                 }
+            } catch let e as ProRequiredError {
+                // Rationale is Pro-gated (see `CoachOrchestrator.answerStream`) --
+                // the best-move arrow/SAN above already stand on their own; this
+                // just says why the rationale line didn't fill in, distinctly
+                // from a generic failure, so the UI can offer the paywall.
+                if position == fen { lastCoachError = e.message }
             } catch {
                 // No rationale — the arrows and SANs still stand on their own,
                 // but the coach card (shared error slot) shows why it failed.
@@ -532,12 +538,17 @@ public final class PlayViewModel {
         Task {
             defer { if gen == moveGen { isSummarizing = false } }
             do {
-                let stream = try coach.summaryStream(facts: facts)
+                let stream = try await coach.summaryStream(facts: facts)
                 for try await partial in stream {
                     guard gen == moveGen else { return }
                     gameSummary = partial
                 }
                 if gen == moveGen { persistCheckpoint() }
+            } catch let e as ProRequiredError {
+                // The debrief is Pro-gated (see `CoachOrchestrator.summaryStream`) --
+                // the result banner still stands on its own.
+                guard gen == moveGen else { return }
+                lastCoachError = e.message
             } catch {
                 // No debrief — the result banner still stands, but say why.
                 guard gen == moveGen else { return }
@@ -731,6 +742,11 @@ public final class PlayViewModel {
             if let userPly, let gen, gen == moveGen, let note = lastCoachNote, !note.isEmpty {
                 moveNotes[userPly] = note
             }
+        } catch let e as ProRequiredError {
+            // The note is Pro-gated (see `CoachOrchestrator.answerStream`) -- the
+            // engine verdict chip still stands on its own.
+            if let gen, gen != moveGen { return }
+            lastCoachError = e.message
         } catch {
             // The engine verdict chip still stands on its own -- but surface
             // WHY the note didn't come through (missing config, not entitled,
@@ -767,6 +783,11 @@ public final class PlayViewModel {
             for try await partial in stream where chat.indices.contains(idx) {
                 chat[idx].text = partial
             }
+        } catch let e as ProRequiredError {
+            // Chat is Pro-gated (see `CoachOrchestrator.answerStream`) -- surface
+            // the reason inline so the user knows to subscribe, not that
+            // something broke.
+            if chat.indices.contains(idx) { chat[idx].text = e.message }
         } catch let e as CoachError {
             if chat.indices.contains(idx) { chat[idx].text = e.message }
         } catch {
