@@ -14,10 +14,13 @@ extension PlayViewModel {
         let token = UUID().uuidString
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("PlayViewModelTests-\(token)", isDirectory: true)
+        let historyDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PlayViewModelHistoryTests-\(token)", isDirectory: true)
         let defaults = UserDefaults(suiteName: "PlayViewModelTests-\(token)")!
         let statsDefaults = UserDefaults(suiteName: "PlayViewModelStatsTests-\(token)")!
         return PlayViewModel(
-            coach: coach, savedGamesBaseDir: dir, savedGamesDefaults: defaults, statsDefaults: statsDefaults)
+            coach: coach, savedGamesBaseDir: dir, savedGamesDefaults: defaults, statsDefaults: statsDefaults,
+            historyBaseDir: historyDir)
     }
 }
 

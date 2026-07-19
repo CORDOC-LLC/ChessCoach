@@ -175,18 +175,24 @@ public final class PlayViewModel {
     let savedGamesDefaults: UserDefaults
     /// Where the lifetime win/loss/draw tally is persisted -- likewise injectable.
     let statsDefaults: UserDefaults
+    /// Where finished Play games are folded into `HistoryStore` (Coach Weakness
+    /// Report, plan U2) -- injectable so tests never touch the real
+    /// Application Support directory or a shared `games.jsonl`.
+    let historyBaseDir: URL?
 
     public init(
         coach: CoachOrchestrator = CoachOrchestrator(),
         savedGamesBaseDir: URL = SavedGameStore.defaultBaseDir,
         savedGamesDefaults: UserDefaults = .standard,
-        statsDefaults: UserDefaults = .standard
+        statsDefaults: UserDefaults = .standard,
+        historyBaseDir: URL? = nil
     ) {
         self.coach = coach
         self.coachAvailability = coach.availability
         self.savedGamesBaseDir = savedGamesBaseDir
         self.savedGamesDefaults = savedGamesDefaults
         self.statsDefaults = statsDefaults
+        self.historyBaseDir = historyBaseDir
         self.stats = PlayStatsStore.current(defaults: statsDefaults)
     }
 
@@ -613,14 +619,18 @@ public final class PlayViewModel {
     /// (a move, a coach note landing, game over) so a killed app loses at most the
     /// in-flight step, never the whole game. Cheap: a small per-game JSON file, no
     /// network involved -- see `SavedGame`'s header.
-    private func persistCheckpoint() {
-        let game = SavedGame(
+    private func currentSavedGameSnapshot() -> SavedGame {
+        SavedGame(
             id: gameID, startedAt: startedAt, updatedAt: Date(), playerIsWhite: playerIsWhite,
             startFEN: fenHistory.first ?? Self.startFEN, moves: moves, sanMoves: sanMoves,
             fenHistory: fenHistory, skill: skill, isGameOver: gameOver, resultText: resultText,
             openingName: opening?.name, openingECO: opening?.eco,
             moveNotes: moveNotes, gameSummary: gameSummary, moveRecords: moveRecords
         )
+    }
+
+    private func persistCheckpoint() {
+        let game = currentSavedGameSnapshot()
         try? SavedGameStore.save(game, baseDir: savedGamesBaseDir)
         if gameOver {
             // A finished game is replay-only from here -- stop offering it as "Resume".
@@ -851,13 +861,20 @@ public final class PlayViewModel {
         }
     }
 
-    /// Tallies the just-finished game into the lifetime win/loss/draw stats.
-    /// Called from `checkGameOver`/`resign` exactly once per real ending --
-    /// never from `load(_:)`, so reopening an already-finished saved game for
-    /// replay doesn't double-count it.
+    /// Tallies the just-finished game into the lifetime win/loss/draw stats,
+    /// and -- new for the Coach Weakness Report (plan U2) -- folds the game
+    /// into `HistoryStore` so it feeds the same coaching profile Review mode's
+    /// imported games already do. Called from `checkGameOver`/`resign` exactly
+    /// once per real ending -- never from `load(_:)`, so reopening an
+    /// already-finished saved game for replay doesn't double-count it or
+    /// re-append a duplicate history record.
     private func recordOutcome() {
         guard let outcome else { return }
         stats = PlayStatsStore.record(outcome, defaults: statsDefaults)
+        let history = HistoryStore(baseDir: historyBaseDir)
+        if let record = history.buildGameRecord(from: currentSavedGameSnapshot(), identity: PlayerIdentity()) {
+            history.appendRecord(record)
+        }
         checkReviewPrompt()
     }
 
