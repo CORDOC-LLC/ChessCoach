@@ -86,137 +86,214 @@ public struct OpeningTrainerContainerView: View {
 }
 
 /// The live drill session for a single opening line.
+///
+/// Hint/Moves/Coach live in an inline panel BELOW the board (never a sheet
+/// covering it) so the board stays visible while reading -- the panel itself
+/// scrolls internally when its content runs long. While the Moves panel is
+/// selected, the board shows a step-by-step preview (an arrow for the move
+/// at `vm.previewIndex`, stepped with Back/Next) instead of the live drill
+/// position -- purely a read-only walkthrough, so tapping the board is
+/// disabled during preview and resumes the real drill once another panel
+/// (or none) is selected.
 struct OpeningDrillView: View {
     @Bindable var vm: OpeningTrainerViewModel
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
-    @State private var showMoveList = false
-    @State private var showCoach = false
+    @State private var selectedPanel: Panel? = nil
     @State private var questionText = ""
     private var theme: Theme { themeStore.effective }
+
+    private enum Panel: String, CaseIterable, Identifiable {
+        case hint = "Hint", moves = "Moves", coach = "Coach"
+        var id: String { rawValue }
+        var icon: String {
+            switch self {
+            case .hint: return "lightbulb.fill"
+            case .moves: return "list.bullet"
+            case .coach: return "bubble.left.fill"
+            }
+        }
+    }
+
+    /// Only the Moves panel puts the board into a read-only step-through
+    /// preview -- Hint and Coach don't change what the board shows.
+    private var isPreviewingMoves: Bool { selectedPanel == .moves }
 
     var body: some View {
         VStack(spacing: 10) {
             header
             board
             statusCard
-            actionsRow
-            Spacer(minLength: 0)
+            panelPicker
+            panelContent
         }
         .padding(.bottom, 8)
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
-        .sheet(isPresented: $showMoveList) { moveListSheet }
-        .sheet(isPresented: $showCoach) { coachSheet }
         .sheet(isPresented: $vm.showPaywall) { PaywallView() }
     }
 
-    /// Hint and Moves are free; Coach is Pro (see this file's header).
-    @ViewBuilder
-    private var actionsRow: some View {
+    private var panelPicker: some View {
         HStack(spacing: 10) {
-            actionButton(icon: "lightbulb.fill", title: "Hint") { vm.showHint() }
-            actionButton(icon: "list.bullet", title: "Moves") { showMoveList = true }
-            actionButton(icon: "bubble.left.fill", title: "Coach") { showCoach = true }
+            ForEach(Panel.allCases) { panel in
+                panelButton(panel)
+            }
         }
         .padding(.horizontal, 14)
-
-        if let hint = vm.revealedHintSAN {
-            Text("Next move: \(hint)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(theme.accent2Color)
-                .padding(.horizontal, 14)
-        }
     }
 
-    private func actionButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func panelButton(_ panel: Panel) -> some View {
+        let isSelected = selectedPanel == panel
+        return Button {
+            if isSelected {
+                selectedPanel = nil
+            } else {
+                selectedPanel = panel
+                if panel == .hint { vm.showHint() }
+                if panel == .moves { vm.resetPreviewToCurrentMove() }
+            }
+        } label: {
             VStack(spacing: 4) {
-                Image(systemName: icon).font(.subheadline.weight(.semibold))
-                Text(title).font(.caption2.weight(.medium))
+                Image(systemName: panel.icon).font(.subheadline.weight(.semibold))
+                Text(panel.rawValue).font(.caption2.weight(.medium))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
         }
         .buttonStyle(PressableStyle())
-        .foregroundStyle(theme.textColor.opacity(0.85))
-        .background(theme.cardBackgroundColor)
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .foregroundStyle(isSelected ? theme.onAccentColor : theme.textColor.opacity(0.85))
+        .background(isSelected ? theme.accentColor : theme.cardBackgroundColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isSelected ? Color.clear : theme.cardBorderColor, lineWidth: 1)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private var moveListSheet: some View {
-        NavigationStack {
-            List {
-                if let line = vm.activeLine {
-                    ForEach(Array(line.sanMoves.enumerated()), id: \.offset) { index, san in
-                        HStack {
-                            Text("\(index / 2 + 1)\(index % 2 == 0 ? "." : "...")")
-                                .foregroundStyle(.secondary)
-                            Text(san).font(.body.weight(.medium))
-                            Spacer()
-                            if index < vm.moveCursorForDisplay {
-                                Image(systemName: "checkmark").foregroundStyle(theme.accentColor)
-                            }
-                        }
-                    }
+    /// The scrollable box under the board/actions -- bounded height so the
+    /// board above it always stays fully visible; content inside scrolls
+    /// instead of pushing the board off-screen.
+    @ViewBuilder
+    private var panelContent: some View {
+        if let selectedPanel {
+            ScrollView {
+                switch selectedPanel {
+                case .hint: hintPanel
+                case .moves: movesPanel
+                case .coach: coachPanel
                 }
             }
-            .navigationTitle(vm.activeLine?.name ?? "Moves")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailingCompat) { Button("Done") { showMoveList = false } }
-            }
+            .frame(maxHeight: 260)
+            .padding(.horizontal, 14)
         }
-        .environment(themeStore)
     }
 
-    private var coachSheet: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 14) {
-                Button {
-                    Task { await vm.askWhyCurrentMove() }
-                } label: {
-                    Label("Why this move?", systemImage: "sparkles")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(vm.isAskingCoach)
-
-                HStack {
-                    TextField("Ask a question about this line...", text: $questionText)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.sentences)
-                        #endif
-                    Button("Ask") {
-                        let text = questionText
-                        questionText = ""
-                        Task { await vm.askQuestion(text) }
-                    }
-                    .disabled(vm.isAskingCoach || questionText.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-
-                if vm.isAskingCoach {
-                    ProgressView().frame(maxWidth: .infinity)
-                } else if let answer = vm.coachAnswer {
-                    Text(answer).font(.subheadline).foregroundStyle(theme.textColor)
-                } else if let error = vm.coachError {
-                    Text(error).font(.footnote).foregroundStyle(.orange)
-                }
-                Spacer()
-            }
-            .padding(20)
-            .navigationTitle("Coach")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailingCompat) { Button("Done") { showCoach = false } }
+    private var hintPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let hint = vm.revealedHintSAN {
+                Text("Next move: \(hint)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(theme.accent2Color)
+            } else {
+                Text("No more moves to hint in this line.")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.textColor.opacity(0.7))
             }
         }
-        .environment(themeStore)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(theme.cardBackgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var movesPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Button { vm.stepPreviewBackward() } label: {
+                    Image(systemName: "chevron.left.circle.fill").font(.title2)
+                }
+                .disabled(!vm.canStepPreviewBackward)
+                Button { vm.stepPreviewForward() } label: {
+                    Image(systemName: "chevron.right.circle.fill").font(.title2)
+                }
+                .disabled(!vm.canStepPreviewForward)
+                Spacer()
+                Button("Jump to current move") { vm.resetPreviewToCurrentMove() }
+                    .font(.caption)
+            }
+            .foregroundStyle(theme.accentColor)
+
+            if let line = vm.activeLine {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(line.sanMoves.enumerated()), id: \.offset) { index, san in
+                        moveRow(index: index, san: san)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(theme.cardBackgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func moveRow(index: Int, san: String) -> some View {
+        let isPreviewed = index == vm.previewIndex
+        return Button {
+            vm.jumpPreview(to: index)
+        } label: {
+            HStack {
+                Text("\(index / 2 + 1)\(index % 2 == 0 ? "." : "...")")
+                    .foregroundStyle(.secondary)
+                Text(san).font(.body.weight(.medium))
+                Spacer()
+                if index < vm.moveCursorForDisplay {
+                    Image(systemName: "checkmark").foregroundStyle(theme.accentColor)
+                }
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(isPreviewed ? theme.accentColor.opacity(0.15) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(theme.textColor)
+    }
+
+    private var coachPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Button {
+                Task { await vm.askWhyCurrentMove() }
+            } label: {
+                Label("Why this move?", systemImage: "sparkles")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(vm.isAskingCoach)
+
+            HStack {
+                TextField("Ask a question about this line...", text: $questionText)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.sentences)
+                    #endif
+                Button("Ask") {
+                    let text = questionText
+                    questionText = ""
+                    Task { await vm.askQuestion(text) }
+                }
+                .disabled(vm.isAskingCoach || questionText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            if vm.isAskingCoach {
+                ProgressView().frame(maxWidth: .infinity)
+            } else if let answer = vm.coachAnswer {
+                Text(answer).font(.subheadline).foregroundStyle(theme.textColor)
+            } else if let error = vm.coachError {
+                Text(error).font(.footnote).foregroundStyle(.orange)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(theme.cardBackgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var header: some View {
@@ -244,19 +321,28 @@ struct OpeningDrillView: View {
 
     private var board: some View {
         ChessBoardView(
-            fen: vm.fen,
+            fen: isPreviewingMoves ? vm.previewFEN : vm.fen,
             orientation: vm.orientation,
-            arrows: [],
-            lastMove: vm.lastMove,
-            selectedSquare: vm.selected,
-            legalDots: vm.legalDots,
+            arrows: previewArrows,
+            lastMove: isPreviewingMoves ? nil : vm.lastMove,
+            selectedSquare: isPreviewingMoves ? nil : vm.selected,
+            legalDots: isPreviewingMoves ? [] : vm.legalDots,
             boardLight: theme.boardLightColor,
             boardDark: theme.boardDarkColor,
             highlightColor: theme.accent2Color,
             accentColor: theme.accentColor,
-            onTapSquare: { vm.tap($0) }
+            // Read-only while previewing -- stepping through moves never
+            // disturbs the real drill's in-progress attempt.
+            onTapSquare: { square in if !isPreviewingMoves { vm.tap(square) } }
         )
         .padding(.horizontal, 22)
+    }
+
+    private var previewArrows: [BoardArrow] {
+        guard isPreviewingMoves, let uci = vm.previewMoveUCI,
+              let arrow = BoardArrow(uci: uci, color: theme.accentColor, thick: true)
+        else { return [] }
+        return [arrow]
     }
 
     @ViewBuilder

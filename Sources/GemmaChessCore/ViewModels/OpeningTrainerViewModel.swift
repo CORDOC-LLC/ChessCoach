@@ -99,6 +99,70 @@ public final class OpeningTrainerViewModel {
     /// by the "Moves" list to check off what's done.
     public var moveCursorForDisplay: Int { moveCursor }
 
+    // MARK: Step-by-step move preview (free, local -- the "Moves" panel)
+
+    /// Index into `activeLine.sanMoves` the preview is currently showing --
+    /// independent of `moveCursor` (the real drill state), so browsing the
+    /// line never disturbs an in-progress attempt. Reset to 0 on `start`.
+    public private(set) var previewIndex = 0
+
+    /// The position just before `previewIndex`'s move -- what the board
+    /// shows while stepping through the line via the Moves panel.
+    public var previewFEN: String {
+        guard let line = activeLine else { return Self.startingFEN }
+        return Self.fen(forLine: line, upToMoveIndex: previewIndex)
+    }
+
+    /// UCI of the move at `previewIndex`, for the caller to draw as a board
+    /// arrow -- nil once the preview has stepped past the line's last move.
+    public var previewMoveUCI: String? {
+        guard let line = activeLine, previewIndex < line.sanMoves.count else { return nil }
+        return ChessLogic.uci(fromSAN: line.sanMoves[previewIndex], inFEN: previewFEN)
+    }
+
+    public var canStepPreviewBackward: Bool { previewIndex > 0 }
+    public var canStepPreviewForward: Bool {
+        guard let line = activeLine else { return false }
+        return previewIndex < line.sanMoves.count - 1
+    }
+
+    public func stepPreviewForward() {
+        guard canStepPreviewForward else { return }
+        previewIndex += 1
+    }
+
+    public func stepPreviewBackward() {
+        guard canStepPreviewBackward else { return }
+        previewIndex -= 1
+    }
+
+    /// Jumps the preview directly to a specific move (e.g. tapping a row in
+    /// the Moves list), clamped to the line's bounds.
+    public func jumpPreview(to index: Int) {
+        guard let line = activeLine, !line.sanMoves.isEmpty else { return }
+        previewIndex = min(max(0, index), line.sanMoves.count - 1)
+    }
+
+    /// Snaps the preview back to wherever the live drill actually is --
+    /// offered as a "Jump to current move" action in the Moves panel.
+    public func resetPreviewToCurrentMove() {
+        guard let line = activeLine, !line.sanMoves.isEmpty else { previewIndex = 0; return }
+        previewIndex = min(moveCursor, line.sanMoves.count - 1)
+    }
+
+    /// Replays `line`'s SAN moves from the starting position up to (but not
+    /// including) `index`, returning the resulting FEN. O(index), but lines
+    /// are short (a handful of moves), so this is cheap to recompute on
+    /// every preview step rather than caching.
+    private static func fen(forLine line: Openings.OpeningLine, upToMoveIndex index: Int) -> String {
+        var fen = startingFEN
+        for san in line.sanMoves.prefix(index) {
+            guard let next = ChessLogic.fen(afterMove: san, fromFEN: fen) else { break }
+            fen = next
+        }
+        return fen
+    }
+
     private var isUsersTurn: Bool {
         // Ply 0 (moveCursor even) is White to move.
         (moveCursor % 2 == 0) == userIsWhite
@@ -125,6 +189,7 @@ public final class OpeningTrainerViewModel {
         revealedHintSAN = nil
         coachAnswer = nil
         coachError = nil
+        previewIndex = 0
         familiarity = OpeningTrainerStore.familiarity(for: line.id, defaults: defaults)
         refreshDests()
         advanceAutoMoves()
