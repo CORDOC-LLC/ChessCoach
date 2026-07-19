@@ -12,6 +12,13 @@ import SwiftUI
 public struct LessonsContainerView: View {
     var onExit: () -> Void
     @State private var selectedLesson: Lesson?
+    /// Themes unlocked via an in-place "Download" tap this session -- not
+    /// bundled and not yet cached on disk when the list first rendered, but
+    /// `PuzzleDownloadStore.downloadPack` succeeded, so the row should flip
+    /// to unlocked without waiting for a re-launch to re-check the cache.
+    @State private var sessionUnlockedThemes: Set<String> = []
+    @State private var downloadingThemes: Set<String> = []
+    @State private var downloadErrors: [String: String] = [:]
     @Environment(ThemeStore.self) private var themeStore
 
     public init(onExit: @escaping () -> Void) {
@@ -49,7 +56,25 @@ public struct LessonsContainerView: View {
         }
     }
 
+    /// A theme's data is available (bundled at build time, already cached on
+    /// disk, or just downloaded this session) once any of these is true --
+    /// mirrors `PuzzlesView`'s bundled/downloaded row-state check.
+    private func isUnlocked(_ lesson: Lesson) -> Bool {
+        PuzzleDownloadStore.isBundled(theme: lesson.theme)
+            || PuzzleDownloadStore.isDownloaded(theme: lesson.theme)
+            || sessionUnlockedThemes.contains(lesson.theme)
+    }
+
+    @ViewBuilder
     private func lessonRow(_ lesson: Lesson) -> some View {
+        if isUnlocked(lesson) {
+            unlockedLessonRow(lesson)
+        } else {
+            lockedLessonRow(lesson)
+        }
+    }
+
+    private func unlockedLessonRow(_ lesson: Lesson) -> some View {
         Button {
             selectedLesson = lesson
         } label: {
@@ -64,6 +89,58 @@ public struct LessonsContainerView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    /// A theme not yet bundled or downloaded (e.g. one of the "Special Moves"
+    /// lessons awaiting curated puzzle data -- see `LessonCatalog`). Tapping
+    /// attempts the same on-demand download `LessonViewModel.start()` uses;
+    /// on success the row flips to `unlockedLessonRow` in place, on failure
+    /// the error surfaces inline rather than crashing or failing silently.
+    private func lockedLessonRow(_ lesson: Lesson) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                downloadTheme(lesson)
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(lesson.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("\(lesson.puzzleCount) puzzles")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if downloadingThemes.contains(lesson.theme) {
+                        ProgressView()
+                    } else {
+                        Label("Download", systemImage: "lock.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(downloadingThemes.contains(lesson.theme))
+            if let error = downloadErrors[lesson.theme] {
+                Text(error).font(.caption2).foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func downloadTheme(_ lesson: Lesson) {
+        guard !downloadingThemes.contains(lesson.theme) else { return }
+        downloadingThemes.insert(lesson.theme)
+        downloadErrors[lesson.theme] = nil
+        Task {
+            do {
+                _ = try await PuzzleDownloadStore.downloadPack(theme: lesson.theme)
+                downloadingThemes.remove(lesson.theme)
+                sessionUnlockedThemes.insert(lesson.theme)
+            } catch {
+                downloadingThemes.remove(lesson.theme)
+                downloadErrors[lesson.theme] = (error as? PuzzleError)?.message ?? error.localizedDescription
+            }
+        }
     }
 
     @ViewBuilder

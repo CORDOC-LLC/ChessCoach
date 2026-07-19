@@ -79,6 +79,15 @@ struct LessonProgressStoreTests {
         #expect(kvStore.object(forKey: LessonProgressStore.defaultsKey) == nil)
     }
 
+    /// The five "Special Moves" lessons deliberately reference themes that
+    /// aren't curated/uploaded to the puzzle host yet (see this plan's
+    /// Non-goals) -- `catalogThemesAreReal` below excludes them from the
+    /// "known bundled theme" assertion, but `catalogNewThemeLessonsAreReal`
+    /// still checks they're well-formed, real-looking theme id strings.
+    private static let notYetCuratedLessonIDs: Set<String> = [
+        "promotion", "enPassant", "castling", "quietMove", "defensiveMove",
+    ]
+
     @Test("every lesson's theme matches a real, existing curated puzzle theme id")
     func catalogThemesAreReal() {
         // The curated theme set from PuzzleData/README.md / scripts/curate-puzzles.py.
@@ -88,7 +97,7 @@ struct LessonProgressStoreTests {
             "attraction", "clearance", "xRayAttack", "zugzwang", "mateIn1", "mateIn2",
             "mateIn3", "endgame", "opening",
         ]
-        for lesson in LessonCatalog.allLessons {
+        for lesson in LessonCatalog.allLessons where !Self.notYetCuratedLessonIDs.contains(lesson.id) {
             #expect(knownThemes.contains(lesson.theme), "Lesson \(lesson.id) references unknown theme \(lesson.theme)")
         }
     }
@@ -99,6 +108,21 @@ struct LessonProgressStoreTests {
             #expect(!lesson.bodyText.isEmpty)
             #expect(lesson.puzzleCount > 0)
         }
+    }
+
+    @Test("the not-yet-curated 'Special Moves' lessons are well-formed and reference their own distinct theme ids")
+    func catalogNewThemeLessonsAreReal() {
+        let expectedThemes: Set<String> = Self.notYetCuratedLessonIDs
+        let newLessons = LessonCatalog.allLessons.filter { Self.notYetCuratedLessonIDs.contains($0.id) }
+        #expect(newLessons.count == expectedThemes.count)
+        for lesson in newLessons {
+            #expect(expectedThemes.contains(lesson.theme))
+            #expect(!lesson.bodyText.isEmpty)
+            #expect(lesson.puzzleCount > 0)
+        }
+        // Themes are unique across the new lessons too (no accidental reuse
+        // of one of the 20 bundled theme ids or of each other).
+        #expect(Set(newLessons.map(\.theme)).count == newLessons.count)
     }
 
     @Test("lesson ids are unique across the whole catalog")
