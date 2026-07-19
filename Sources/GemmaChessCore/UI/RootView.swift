@@ -29,7 +29,7 @@ public struct GemmaRootView: View {
     @State private var showOnboarding = !OnboardingStore.hasCompleted()
     @State private var showPaywall = false
 
-    private enum Mode { case home, play, review, scan, puzzles, openingTrainer, gameImport, lessons }
+    private enum Mode { case home, play, review, scan, puzzles, openingTrainer, gameImport, lessons, weaknessReport }
 
     public init(style: GemmaLayoutStyle = .automatic) {}
 
@@ -50,7 +50,8 @@ public struct GemmaRootView: View {
                     onPuzzles: { mode = .puzzles },
                     onOpeningTrainer: { mode = .openingTrainer },
                     onGameImport: { mode = .gameImport },
-                    onLessons: { mode = .lessons }
+                    onLessons: { mode = .lessons },
+                    onWeaknessReport: { mode = .weaknessReport }
                 )
             case .play:
                 PlayContainerView(vm: play, onExit: { mode = .home }, startedInitially: playStartedInitially)
@@ -74,6 +75,13 @@ public struct GemmaRootView: View {
                     .toolbar { settingsToolbarItem }
             case .lessons:
                 LessonsContainerView(onExit: { mode = .home })
+            case .weaknessReport:
+                WeaknessReportView(
+                    onExit: { mode = .home },
+                    onOpenLesson: { _ in mode = .lessons },
+                    onOpenPuzzleTheme: { _ in mode = .puzzles }
+                )
+                .toolbar { settingsToolbarItem }
             }
         }
         .environment(themeStore)
@@ -181,10 +189,12 @@ struct HomeView: View {
     var onOpeningTrainer: () -> Void
     var onGameImport: () -> Void
     var onLessons: () -> Void
+    var onWeaknessReport: () -> Void
     @Environment(ThemeStore.self) private var themeStore
     @State private var showBeginners = false
     @State private var showSettings = false
     @State private var emblemBreath = false
+    @State private var weaknessReportTeaser: String?
     /// "Scan a board" needs the managed coach (ChessCoach Pro) — a photo has
     /// to go over the network to be read, unlike everything else in the app.
     private var scanEnabled: Bool { ManagedCoachStore.loadBackendURL() != nil }
@@ -224,6 +234,10 @@ struct HomeView: View {
             withAnimation(.easeInOut(duration: 5).repeatForever(autoreverses: true)) {
                 emblemBreath = true
             }
+            // Local-only, no network regardless of Pro status (R6) -- safe to
+            // compute on every Home appearance.
+            weaknessReportTeaser = CoachingProfileBuilder.topTeaserMotif(
+                CoachingProfileBuilder.buildProfile(playerID: "me", store: HistoryStore()))
         }
     }
 
@@ -383,6 +397,14 @@ struct HomeView: View {
             // full-width row on Home.
             beginnersCard
                 .padding(.top, 6)
+
+            // Weakness Report teaser (plan U7/R2) -- only appears once there's
+            // real local data to show (never an empty/broken card for a
+            // brand-new player).
+            if let motif = weaknessReportTeaser {
+                weaknessReportCard(motif)
+                    .padding(.top, 6)
+            }
         }
         .padding(.horizontal, 32)
         .padding(.bottom, 48)
@@ -420,6 +442,34 @@ struct HomeView: View {
         // floating/navigation chrome, never scrolling content (see GemmaTheme.swift's
         // header comment). Using real glass here, inside Home's ScrollView, produced
         // a visibly glitchy floating box as it tried to track scroll position.
+        .background(theme.cardBackgroundColor)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// A themed teaser card pointing at the Weakness Report (plan U7) -- the
+    /// motif name itself is already-free data (R8), the coach's narrative
+    /// explanation is what's actually locked, on the report screen itself.
+    private func weaknessReportCard(_ motif: String) -> some View {
+        Button(action: onWeaknessReport) {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(theme.accent2Color)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Your coach has something to tell you")
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+                    Text("Most common miss: \(motif)")
+                        .font(.caption).foregroundStyle(theme.textColor.opacity(0.6))
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(theme.textColor.opacity(0.3))
+            }
+            .padding(14)
+        }
+        .buttonStyle(PressableStyle())
         .background(theme.cardBackgroundColor)
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
