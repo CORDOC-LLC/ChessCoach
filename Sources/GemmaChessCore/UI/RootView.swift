@@ -411,8 +411,7 @@ struct HomeView: View {
         )
     }
 
-    /// The one secondary action kept as a permanent Home row -- see `actions`'
-    /// comment on why this one stays out of the "More" sheet.
+    /// The one full-width secondary action on Home.
     private var beginnersCard: some View {
         VStack(spacing: 0) {
             moreRow(icon: "graduationcap.fill", title: "New to chess?") { showBeginners = true }
