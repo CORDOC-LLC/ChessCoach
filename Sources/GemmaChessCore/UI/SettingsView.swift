@@ -15,6 +15,7 @@ public struct SettingsView: View {
     @State private var showResetStatsConfirm = false
     @State private var showResetOpeningTrainerConfirm = false
     @State private var showResetPuzzleRatingConfirm = false
+    @State private var showResetLessonsConfirm = false
     @State private var showAppearance = false
     @State private var showOnboarding = false
     @State private var showPaywall = false
@@ -22,6 +23,7 @@ public struct SettingsView: View {
     @State private var resetPuzzles = false
     @State private var resetOpeningTrainer = false
     @State private var resetPuzzleRating = false
+    @State private var resetLessons = false
     @Environment(ThemeStore.self) private var themeStore
 
     public init() {}
@@ -116,6 +118,13 @@ public struct SettingsView: View {
                     Label("Reset.", systemImage: "checkmark.circle.fill")
                         .font(.footnote).foregroundStyle(themeStore.effective.accentColor)
                 }
+                Button(role: .destructive) { showResetLessonsConfirm = true } label: {
+                    Label("Reset lesson progress", systemImage: "arrow.counterclockwise")
+                }
+                if resetLessons {
+                    Label("Reset.", systemImage: "checkmark.circle.fill")
+                        .font(.footnote).foregroundStyle(themeStore.effective.accentColor)
+                }
             }
 
             Section {
@@ -168,6 +177,15 @@ public struct SettingsView: View {
             Button("Reset", role: .destructive) {
                 PuzzleRatingStore.reset()
                 resetPuzzleRating = true
+            }
+        }
+        .confirmationDialog(
+            "Reset lesson progress? Every lesson starts over.",
+            isPresented: $showResetLessonsConfirm, titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                LessonProgressStore.resetAll()
+                resetLessons = true
             }
         }
         .confirmationDialog(

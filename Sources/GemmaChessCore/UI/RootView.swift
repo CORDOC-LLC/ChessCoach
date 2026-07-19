@@ -29,7 +29,7 @@ public struct GemmaRootView: View {
     @State private var showOnboarding = !OnboardingStore.hasCompleted()
     @State private var showPaywall = false
 
-    private enum Mode { case home, play, review, scan, savedGames, puzzles, openingTrainer, gameImport }
+    private enum Mode { case home, play, review, scan, savedGames, puzzles, openingTrainer, gameImport, lessons }
 
     public init(style: GemmaLayoutStyle = .automatic) {}
 
@@ -45,7 +45,8 @@ public struct GemmaRootView: View {
                     onMyGames: { mode = .savedGames },
                     onPuzzles: { mode = .puzzles },
                     onOpeningTrainer: { mode = .openingTrainer },
-                    onGameImport: { mode = .gameImport }
+                    onGameImport: { mode = .gameImport },
+                    onLessons: { mode = .lessons }
                 )
             case .play:
                 PlayContainerView(vm: play, onExit: { mode = .home }, startedInitially: playStartedInitially)
@@ -75,6 +76,8 @@ public struct GemmaRootView: View {
                 GameImportView()
                     .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
                     .toolbar { settingsToolbarItem }
+            case .lessons:
+                LessonsContainerView(onExit: { mode = .home })
             }
         }
         .environment(themeStore)
@@ -146,6 +149,7 @@ struct HomeView: View {
     var onPuzzles: () -> Void
     var onOpeningTrainer: () -> Void
     var onGameImport: () -> Void
+    var onLessons: () -> Void
     @Environment(ThemeStore.self) private var themeStore
     @State private var showBeginners = false
     @State private var showSettings = false
@@ -375,6 +379,10 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
+                    moreRow(icon: "book.fill", title: "Lessons") {
+                        showMore = false; onLessons()
+                    }
+                    rowDivider
                     moreRow(icon: "book.closed.fill", title: "Opening trainer") {
                         showMore = false; onOpeningTrainer()
                     }
