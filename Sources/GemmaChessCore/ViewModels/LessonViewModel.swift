@@ -6,8 +6,15 @@
 //  `PuzzleViewModel`'s approach exactly (a plain string compare against the
 //  puzzle's own solution, no engine call) -- a wrong answer here allows an
 //  ordinary retry, unlike Puzzle Rush's timed penalty/end-of-run behavior,
-//  since a curated lesson isn't timed. Entirely free -- no coach, no
-//  `ProEntitlementStore` gate anywhere in this file.
+//  since a curated lesson isn't timed.
+//
+//  Coaching (`askQuestion(_:)`) is Pro-gated, mirroring
+//  `OpeningTrainerViewModel.askQuestion`/`runCoachCall` exactly: it goes
+//  through `CoachOrchestrator`, which applies the same uniform
+//  `ProEntitlementStore.requireProOrThrow()` gate used everywhere else in the
+//  app. Unlike Opening Trainer, there's no canned per-position question here
+//  (only free-form ones), so there's no `OpeningExplanationCache`-style
+//  caching seam to wire up.
 
 import SwiftUI
 import ChessKit
@@ -34,6 +41,15 @@ public final class LessonViewModel {
     public private(set) var isLoadingPack = false
     public private(set) var loadError: String?
 
+    // MARK: Coaching (Pro-gated)
+    public private(set) var coachAnswer: String?
+    public private(set) var isAskingCoach = false
+    public private(set) var coachError: String?
+    /// Set when a coaching call fails with `ProRequiredError` -- the view
+    /// watches this to present `PaywallView`, mirroring
+    /// `OpeningTrainerViewModel`'s `showPaywall` pattern.
+    public var showPaywall = false
+
     private var dests: [Square: [Square]] = [:]
     private var moveCursor = 0
     private var sessionGen = 0
@@ -41,15 +57,18 @@ public final class LessonViewModel {
     /// Application Support directory / `UserDefaults.standard`.
     private let progressDefaults: UserDefaults
     private let puzzleBaseDir: URL
+    private let coach: CoachOrchestrator
 
     public init(
         lesson: Lesson,
         progressDefaults: UserDefaults = .standard,
-        puzzleBaseDir: URL = PuzzleDownloadStore.defaultBaseDir
+        puzzleBaseDir: URL = PuzzleDownloadStore.defaultBaseDir,
+        coach: CoachOrchestrator = CoachOrchestrator()
     ) {
         self.lesson = lesson
         self.progressDefaults = progressDefaults
         self.puzzleBaseDir = puzzleBaseDir
+        self.coach = coach
     }
 
     // MARK: Derived
@@ -120,6 +139,35 @@ public final class LessonViewModel {
         solverIsWhite = ChessLogic.sideToMove(forFEN: fen) == .white
         refreshDests()
         status = "Find the best move."
+    }
+
+    // MARK: Coaching (Pro-gated)
+
+    /// A free-form question about the current puzzle/position -- never
+    /// cached, mirroring `OpeningTrainerViewModel.askQuestion`'s free-form
+    /// path (there's no canned per-position question here to cache, see the
+    /// header).
+    public func askQuestion(_ text: String) async {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        await runCoachCall(question: text)
+    }
+
+    private func runCoachCall(question: String) async {
+        coachError = nil
+        isAskingCoach = true
+        defer { isAskingCoach = false }
+        do {
+            let reply = try await coach.answer(
+                question: question, fen: fen, playerSide: solverIsWhite ? .white : .black
+            )
+            coachAnswer = reply.answer
+        } catch is ProRequiredError {
+            showPaywall = true
+        } catch let e as CoachError {
+            coachError = e.message
+        } catch {
+            coachError = error.localizedDescription
+        }
     }
 
     // MARK: Tap-to-move

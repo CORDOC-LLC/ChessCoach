@@ -226,18 +226,24 @@ private struct LessonPracticeView: View {
     @Bindable var vm: LessonViewModel
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
+    @State private var showAskPanel = false
+    @State private var questionText = ""
     private var theme: Theme { themeStore.effective }
 
     var body: some View {
         VStack(spacing: 10) {
             header
             content
+            if vm.currentPuzzle != nil {
+                askCoachSection
+            }
             Spacer(minLength: 0)
         }
         .padding(.bottom, 8)
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
+        .sheet(isPresented: $vm.showPaywall) { PaywallView() }
     }
 
     private var header: some View {
@@ -348,6 +354,49 @@ private struct LessonPracticeView: View {
         case .incorrect: return .red
         case .solved: return theme.accent2Color
         }
+    }
+
+    /// Pro-gated "Ask the coach" affordance -- a free-form question about the
+    /// current puzzle, mirroring `OpeningTrainerView`'s `coachPanel`.
+    private var askCoachSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                showAskPanel.toggle()
+            } label: {
+                Label("Ask the coach", systemImage: "sparkles")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.accentColor)
+
+            if showAskPanel {
+                HStack {
+                    TextField("Ask a question about this puzzle...", text: $questionText)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.sentences)
+                        #endif
+                    Button("Ask") {
+                        let text = questionText
+                        questionText = ""
+                        Task { await vm.askQuestion(text) }
+                    }
+                    .disabled(vm.isAskingCoach || questionText.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                if vm.isAskingCoach {
+                    ProgressView().frame(maxWidth: .infinity)
+                } else if let answer = vm.coachAnswer {
+                    Text(answer).font(.subheadline).foregroundStyle(theme.textColor)
+                } else if let error = vm.coachError {
+                    Text(error).font(.footnote).foregroundStyle(.orange)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(theme.cardBackgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 14)
     }
 
     private func errorCard(_ message: String) -> some View {
