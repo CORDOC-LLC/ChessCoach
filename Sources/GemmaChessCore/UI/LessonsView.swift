@@ -19,7 +19,12 @@ public struct LessonsContainerView: View {
     @State private var sessionUnlockedThemes: Set<String> = []
     @State private var downloadingThemes: Set<String> = []
     @State private var downloadErrors: [String: String] = [:]
+    /// Explicit expand/collapse choices the user has made, keyed by stage --
+    /// overrides the default-expanded state (see `isExpandedBinding`), same
+    /// shape as `OpeningTrainerContainerView.manualExpansion`.
+    @State private var manualExpansion: [String: Bool] = [:]
     @Environment(ThemeStore.self) private var themeStore
+    private var theme: Theme { themeStore.effective }
 
     public init(onExit: @escaping () -> Void) {
         self.onExit = onExit
@@ -34,26 +39,53 @@ public struct LessonsContainerView: View {
     }
 
     private var stageList: some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(spacing: 12) {
                 Text("Free — pairs a short explanation of a chess concept with a curated set of "
                     + "practice puzzles.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            }
-            ForEach(LessonCatalog.stages) { stage in
-                Section(stage.title) {
-                    ForEach(stage.lessons) { lesson in
-                        lessonRow(lesson)
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                ForEach(LessonCatalog.stages) { stage in
+                    stageGroup(stage)
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .scrollContentBackground(.hidden)
         .navigationTitle("Lessons")
         .toolbar {
             ToolbarItem(placement: .topBarLeadingCompat) { Button("Home", action: onExit) }
         }
+    }
+
+    private func stageGroup(_ stage: LessonStage) -> some View {
+        DisclosureGroup(isExpanded: isExpandedBinding(for: stage.id)) {
+            VStack(spacing: 10) {
+                ForEach(stage.lessons) { lesson in
+                    lessonRow(lesson)
+                }
+            }
+            .padding(.top, 10)
+        } label: {
+            HStack {
+                Text(stage.title).font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(stage.lessons.count)")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Every stage starts expanded (KTD-2 -- there's no search field here to
+    /// drive a collapse-by-default rule the way Opening Trainer's does), but
+    /// once the user explicitly toggles one, that choice wins from then on.
+    private func isExpandedBinding(for stage: String) -> Binding<Bool> {
+        Binding(
+            get: { manualExpansion[stage] ?? true },
+            set: { manualExpansion[stage] = $0 }
+        )
     }
 
     /// A theme's data is available (bundled at build time, already cached on
@@ -78,17 +110,25 @@ public struct LessonsContainerView: View {
         Button {
             selectedLesson = lesson
         } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(lesson.title).font(.subheadline.weight(.semibold))
-                    Text("\(lesson.puzzleCount) puzzles")
-                        .font(.caption).foregroundStyle(.secondary)
+            lessonCardShell {
+                HStack(spacing: 12) {
+                    Image(systemName: "book.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(theme.accent2Color)
+                        .frame(width: 26)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(lesson.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(theme.textColor)
+                        Text("\(lesson.puzzleCount) puzzles")
+                            .font(.caption).foregroundStyle(theme.textColor.opacity(0.6))
+                    }
+                    Spacer()
+                    progressBadge(for: lesson)
                 }
-                Spacer()
-                progressBadge(for: lesson)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
     }
 
     /// A theme not yet bundled or downloaded (e.g. one of the "Special Moves"
@@ -97,34 +137,55 @@ public struct LessonsContainerView: View {
     /// on success the row flips to `unlockedLessonRow` in place, on failure
     /// the error surfaces inline rather than crashing or failing silently.
     private func lockedLessonRow(_ lesson: Lesson) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Button {
                 downloadTheme(lesson)
             } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(lesson.title)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text("\(lesson.puzzleCount) puzzles")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if downloadingThemes.contains(lesson.theme) {
-                        ProgressView()
-                    } else {
-                        Label("Download", systemImage: "lock.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                lessonCardShell {
+                    HStack(spacing: 12) {
+                        Image(systemName: "book.fill")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(theme.textColor.opacity(0.4))
+                            .frame(width: 26)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(lesson.title)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text("\(lesson.puzzleCount) puzzles")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if downloadingThemes.contains(lesson.theme) {
+                            ProgressView()
+                        } else {
+                            Label("Download", systemImage: "lock.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
             .disabled(downloadingThemes.contains(lesson.theme))
             if let error = downloadErrors[lesson.theme] {
-                Text(error).font(.caption2).foregroundStyle(.red)
+                Text(error)
+                    .font(.caption2).foregroundStyle(.red)
+                    .padding(.horizontal, 14)
             }
         }
+    }
+
+    /// The shared card shell every lesson row renders onto -- mirrors
+    /// `HomeView.secondaryActionCard`/`beginnersCard`'s trio of
+    /// `theme.cardBackgroundColor`/`cardBorderColor`/`PressableStyle` (KTD-3),
+    /// reused here for both the unlocked and locked row content.
+    private func lessonCardShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(theme.cardBackgroundColor)
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func downloadTheme(_ lesson: Lesson) {
