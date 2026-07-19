@@ -29,7 +29,7 @@ public struct GemmaRootView: View {
     @State private var showOnboarding = !OnboardingStore.hasCompleted()
     @State private var showPaywall = false
 
-    private enum Mode { case home, play, review, scan, savedGames, puzzles, openingTrainer, gameImport, lessons }
+    private enum Mode { case home, play, review, scan, puzzles, openingTrainer, gameImport, lessons }
 
     public init(style: GemmaLayoutStyle = .automatic) {}
 
@@ -42,7 +42,11 @@ public struct GemmaRootView: View {
                     onReview: { mode = .review },
                     onScan: { openScan() },
                     onResume: { openSavedGame(withID: SavedGameStore.inProgressGameID()) },
-                    onMyGames: { mode = .savedGames },
+                    onSelectSavedGame: { saved in
+                        play.load(saved)
+                        playStartedInitially = true
+                        mode = .play
+                    },
                     onPuzzles: { mode = .puzzles },
                     onOpeningTrainer: { mode = .openingTrainer },
                     onGameImport: { mode = .gameImport },
@@ -55,14 +59,6 @@ public struct GemmaRootView: View {
             case .scan:
                 BoardScannerView(onStartGame: { fen, asWhite in
                     play.newGame(asWhite: asWhite, startFEN: fen)
-                    playStartedInitially = true
-                    mode = .play
-                })
-                .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
-                .toolbar { settingsToolbarItem }
-            case .savedGames:
-                SavedGamesView(onSelect: { saved in
-                    play.load(saved)
                     playStartedInitially = true
                     mode = .play
                 })
@@ -132,9 +128,44 @@ public struct GemmaRootView: View {
 
     /// A trailing gear icon to the app-wide Settings hub -- added to every
     /// screen's toolbar so it's reachable from anywhere, not just Home.
+    /// `onSelectSavedGame` lets Settings' "My Games" row (see SettingsView.swift)
+    /// resume a game -- Settings pops itself (and the nested My Games push)
+    /// via its own `dismiss()` before this fires, so the mode change below is
+    /// immediately visible instead of hiding under two still-open pushes.
     private var settingsToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailingCompat) {
-            NavigationLink(destination: SettingsView()) { Image(systemName: "gearshape") }
+            NavigationLink(destination: SettingsView(onSelectSavedGame: { saved in
+                play.load(saved)
+                playStartedInitially = true
+                mode = .play
+            })) { Image(systemName: "gearshape") }
+        }
+    }
+}
+
+/// The four top-level sections reachable from Home's bottom tab bar. This bar
+/// is Home-scoped only (see RootView.swift's plan doc, KTD-1) -- it is not a
+/// persistent `TabView`, just a navigation trigger row rendered while Home is
+/// on screen. Selecting anything but `.home` immediately hands off to the
+/// matching `HomeView` callback, the same way a "More" sheet row used to.
+enum HomeTab: String, CaseIterable {
+    case home, lessons, openings, puzzles
+
+    var title: String {
+        switch self {
+        case .home: "Home"
+        case .lessons: "Lessons"
+        case .openings: "Openings"
+        case .puzzles: "Puzzles"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .home: "house.fill"
+        case .lessons: "book.fill"
+        case .openings: "book.closed.fill"
+        case .puzzles: "puzzlepiece.fill"
         }
     }
 }
@@ -145,7 +176,7 @@ struct HomeView: View {
     var onReview: () -> Void
     var onScan: () -> Void
     var onResume: () -> Void
-    var onMyGames: () -> Void
+    var onSelectSavedGame: (SavedGame) -> Void
     var onPuzzles: () -> Void
     var onOpeningTrainer: () -> Void
     var onGameImport: () -> Void
@@ -153,7 +184,6 @@ struct HomeView: View {
     @Environment(ThemeStore.self) private var themeStore
     @State private var showBeginners = false
     @State private var showSettings = false
-    @State private var showMore = false
     @State private var emblemBreath = false
     /// "Scan a board" needs the managed coach (ChessCoach Pro) — a photo has
     /// to go over the network to be read, unlike everything else in the app.
@@ -161,25 +191,22 @@ struct HomeView: View {
     /// Set whenever a game is mid-play when the app was last closed -- offers
     /// "Resume" instead of making the user start over from Home.
     private var inProgressGameID: UUID? { SavedGameStore.inProgressGameID() }
-    private var hasSavedGames: Bool { !SavedGameStore.loadAll().isEmpty }
     private var theme: Theme { themeStore.effective }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                header
-                    .padding(.top, 64)
-                actions
-                    .padding(.top, 28)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    header
+                        .padding(.top, 64)
+                    actions
+                        .padding(.top, 28)
+                }
+                .frame(maxWidth: 460)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: 460)
-            .frame(maxWidth: .infinity)
-        }
-        .scrollBounceBehavior(.basedOnSize)
-        .overlay(alignment: .topLeading) {
-            menuButton
-                .padding(.top, 12)
-                .padding(.leading, 16)
+            .scrollBounceBehavior(.basedOnSize)
+            bottomTabBar
         }
         .overlay(alignment: .topTrailing) {
             settingsButton
@@ -190,8 +217,9 @@ struct HomeView: View {
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .navigationDestination(isPresented: $showBeginners) { BeginnersView() }
-        .navigationDestination(isPresented: $showSettings) { SettingsView() }
-        .sheet(isPresented: $showMore) { moreSheet }
+        .navigationDestination(isPresented: $showSettings) {
+            SettingsView(onSelectSavedGame: onSelectSavedGame)
+        }
         .onAppear {
             withAnimation(.easeInOut(duration: 5).repeatForever(autoreverses: true)) {
                 emblemBreath = true
@@ -199,24 +227,52 @@ struct HomeView: View {
         }
     }
 
-    private var settingsButton: some View {
-        Button { showSettings = true } label: {
-            Image(systemName: "gearshape.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(theme.textColor.opacity(0.8))
-                .frame(width: 34, height: 34)
+    /// Home-scoped tab bar (see `HomeTab`) -- present only while Home is on
+    /// screen, so gameplay/session screens keep their full width for the move
+    /// list, coach card, and best-move hints (see this plan's KTD-1).
+    /// Selecting anything but `.home` immediately navigates away, at which
+    /// point this bar disappears along with the rest of Home.
+    private var bottomTabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(HomeTab.allCases, id: \.self) { tab in
+                tabBarItem(tab)
+            }
         }
-        .background(Circle().fill(theme.surfaceColor.opacity(0.8)))
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(
+            theme.cardBackgroundColor
+                .overlay(alignment: .top) {
+                    Rectangle().fill(theme.cardBorderColor).frame(height: 1)
+                }
+                .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
+    private func tabBarItem(_ tab: HomeTab) -> some View {
+        Button {
+            switch tab {
+            case .home: break
+            case .lessons: onLessons()
+            case .openings: onOpeningTrainer()
+            case .puzzles: onPuzzles()
+            }
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 20, weight: .semibold))
+                Text(tab.title)
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(tab == .home ? theme.accentColor : theme.textColor.opacity(0.6))
+            .frame(maxWidth: .infinity)
+        }
         .buttonStyle(PressableStyle())
     }
 
-    /// Opens the "More" sheet -- everything secondary that isn't worth a
-    /// permanent row on Home (see `moreSheet`). Appearance now lives only in
-    /// Settings, not as its own top-bar chip -- see this file's earlier
-    /// header note on why Home was decluttered.
-    private var menuButton: some View {
-        Button { showMore = true } label: {
-            Image(systemName: "line.3.horizontal")
+    private var settingsButton: some View {
+        Button { showSettings = true } label: {
+            Image(systemName: "gearshape.fill")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(theme.textColor.opacity(0.8))
                 .frame(width: 34, height: 34)
@@ -311,20 +367,20 @@ struct HomeView: View {
             .tint(inProgressGameID != nil ? theme.textColor.opacity(0.16) : theme.accentColor)
             .foregroundStyle(inProgressGameID != nil ? theme.textColor : theme.onAccentColor)
 
-            // Review + Puzzles side by side instead of stacked full-width --
-            // this pair reads as "secondary things you might also do," so a
-            // 2-column row halves their vertical footprint without losing
-            // legibility (this is what was forcing Home to scroll).
+            // Review / Scan / Import side by side -- Lessons, Opening Trainer,
+            // and Puzzles moved to the bottom tab bar (see `HomeTab`), which
+            // freed this row for the two utilities the tab bar can't hold:
+            // scanning a physical board and importing a game.
             HStack(spacing: 12) {
                 secondaryActionCard(icon: "magnifyingglass", title: "Review a game", action: onReview)
-                secondaryActionCard(icon: "puzzlepiece.fill", title: "Puzzles", action: onPuzzles)
+                if scanEnabled {
+                    secondaryActionCard(icon: "camera.viewfinder", title: "Scan a board", action: onScan)
+                }
+                secondaryActionCard(icon: "square.and.arrow.down", title: "Import", action: onGameImport)
             }
 
             // "New to chess?" is the one secondary action worth a permanent,
-            // one-tap row on Home -- everything else (opening trainer, game
-            // import, board scan, my games) lives behind the "More" menu
-            // (top-leading icon) so adding new utilities never grows this
-            // screen's scroll.
+            // full-width row on Home.
             beginnersCard
                 .padding(.top, 6)
         }
@@ -368,70 +424,6 @@ struct HomeView: View {
         .background(theme.cardBackgroundColor)
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    /// Everything secondary that isn't "New to chess?": opening trainer, game
-    /// import, board scan (when configured), and My Games (when there's
-    /// anything saved) -- reached via the top-leading menu icon instead of
-    /// permanent Home rows, so adding future utilities never re-introduces
-    /// Home's scroll.
-    private var moreSheet: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    moreRow(icon: "book.fill", title: "Lessons") {
-                        showMore = false; onLessons()
-                    }
-                    rowDivider
-                    moreRow(icon: "book.closed.fill", title: "Opening trainer") {
-                        showMore = false; onOpeningTrainer()
-                    }
-                    rowDivider
-                    moreRow(icon: "square.and.arrow.down", title: "Import a game") {
-                        showMore = false; onGameImport()
-                    }
-                    if scanEnabled {
-                        rowDivider
-                        moreRow(icon: "camera.viewfinder", title: "Scan a board") {
-                            showMore = false; onScan()
-                        }
-                    }
-                    if hasSavedGames {
-                        rowDivider
-                        moreRow(icon: "clock.arrow.circlepath", title: "My Games") {
-                            showMore = false; onMyGames()
-                        }
-                    }
-                }
-                .background(theme.cardBackgroundColor)
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .padding(20)
-
-                if hasSavedGames {
-                    Text("Games are saved on this device only")
-                        .font(.caption2)
-                        .foregroundStyle(theme.textColor.opacity(0.4))
-                        .padding(.bottom, 20)
-                }
-            }
-            .background(theme.bgColor)
-            .navigationTitle("More")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailingCompat) {
-                    Button("Done") { showMore = false }
-                }
-            }
-        }
-        .environment(themeStore)
-        .presentationDetents([.medium])
-    }
-
-    private var rowDivider: some View {
-        Divider().overlay(theme.textColor.opacity(0.08)).padding(.leading, 46)
     }
 
     private func moreRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
