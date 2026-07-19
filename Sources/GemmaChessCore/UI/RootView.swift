@@ -148,8 +148,8 @@ struct HomeView: View {
     var onGameImport: () -> Void
     @Environment(ThemeStore.self) private var themeStore
     @State private var showBeginners = false
-    @State private var showAppearance = false
     @State private var showSettings = false
+    @State private var showMore = false
     @State private var emblemBreath = false
     /// "Scan a board" needs the managed coach (ChessCoach Pro) — a photo has
     /// to go over the network to be read, unlike everything else in the app.
@@ -172,20 +172,22 @@ struct HomeView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
+        .overlay(alignment: .topLeading) {
+            menuButton
+                .padding(.top, 12)
+                .padding(.leading, 16)
+        }
         .overlay(alignment: .topTrailing) {
-            HStack(spacing: 8) {
-                themeChip
-                settingsButton
-            }
-            .padding(.top, 12)
-            .padding(.trailing, 16)
+            settingsButton
+                .padding(.top, 12)
+                .padding(.trailing, 16)
         }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .navigationDestination(isPresented: $showBeginners) { BeginnersView() }
         .navigationDestination(isPresented: $showSettings) { SettingsView() }
-        .sheet(isPresented: $showAppearance) { AppearanceView() }
+        .sheet(isPresented: $showMore) { moreSheet }
         .onAppear {
             withAnimation(.easeInOut(duration: 5).repeatForever(autoreverses: true)) {
                 emblemBreath = true
@@ -204,37 +206,19 @@ struct HomeView: View {
         .buttonStyle(PressableStyle())
     }
 
-    /// Three overlapping dots (accent/accent2/boardDark) + the active theme's
-    /// name + a chevron — opens the Appearance sheet.
-    private var themeChip: some View {
-        Button { showAppearance = true } label: {
-            HStack(spacing: 6) {
-                HStack(spacing: -5) {
-                    themeDot(theme.accentColor)
-                    themeDot(theme.accent2Color)
-                    themeDot(theme.boardDarkColor)
-                }
-                Text(theme.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.textColor)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(theme.textColor.opacity(0.55))
-            }
-            .padding(.leading, 10).padding(.trailing, 8).padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(theme.surfaceColor.opacity(0.8))
-                    .overlay(Capsule().stroke(theme.accent2Color.opacity(0.24), lineWidth: 1))
-            )
+    /// Opens the "More" sheet -- everything secondary that isn't worth a
+    /// permanent row on Home (see `moreSheet`). Appearance now lives only in
+    /// Settings, not as its own top-bar chip -- see this file's earlier
+    /// header note on why Home was decluttered.
+    private var menuButton: some View {
+        Button { showMore = true } label: {
+            Image(systemName: "line.3.horizontal")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.textColor.opacity(0.8))
+                .frame(width: 34, height: 34)
         }
+        .background(Circle().fill(theme.surfaceColor.opacity(0.8)))
         .buttonStyle(PressableStyle())
-    }
-
-    private func themeDot(_ color: Color) -> some View {
-        Circle().fill(color)
-            .frame(width: 13, height: 13)
-            .overlay(Circle().stroke(theme.surfaceColor, lineWidth: 1.5))
     }
 
     private var header: some View {
@@ -332,16 +316,13 @@ struct HomeView: View {
                 secondaryActionCard(icon: "puzzlepiece.fill", title: "Puzzles", action: onPuzzles)
             }
 
-            // Everything below is a lower-emphasis, one-tap utility -- grouped into a
-            // single card instead of stacking near-identical outlined pills for each one.
-            moreCard
+            // "New to chess?" is the one secondary action worth a permanent,
+            // one-tap row on Home -- everything else (opening trainer, game
+            // import, board scan, my games) lives behind the "More" menu
+            // (top-leading icon) so adding new utilities never grows this
+            // screen's scroll.
+            beginnersCard
                 .padding(.top, 6)
-
-            if hasSavedGames {
-                Text("Games are saved on this device only")
-                    .font(.caption2)
-                    .foregroundStyle(theme.textColor.opacity(0.4))
-            }
         }
         .padding(.horizontal, 32)
         .padding(.bottom, 48)
@@ -370,26 +351,11 @@ struct HomeView: View {
         )
     }
 
-    /// "New to chess?" is always offered; "Scan a board" and "My Games" only
-    /// when relevant (managed coach configured / at least one saved game).
-    /// Appearance and Settings live in the top-trailing controls instead of
-    /// here, so this card stays short and Home doesn't need to scroll on a
-    /// typical device.
-    private var moreCard: some View {
+    /// The one secondary action kept as a permanent Home row -- see `actions`'
+    /// comment on why this one stays out of the "More" sheet.
+    private var beginnersCard: some View {
         VStack(spacing: 0) {
             moreRow(icon: "graduationcap.fill", title: "New to chess?") { showBeginners = true }
-            rowDivider
-            moreRow(icon: "book.closed.fill", title: "Opening trainer", action: onOpeningTrainer)
-            rowDivider
-            moreRow(icon: "square.and.arrow.down", title: "Import a game", action: onGameImport)
-            if scanEnabled {
-                rowDivider
-                moreRow(icon: "camera.viewfinder", title: "Scan a board", action: onScan)
-            }
-            if hasSavedGames {
-                rowDivider
-                moreRow(icon: "clock.arrow.circlepath", title: "My Games", action: onMyGames)
-            }
         }
         // A plain themed card, NOT `.gemmaGlass()` -- Liquid Glass is meant for
         // floating/navigation chrome, never scrolling content (see GemmaTheme.swift's
@@ -398,6 +364,62 @@ struct HomeView: View {
         .background(theme.cardBackgroundColor)
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// Everything secondary that isn't "New to chess?": opening trainer, game
+    /// import, board scan (when configured), and My Games (when there's
+    /// anything saved) -- reached via the top-leading menu icon instead of
+    /// permanent Home rows, so adding future utilities never re-introduces
+    /// Home's scroll.
+    private var moreSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 0) {
+                    moreRow(icon: "book.closed.fill", title: "Opening trainer") {
+                        showMore = false; onOpeningTrainer()
+                    }
+                    rowDivider
+                    moreRow(icon: "square.and.arrow.down", title: "Import a game") {
+                        showMore = false; onGameImport()
+                    }
+                    if scanEnabled {
+                        rowDivider
+                        moreRow(icon: "camera.viewfinder", title: "Scan a board") {
+                            showMore = false; onScan()
+                        }
+                    }
+                    if hasSavedGames {
+                        rowDivider
+                        moreRow(icon: "clock.arrow.circlepath", title: "My Games") {
+                            showMore = false; onMyGames()
+                        }
+                    }
+                }
+                .background(theme.cardBackgroundColor)
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .padding(20)
+
+                if hasSavedGames {
+                    Text("Games are saved on this device only")
+                        .font(.caption2)
+                        .foregroundStyle(theme.textColor.opacity(0.4))
+                        .padding(.bottom, 20)
+                }
+            }
+            .background(theme.bgColor)
+            .navigationTitle("More")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailingCompat) {
+                    Button("Done") { showMore = false }
+                }
+            }
+        }
+        .environment(themeStore)
+        .presentationDetents([.medium])
     }
 
     private var rowDivider: some View {
