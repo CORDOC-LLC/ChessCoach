@@ -125,12 +125,25 @@ public final class LessonViewModel {
     // MARK: Tap-to-move
 
     public func tap(_ square: Square) {
-        guard currentPuzzle != nil, feedback != .solved else { return }
+        // `.solved` (puzzle finished) and `.correct` (mid-way through the
+        // opponent's auto-reply delay in attemptMove) both disable tapping --
+        // `dests` briefly reflects the opponent's side to move during that
+        // window, so a tap on the user's own piece would otherwise silently
+        // do nothing and read as "the board isn't responding."
+        guard currentPuzzle != nil, feedback != .solved, feedback != .correct else { return }
         if let sel = selected, let d = dests[sel], d.contains(square) {
             attemptMove(from: sel, to: square)
             return
         }
-        selected = (dests[square] != nil) ? square : nil
+        let newSelection = (dests[square] != nil) ? square : nil
+        selected = newSelection
+        // Picking up a piece to retry clears a lingering "Not quite" from the
+        // previous miss, instead of leaving stale error feedback on screen
+        // while the user is mid-way through a fresh attempt.
+        if newSelection != nil, feedback == .incorrect {
+            feedback = nil
+            status = "Find the best move."
+        }
     }
 
     private func attemptMove(from: Square, to: Square) {

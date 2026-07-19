@@ -120,6 +120,66 @@ struct LessonViewModelTests {
         #expect(LessonProgressStore.progress(for: "test-lesson", defaults: defaults) == .completed)
     }
 
+    @Test("selecting a piece to retry clears a lingering 'Not quite' message")
+    func selectingNewPieceClearsIncorrectFeedback() throws {
+        let vm = LessonViewModel(lesson: lesson(), progressDefaults: UserDefaults(suiteName: #function)!)
+        vm.startSession(pack: PuzzlePack(theme: "mateIn1", puzzles: [easy, hard]))
+
+        let dests = ChessLogic.legalDestinations(forFEN: vm.fen)
+        let g2 = try #require(BoardGeometry.square("g2"))
+        let g7 = try #require(BoardGeometry.square("g7"))
+        var wrong: (from: Square, to: Square)?
+        outer: for (from, tos) in dests {
+            for to in tos where !(from == g2 && to == g7) {
+                wrong = (from, to); break outer
+            }
+        }
+        let move = try #require(wrong)
+        vm.tap(move.from); vm.tap(move.to)
+        #expect(vm.feedback == .incorrect)
+        #expect(vm.status == "Not quite — try again.")
+
+        // Picking up a piece to retry clears the stale error state instead of
+        // leaving it displayed while a fresh attempt is underway.
+        vm.tap(g2)
+        #expect(vm.feedback == nil)
+        #expect(vm.status == "Find the best move.")
+        #expect(vm.selected == g2)
+    }
+
+    @Test("a tap during the mid-transition 'Correct!' window (before the auto-reply plays) is ignored")
+    func tapDuringCorrectTransitionIsIgnored() throws {
+        // A 4-ply puzzle so there's a real auto-reply gap after the solver's
+        // first correct move (the 2-ply fixtures above finish immediately on
+        // the only solving move, so they never reach the `.correct`
+        // transitional state at all).
+        let longPuzzle = Puzzle(
+            id: "long",
+            fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            moves: ["e2e4", "e7e5", "g1f3", "b8c6"],
+            rating: 500,
+            themes: ["mateIn1"]
+        )
+        let vm = LessonViewModel(lesson: lesson(puzzleCount: 1), progressDefaults: UserDefaults(suiteName: #function)!)
+        vm.startSession(pack: PuzzlePack(theme: "mateIn1", puzzles: [longPuzzle]))
+        #expect(vm.solverIsWhite == false)   // White's e4 auto-played; Black solves
+
+        let e7 = try #require(BoardGeometry.square("e7"))
+        let e5 = try #require(BoardGeometry.square("e5"))
+        vm.tap(e7); vm.tap(e5)
+        #expect(vm.feedback == .correct)
+        let fenDuringTransition = vm.fen
+        let selectedDuringTransition = vm.selected
+
+        // The scheduled auto-reply Task hasn't run yet (no suspension point
+        // has occurred) -- a tap right now must be fully ignored, not treated
+        // as a new selection.
+        let g8 = try #require(BoardGeometry.square("g8"))
+        vm.tap(g8)
+        #expect(vm.selected == selectedDuringTransition)
+        #expect(vm.fen == fenDuringTransition)
+    }
+
     @Test("a pack-download failure surfaces loadError distinctly from an in-session miss")
     func downloadFailureSurfacesLoadError() async {
         // A theme with no real remote pack (or offline) -- `start()` goes

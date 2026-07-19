@@ -182,9 +182,29 @@ private struct LessonPracticeView: View {
                 }
             }
             Spacer()
+            if vm.currentPuzzle != nil {
+                sideToMoveBadge
+            }
         }
         .padding(.horizontal, 14)
         .padding(.top, 8)
+    }
+
+    /// Which side the solver is playing this puzzle -- puzzles can start with
+    /// either color to move, so this isn't assumable from the lesson alone.
+    private var sideToMoveBadge: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(vm.solverIsWhite ? Color.white : Color.black)
+                .overlay(Circle().stroke(theme.textColor.opacity(0.35), lineWidth: 1))
+                .frame(width: 11, height: 11)
+            Text(vm.solverIsWhite ? "Playing White" : "Playing Black")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.textColor)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(theme.cardBackgroundColor, in: Capsule())
+        .overlay(Capsule().stroke(theme.cardBorderColor, lineWidth: 1))
     }
 
     @ViewBuilder
