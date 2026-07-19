@@ -202,6 +202,49 @@ public enum LessonCatalog {
                     + "lines move by move."
             ),
         ]),
+        LessonStage(id: "special-moves", title: "Special Moves", lessons: [
+            // These five themes aren't curated/uploaded to the puzzle host yet
+            // (see this plan's Non-goals) -- the lessons below still explain
+            // the concept, but `LessonsView` shows them locked behind a
+            // "Download" row until `PuzzleDownloadStore.isBundled`/
+            // `isDownloaded` reports true for the theme, which won't happen
+            // until that data exists. Expected, not a bug.
+            Lesson(
+                id: "promotion", title: "Promotion", theme: "promotion",
+                bodyText: "A pawn that reaches the far end of the board is promoted, becoming any "
+                    + "piece the player chooses (almost always a queen). This is one of the most "
+                    + "powerful tools in the endgame, since a lowly pawn can become the game's "
+                    + "strongest piece."
+            ),
+            Lesson(
+                id: "enPassant", title: "En Passant", theme: "enPassant",
+                bodyText: "A special pawn-capture rule: if an enemy pawn moves two squares forward "
+                    + "and lands beside your pawn, your pawn can capture it as though it had only "
+                    + "moved one square -- but only on the very next move, or the chance is gone "
+                    + "for good."
+            ),
+            Lesson(
+                id: "castling", title: "Castling", theme: "castling",
+                bodyText: "A special king-and-rook move made once per game, moving the king two "
+                    + "squares toward a rook (which hops to the other side) to tuck the king away "
+                    + "safely and connect the rooks. Only legal if neither piece has moved yet, the "
+                    + "squares between them are empty, and the king isn't in check or moving through "
+                    + "check."
+            ),
+            Lesson(
+                id: "quietMove", title: "Quiet Moves", theme: "quietMove",
+                bodyText: "Not every winning move is a capture or a check -- sometimes the best move "
+                    + "is a quiet one that improves a piece's position or sets up a threat for later, "
+                    + "without any immediate fireworks. These are often the hardest tactical moves to "
+                    + "spot, since there's no obvious forcing continuation to follow."
+            ),
+            Lesson(
+                id: "defensiveMove", title: "Defensive Moves", theme: "defensiveMove",
+                bodyText: "Sometimes the best move on the board isn't an attack at all -- it's the "
+                    + "one move that holds off an opponent's threat. Finding the single correct "
+                    + "defensive resource is its own skill, distinct from finding an attack."
+            ),
+        ]),
     ]
 
     /// Every lesson across every stage, flattened.
