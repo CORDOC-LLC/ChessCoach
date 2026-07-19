@@ -25,8 +25,21 @@ public struct SettingsView: View {
     @State private var resetPuzzleRating = false
     @State private var resetLessons = false
     @Environment(ThemeStore.self) private var themeStore
+    @Environment(\.dismiss) private var dismiss
+    private var hasSavedGames: Bool { !SavedGameStore.loadAll().isEmpty }
 
-    public init() {}
+    /// Invoked when a game is picked from "My Games" (see the Data & Progress
+    /// section below) -- lets whichever screen presented Settings resume that
+    /// game in Play mode. `dismiss()` pops this whole Settings push (and,
+    /// since "My Games" is itself pushed on top of Settings, that nested push
+    /// too) back to wherever Settings was opened from, so the caller's mode
+    /// change is actually visible instead of sitting underneath two still-open
+    /// pushed views.
+    var onSelectSavedGame: ((SavedGame) -> Void)?
+
+    public init(onSelectSavedGame: ((SavedGame) -> Void)? = nil) {
+        self.onSelectSavedGame = onSelectSavedGame
+    }
 
     public var body: some View {
         Form {
@@ -34,31 +47,13 @@ public struct SettingsView: View {
                 Button { showAppearance = true } label: {
                     Label("Appearance & themes", systemImage: "paintpalette.fill")
                 }
-            }
-
-            if stats.totalGames > 0 {
-                Section("Statistics") {
-                    HStack {
-                        statColumn("Wins", stats.wins, themeStore.effective.accentColor)
-                        statColumn("Losses", stats.losses, .red)
-                        statColumn("Draws", stats.draws, themeStore.effective.textColor.opacity(0.7))
-                    }
-                    Button(role: .destructive) { showResetStatsConfirm = true } label: {
-                        Label("Reset statistics", systemImage: "arrow.counterclockwise")
-                    }
-                }
+            } header: {
+                Text("Appearance")
             }
 
             Section {
                 Stepper("Default engine strength: \(settings.defaultEngineSkill)/20",
                         value: $settings.defaultEngineSkill, in: 0...20)
-            } header: {
-                Text("New games")
-            } footer: {
-                Text("Preselected the next time you start a game -- remembers whatever you last played at.")
-            }
-
-            Section {
                 Toggle(isOn: $settings.showCaptured) { Label("Captured pieces", systemImage: "trophy") }
                 Toggle(isOn: $settings.showMoveList) { Label("Move list", systemImage: "list.bullet") }
                 Toggle(isOn: $settings.showMoveComments) {
@@ -68,9 +63,10 @@ public struct SettingsView: View {
                     Label("Opening name", systemImage: "book.closed.fill")
                 }
             } header: {
-                Text("Play mode")
+                Text("Play defaults")
             } footer: {
-                Text("These are all free -- Stockfish and the local opening book, no network involved.")
+                Text("Preselected the next time you start a game -- remembers whatever you last played "
+                    + "at. These are all free -- Stockfish and the local opening book, no network involved.")
             }
 
             Section {
@@ -89,7 +85,30 @@ public struct SettingsView: View {
                     + "that use Gemini credits. Turn Coach off to keep everything else free.")
             }
 
-            Section("On-device data") {
+            if stats.totalGames > 0 {
+                Section("Statistics") {
+                    HStack {
+                        statColumn("Wins", stats.wins, themeStore.effective.accentColor)
+                        statColumn("Losses", stats.losses, .red)
+                        statColumn("Draws", stats.draws, themeStore.effective.textColor.opacity(0.7))
+                    }
+                    Button(role: .destructive) { showResetStatsConfirm = true } label: {
+                        Label("Reset statistics", systemImage: "arrow.counterclockwise")
+                    }
+                }
+            }
+
+            Section {
+                if hasSavedGames {
+                    NavigationLink {
+                        SavedGamesView(onSelect: { saved in
+                            onSelectSavedGame?(saved)
+                            dismiss()
+                        })
+                    } label: {
+                        Label("My Games", systemImage: "clock.arrow.circlepath")
+                    }
+                }
                 Button(role: .destructive) { showClearGamesConfirm = true } label: {
                     Label("Clear all saved games", systemImage: "trash")
                 }
@@ -125,12 +144,18 @@ public struct SettingsView: View {
                     Label("Reset.", systemImage: "checkmark.circle.fill")
                         .font(.footnote).foregroundStyle(themeStore.effective.accentColor)
                 }
+            } header: {
+                Text("Data & Progress")
+            } footer: {
+                Text("Manage what's stored on this device. Games are saved on this device only.")
             }
 
             Section {
                 Button("How ChessCoach works") { showOnboarding = true }
                 NavigationLink("Open Source Licenses") { LicensesView() }
                 NavigationLink("New to chess?") { BeginnersView() }
+            } header: {
+                Text("About")
             }
 
             if BuildChannel.current != .appStore {
