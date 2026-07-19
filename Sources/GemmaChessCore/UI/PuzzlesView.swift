@@ -12,6 +12,10 @@ public struct PuzzlesContainerView: View {
     @State private var showingRush = false
     @State private var streak = PuzzleStreakStore.currentStreak()
     @State private var pendingDeleteTheme: String?
+    /// Per-band manual expand/collapse override -- defaults to expanded
+    /// (see KTD-2: no search field on this screen, so no search-driven
+    /// collapse rule to replicate from Opening Trainer).
+    @State private var bandExpansion: [String: Bool] = [:]
 
     public init(vm: PuzzleViewModel, onExit: @escaping () -> Void) {
         self.vm = vm; self.onExit = onExit
@@ -27,80 +31,34 @@ public struct PuzzlesContainerView: View {
         }
     }
 
+    private var theme: Theme { themeStore.effective }
+
     private var themeList: some View {
-        List {
-            Section {
-                Text("Free — curated from the Lichess puzzle database (CC0). "
-                    + "Downloads once per theme, then works offline.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Puzzle rating").font(.subheadline.weight(.semibold))
-                        Text("Local only, puzzle-solving skill — not a rating of your overall play.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text("\(vm.rating)")
-                        .font(.title3.weight(.bold).monospacedDigit())
-                        .foregroundStyle(themeStore.effective.accentColor)
+        ScrollView {
+            VStack(spacing: 16) {
+                blurb
+                statsCard
+                puzzleRushCard
+                if let error = vm.catalogError, vm.catalog == nil {
+                    errorCard(error)
                 }
-                if streak > 0 {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Daily streak").font(.subheadline.weight(.semibold))
-                            Text("Solve at least one puzzle a day to keep it going.")
-                                .font(.caption).foregroundStyle(.secondary)
+                if let catalog = vm.catalog {
+                    ForEach(PuzzleRatingBand.allCases) { band in
+                        let themesInBand = catalog.themes.filter { $0.ratingBand == band }
+                        if !themesInBand.isEmpty {
+                            bandGroup(band, themes: themesInBand)
                         }
-                        Spacer()
-                        Label("\(streak)", systemImage: "flame.fill")
-                            .font(.title3.weight(.bold).monospacedDigit())
-                            .foregroundStyle(themeStore.effective.accent2Color)
                     }
+                } else if vm.isLoadingCatalog {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 24)
                 }
             }
-            Section {
-                Button {
-                    showingRush = true
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Puzzle Rush").font(.subheadline.weight(.semibold))
-                            Text("Timed run — solve as many as you can.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "timer").foregroundStyle(themeStore.effective.accentColor)
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-            if let error = vm.catalogError, vm.catalog == nil {
-                Section {
-                    Text(error).font(.footnote).foregroundStyle(.red)
-                    Button("Retry") { Task { await vm.loadCatalog() } }
-                }
-            }
-            if let catalog = vm.catalog {
-                Section("Themes") {
-                    ForEach(catalog.themes) { theme in
-                        themeRow(theme)
-                            // `packDeletionTick` isn't read by the row itself --
-                            // this forces the row to rebuild after a delete so
-                            // `isDownloaded`/`isBundled` (plain function calls,
-                            // not observed properties) get re-evaluated.
-                            .id("\(theme.theme)-\(vm.packDeletionTick)")
-                    }
-                }
-            } else if vm.isLoadingCatalog {
-                Section {
-                    ProgressView().frame(maxWidth: .infinity)
-                }
-            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
         }
-        .scrollContentBackground(.hidden)
         .navigationTitle("Puzzles")
         .toolbar {
             ToolbarItem(placement: .topBarLeadingCompat) { Button("Home", action: onExit) }
@@ -123,38 +81,6 @@ public struct PuzzlesContainerView: View {
                 pendingDeleteTheme = nil
             }
         }
-    }
-
-    private func themeRow(_ theme: PuzzleThemeInfo) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(theme.displayName).font(.subheadline.weight(.semibold))
-                Text(ratingLabel(theme))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if vm.downloadingTheme == theme.theme {
-                ProgressView()
-            } else if vm.isBundled(theme.theme) {
-                EmptyView()
-            } else if vm.isDownloaded(theme.theme) {
-                Button(role: .destructive) {
-                    pendingDeleteTheme = theme.theme
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                        .font(.caption)
-                }
-                .buttonStyle(.borderless)
-            } else {
-                Label("\(Int(theme.sizeKB)) KB", systemImage: "arrow.down.circle")
-                    .font(.caption).foregroundStyle(themeStore.effective.accent2Color)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard !vm.isDownloading else { return }
-            Task { await vm.downloadAndStart(theme.theme) }
-        }
         .alert("Couldn't download", isPresented: .constant(vm.downloadError != nil && vm.downloadingTheme == nil)) {
             Button("OK") { vm.downloadError = nil }
         } message: {
@@ -162,9 +88,184 @@ public struct PuzzlesContainerView: View {
         }
     }
 
-    private func ratingLabel(_ theme: PuzzleThemeInfo) -> String {
-        guard let lo = theme.minRating, let hi = theme.maxRating else { return "\(theme.count) puzzles" }
-        return "\(theme.count) puzzles · rated \(lo)–\(hi)"
+    private var blurb: some View {
+        Text("Free — curated from the Lichess puzzle database (CC0). "
+            + "Downloads once per theme, then works offline.")
+            .font(.footnote)
+            .foregroundStyle(theme.textColor.opacity(0.6))
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Puzzle rating + (if any) daily streak, in one themed stats card
+    /// (mirrors Home's stat-card visual language, see KTD-3).
+    private var statsCard: some View {
+        VStack(spacing: 12) {
+            statRow(
+                title: "Puzzle rating",
+                subtitle: "Local only, puzzle-solving skill — not a rating of your overall play.",
+                value: "\(vm.rating)",
+                valueIcon: nil,
+                valueColor: theme.accentColor
+            )
+            if streak > 0 {
+                Divider().overlay(theme.cardBorderColor)
+                statRow(
+                    title: "Daily streak",
+                    subtitle: "Solve at least one puzzle a day to keep it going.",
+                    value: "\(streak)",
+                    valueIcon: "flame.fill",
+                    valueColor: theme.accent2Color
+                )
+            }
+        }
+        .padding(14)
+        .background(theme.cardBackgroundColor)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func statRow(title: String, subtitle: String, value: String, valueIcon: String?, valueColor: Color) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+                Text(subtitle).font(.caption).foregroundStyle(theme.textColor.opacity(0.6))
+            }
+            Spacer()
+            if let valueIcon {
+                Label(value, systemImage: valueIcon)
+                    .font(.title3.weight(.bold).monospacedDigit())
+                    .foregroundStyle(valueColor)
+            } else {
+                Text(value)
+                    .font(.title3.weight(.bold).monospacedDigit())
+                    .foregroundStyle(valueColor)
+            }
+        }
+    }
+
+    /// Full-width featured card above the rating bands (KTD-4) -- a mode
+    /// (timed run across all themes), not a single theme, so it never lives
+    /// inside a band's `DisclosureGroup`.
+    private var puzzleRushCard: some View {
+        Button {
+            showingRush = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "timer")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(theme.accentColor)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Puzzle Rush").font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+                    Text("Timed run — solve as many as you can.")
+                        .font(.caption).foregroundStyle(theme.textColor.opacity(0.6))
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(theme.textColor.opacity(0.3))
+            }
+            .padding(14)
+        }
+        .buttonStyle(PressableStyle())
+        .background(theme.cardBackgroundColor)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func errorCard(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(message).font(.footnote).foregroundStyle(.red)
+            Button("Retry") { Task { await vm.loadCatalog() } }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(theme.cardBackgroundColor)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// One rating band's `DisclosureGroup`, default-expanded, mirroring
+    /// `OpeningTrainerView.familyGroup` (KTD-2) -- no search field on this
+    /// screen, so there's no search-driven collapse rule to replicate.
+    private func bandGroup(_ band: PuzzleRatingBand, themes: [PuzzleThemeInfo]) -> some View {
+        DisclosureGroup(isExpanded: isExpandedBinding(for: band)) {
+            VStack(spacing: 10) {
+                ForEach(themes) { info in
+                    themeCard(info)
+                        // `packDeletionTick` isn't read by the card itself --
+                        // this forces the card to rebuild after a delete so
+                        // `isDownloaded`/`isBundled` (plain function calls,
+                        // not observed properties) get re-evaluated.
+                        .id("\(info.theme)-\(vm.packDeletionTick)")
+                }
+            }
+            .padding(.top, 10)
+        } label: {
+            HStack {
+                Text(band.title).font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+                Spacer()
+                Text("\(themes.count)")
+                    .font(.caption).foregroundStyle(theme.textColor.opacity(0.5))
+            }
+        }
+        .tint(theme.textColor)
+        .padding(14)
+        .background(theme.cardBackgroundColor)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func isExpandedBinding(for band: PuzzleRatingBand) -> Binding<Bool> {
+        Binding(
+            get: { bandExpansion[band.rawValue] ?? true },
+            set: { bandExpansion[band.rawValue] = $0 }
+        )
+    }
+
+    /// A themed card per theme. Uses `.onTapGesture` (not a `Button`) for the
+    /// whole-card tap target -- the "Delete" control inside is a real nested
+    /// `Button`, and Button-inside-Button hit testing is unreliable in
+    /// SwiftUI, exactly as in the pre-redesign `themeRow` this replaces.
+    private func themeCard(_ info: PuzzleThemeInfo) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(info.displayName).font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+                Text(ratingLabel(info))
+                    .font(.caption).foregroundStyle(theme.textColor.opacity(0.6))
+            }
+            Spacer()
+            if vm.downloadingTheme == info.theme {
+                ProgressView()
+            } else if vm.isBundled(info.theme) {
+                EmptyView()
+            } else if vm.isDownloaded(info.theme) {
+                Button(role: .destructive) {
+                    pendingDeleteTheme = info.theme
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+            } else {
+                Label("\(Int(info.sizeKB)) KB", systemImage: "arrow.down.circle")
+                    .font(.caption).foregroundStyle(theme.accent2Color)
+            }
+        }
+        .padding(12)
+        .background(theme.surfaceColor.opacity(0.5))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !vm.isDownloading else { return }
+            Task { await vm.downloadAndStart(info.theme) }
+        }
+    }
+
+    private func ratingLabel(_ info: PuzzleThemeInfo) -> String {
+        guard let lo = info.minRating, let hi = info.maxRating else { return "\(info.count) puzzles" }
+        return "\(info.count) puzzles · rated \(lo)–\(hi)"
     }
 }
 
