@@ -355,10 +355,19 @@ public enum CoachPromptBuilder {
         public var winBefore: Double
         public var winAfter: Double
         public var betterSan: String?
+        /// The engine's top move at this ply, as UCI -- needed by `Motifs.tagMotifs`
+        /// (which compares the played move against it), unlike `betterSan` which is
+        /// only for display. Optional: older saved games persisted before this field
+        /// existed decode it as nil (synthesized `Decodable` treats a missing key on
+        /// an `Optional` property as absent, not an error), and the default `nil` in
+        /// the memberwise init below keeps existing call sites compiling unchanged.
+        public var bestUCI: String?
         public init(moveNumber: Int, san: String, classification: String,
-                    winBefore: Double, winAfter: Double, betterSan: String?) {
+                    winBefore: Double, winAfter: Double, betterSan: String?,
+                    bestUCI: String? = nil) {
             self.moveNumber = moveNumber; self.san = san; self.classification = classification
             self.winBefore = winBefore; self.winAfter = winAfter; self.betterSan = betterSan
+            self.bestUCI = bestUCI
         }
     }
 
