@@ -30,6 +30,14 @@ public enum OpeningTrainerFeedback: Equatable, Sendable {
     case lineComplete
 }
 
+/// A family of related lines (e.g. every "Queen's Pawn Game: ..." variation),
+/// grouped for the browse list -- see `Openings.OpeningLine.family`.
+public struct OpeningFamilyGroup: Identifiable, Sendable, Equatable {
+    public let id: String
+    public var title: String { id }
+    public let lines: [Openings.OpeningLine]
+}
+
 @MainActor
 @Observable
 public final class OpeningTrainerViewModel {
@@ -41,6 +49,20 @@ public final class OpeningTrainerViewModel {
         didSet { results = Openings.search(searchQuery) }
     }
     public private(set) var results: [Openings.OpeningLine] = Openings.search("")
+
+    /// `results` grouped by opening family (see `Openings.OpeningLine.family`),
+    /// families ordered alphabetically for predictable browsing. Lines within
+    /// a family keep the vendored dataset's own order, which already lists a
+    /// family's main line before its sub-variations.
+    public var groupedResults: [OpeningFamilyGroup] {
+        var byFamily: [String: [Openings.OpeningLine]] = [:]
+        for line in results {
+            byFamily[line.family, default: []].append(line)
+        }
+        return byFamily.keys.sorted().map { family in
+            OpeningFamilyGroup(id: family, lines: byFamily[family] ?? [])
+        }
+    }
 
     // MARK: Session
     public private(set) var activeLine: Openings.OpeningLine?

@@ -61,4 +61,18 @@ struct OpeningsTests {
         // Sanity: the vendored TSVs loaded into a non-trivial book.
         #expect(Openings.book.count > 1000)
     }
+
+    @Test func familyAndVariationLabelSplitOnColon() {
+        let withColon = Openings.OpeningLine(
+            eco: "D00", name: "Queen's Pawn Game: Accelerated London System", sanMoves: ["d4", "d5", "Bf4"]
+        )
+        #expect(withColon.family == "Queen's Pawn Game")
+        #expect(withColon.variationLabel == "Accelerated London System")
+    }
+
+    @Test func familyFallsBackToWholeNameWithNoColon() {
+        let noColon = Openings.OpeningLine(eco: "A48", name: "London System", sanMoves: ["d4", "Nf6", "Nf3", "g6", "Bf4"])
+        #expect(noColon.family == "London System")
+        #expect(noColon.variationLabel == nil)
+    }
 }

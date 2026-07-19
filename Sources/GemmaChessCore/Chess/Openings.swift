@@ -66,6 +66,30 @@ public enum Openings {
         /// (transpositions/sub-variations sharing a code), so the code alone
         /// isn't unique -- the full name plus move count disambiguates.
         public var id: String { "\(eco)|\(name)|\(sanMoves.count)" }
+
+        /// The line's family -- everything before the first ": " in `name`,
+        /// or the whole name when there's no colon. This is how the vendored
+        /// Lichess ECO dataset already expresses grouping (e.g. "Queen's Pawn
+        /// Game: Accelerated London System", "Indian Defense: London System")
+        /// -- grouping the Opening Trainer's browse list by this needs no
+        /// extra data, just parsing what's already there. Note this follows
+        /// how the actual move order reaches a position, not a single
+        /// unified bucket for every line that happens to share a colloquial
+        /// name (e.g. "London System" lines can fall under different
+        /// families depending on move order) -- matches how Lichess's own
+        /// opening explorer groups the same data.
+        public var family: String {
+            guard let range = name.range(of: ": ") else { return name }
+            return String(name[name.startIndex..<range.lowerBound])
+        }
+
+        /// The variation-specific part of `name` after the family prefix, or
+        /// `nil` when this line IS the family's own main line (no colon in
+        /// `name`).
+        public var variationLabel: String? {
+            guard let range = name.range(of: ": ") else { return nil }
+            return String(name[range.upperBound...])
+        }
     }
 
     /// Case-insensitive substring search over both ECO code and name, e.g.
