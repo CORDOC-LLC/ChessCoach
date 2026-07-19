@@ -24,6 +24,11 @@ public final class PuzzleViewModel {
     public var catalogError: String?
     public var downloadingTheme: String?
     public var downloadError: String?
+    /// Bumped whenever a downloaded pack is deleted -- `isBundled`/`isDownloaded`
+    /// are plain function calls over `PuzzleDownloadStore`, not observed stored
+    /// properties, so `PuzzlesView` reads this token (via `.id(...)` on each
+    /// theme row) purely to force a re-render after `deletePack`.
+    public private(set) var packDeletionTick = 0
 
     // MARK: Session
     public var activeTheme: String?
@@ -76,6 +81,19 @@ public final class PuzzleViewModel {
 
     public func isDownloaded(_ theme: String) -> Bool {
         PuzzleDownloadStore.isDownloaded(theme: theme, baseDir: puzzleBaseDir)
+    }
+
+    public func isBundled(_ theme: String) -> Bool {
+        PuzzleDownloadStore.isBundled(theme: theme)
+    }
+
+    /// Deletes a downloaded (non-bundled) theme's cached pack -- a no-op for
+    /// bundled themes, matching `PuzzleDownloadStore.deletePack`'s own
+    /// safe-no-op behavior. `PuzzlesView` calls this after the user confirms
+    /// a destructive delete-pack action.
+    public func deletePack(_ theme: String) {
+        PuzzleDownloadStore.deletePack(theme: theme, baseDir: puzzleBaseDir)
+        packDeletionTick += 1
     }
 
     // MARK: Catalog
