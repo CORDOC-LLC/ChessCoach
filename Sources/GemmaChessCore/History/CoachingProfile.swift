@@ -99,6 +99,23 @@ public struct CoachingProfile: Codable, Sendable, Equatable {
     public var recentGames: [RecentGame]
 }
 
+/// Structured facts sent to `chesscoach-gateway`'s `/api/weaknessReport`
+/// (plan U3/U4) -- deliberately just numbers, never prompt text. Field names
+/// mirror the gateway's Zod schema exactly; keep the two in sync by hand
+/// (there is no shared type between the Swift client and the TypeScript
+/// gateway repo).
+public struct WeaknessReportFacts: Codable, Sendable, Equatable {
+    public struct MotifCount: Codable, Sendable, Equatable {
+        public var motif: String
+        public var count: Int
+    }
+    public var topMotifs: [MotifCount]
+    public var weakestPhase: String?
+    public var recentAccuracy: Double?
+    public var lifetimeAccuracy: Double?
+    public var gamesAnalyzed: Int
+}
+
 public enum CoachingProfileBuilder {
 
     /// Sliding-window size for "recent form" (last N games; <= 0 = all). Source default.
@@ -309,6 +326,23 @@ public enum CoachingProfileBuilder {
             bits.append("weakest phase \(weakest)")
         }
         return bits.joined(separator: "; ")
+    }
+
+    // MARK: - Weakness Report facts (plan U4)
+
+    /// Compact facts payload for the Weakness Report's private, server-side
+    /// prompt (`chesscoach-gateway`'s `/api/weaknessReport`, plan U3/KTD-3) --
+    /// NOT the prompt itself, just the structured numbers the server needs.
+    /// `nil` when there's no game data at all yet.
+    public static func weaknessReportFacts(_ profile: CoachingProfile) -> WeaknessReportFacts? {
+        guard let recent = profile.recent, recent.games > 0 else { return nil }
+        return WeaknessReportFacts(
+            topMotifs: recent.topMotifs.map { .init(motif: $0.motif, count: $0.count) },
+            weakestPhase: recent.weakestPhase,
+            recentAccuracy: recent.avgAccuracy,
+            lifetimeAccuracy: profile.lifetime?.avgAccuracy,
+            gamesAnalyzed: profile.gamesAnalyzed
+        )
     }
 
     // MARK: - Helpers
