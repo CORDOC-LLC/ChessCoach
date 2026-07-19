@@ -345,6 +345,17 @@ public enum CoachingProfileBuilder {
         )
     }
 
+    // MARK: - Free teaser stat (plan U6)
+
+    /// A cheap, purely local stat for the Home card's free teaser (R6/R8) --
+    /// no new aggregation pass, no network, computed straight from data
+    /// `buildProfile` already produced. `nil` when there's no data yet
+    /// (Home renders no card at all in that case, not an empty one).
+    public static func topTeaserMotif(_ profile: CoachingProfile) -> String? {
+        guard let top = profile.recent?.topMotifs.first else { return nil }
+        return Motifs.labels[top.motif] ?? top.motif
+    }
+
     // MARK: - Helpers
 
     static func round1(_ x: Double) -> Double { (x * 10).rounded(.toNearestOrEven) / 10 }

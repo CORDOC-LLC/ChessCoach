@@ -91,4 +91,21 @@ struct CoachingProfileTests {
         #expect(text.contains("Lifetime"))
         #expect(text.contains("improving"))    // recent 95% vs lifetime 77.5%
     }
+
+    @Test("topTeaserMotif: nil for an empty profile, the top motif's label when populated")
+    func teaserMotif() {
+        let empty = CoachingProfileBuilder.buildProfile(playerID: "me", records: [])
+        #expect(CoachingProfileBuilder.topTeaserMotif(empty) == nil)
+
+        let records = [
+            Self.record(id: "1", at: "2026-01-01T00:00:00Z", accuracy: 70, result: "loss", speed: "blitz",
+                   counts: .init(blunder: 1), motifs: ["missed_fork"]),
+            Self.record(id: "2", at: "2026-01-02T00:00:00Z", accuracy: 70, result: "loss", speed: "blitz",
+                   counts: .init(blunder: 1), motifs: ["missed_fork"]),
+            Self.record(id: "3", at: "2026-01-03T00:00:00Z", accuracy: 70, result: "loss", speed: "blitz",
+                   counts: .init(blunder: 1), motifs: ["back_rank"]),
+        ]
+        let profile = CoachingProfileBuilder.buildProfile(playerID: "me", records: records)
+        #expect(CoachingProfileBuilder.topTeaserMotif(profile) == Motifs.labels["missed_fork"])
+    }
 }
