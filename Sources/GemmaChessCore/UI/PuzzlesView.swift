@@ -11,6 +11,7 @@ public struct PuzzlesContainerView: View {
     @Environment(ThemeStore.self) private var themeStore
     @State private var showingRush = false
     @State private var streak = PuzzleStreakStore.currentStreak()
+    @State private var pendingDeleteTheme: String?
 
     public init(vm: PuzzleViewModel, onExit: @escaping () -> Void) {
         self.vm = vm; self.onExit = onExit
@@ -86,6 +87,11 @@ public struct PuzzlesContainerView: View {
                 Section("Themes") {
                     ForEach(catalog.themes) { theme in
                         themeRow(theme)
+                            // `packDeletionTick` isn't read by the row itself --
+                            // this forces the row to rebuild after a delete so
+                            // `isDownloaded`/`isBundled` (plain function calls,
+                            // not observed properties) get re-evaluated.
+                            .id("\(theme.theme)-\(vm.packDeletionTick)")
                     }
                 }
             } else if vm.isLoadingCatalog {
@@ -104,31 +110,51 @@ public struct PuzzlesContainerView: View {
         }
         .task { if vm.catalog == nil { await vm.loadCatalog() } }
         .onAppear { streak = PuzzleStreakStore.currentStreak() }
+        .confirmationDialog(
+            "Delete this downloaded pack? You'll need to re-download it to solve more of its puzzles.",
+            isPresented: Binding(
+                get: { pendingDeleteTheme != nil },
+                set: { if !$0 { pendingDeleteTheme = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let theme = pendingDeleteTheme { vm.deletePack(theme) }
+                pendingDeleteTheme = nil
+            }
+        }
     }
 
     private func themeRow(_ theme: PuzzleThemeInfo) -> some View {
-        Button {
-            Task { await vm.downloadAndStart(theme.theme) }
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(theme.displayName).font(.subheadline.weight(.semibold))
-                    Text(ratingLabel(theme))
-                        .font(.caption).foregroundStyle(.secondary)
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(theme.displayName).font(.subheadline.weight(.semibold))
+                Text(ratingLabel(theme))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if vm.downloadingTheme == theme.theme {
+                ProgressView()
+            } else if vm.isBundled(theme.theme) {
+                EmptyView()
+            } else if vm.isDownloaded(theme.theme) {
+                Button(role: .destructive) {
+                    pendingDeleteTheme = theme.theme
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .font(.caption)
                 }
-                Spacer()
-                if vm.downloadingTheme == theme.theme {
-                    ProgressView()
-                } else if vm.isDownloaded(theme.theme) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(themeStore.effective.accentColor)
-                } else {
-                    Label("\(Int(theme.sizeKB)) KB", systemImage: "arrow.down.circle")
-                        .font(.caption).foregroundStyle(themeStore.effective.accent2Color)
-                }
+                .buttonStyle(.borderless)
+            } else {
+                Label("\(Int(theme.sizeKB)) KB", systemImage: "arrow.down.circle")
+                    .font(.caption).foregroundStyle(themeStore.effective.accent2Color)
             }
         }
-        .buttonStyle(.plain)
-        .disabled(vm.isDownloading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !vm.isDownloading else { return }
+            Task { await vm.downloadAndStart(theme.theme) }
+        }
         .alert("Couldn't download", isPresented: .constant(vm.downloadError != nil && vm.downloadingTheme == nil)) {
             Button("OK") { vm.downloadError = nil }
         } message: {
