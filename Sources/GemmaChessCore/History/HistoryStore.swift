@@ -284,6 +284,161 @@ public struct HistoryStore: Sendable {
             mistakes: mistakes)
     }
 
+    // MARK: - Record building (Play mode)
+
+    /// Below this many total plies, a Play game is excluded from history entirely
+    /// (KTD-5) -- an abandoned/instant-resign game is noise, not signal, and should
+    /// never enter `CoachingProfile`'s aggregation or Review's history list.
+    public static let minPlyCountForHistory = 10
+
+    /// Turn a Play-mode `SavedGame` into a `GameRecord`, mirroring `buildGameRecord(from:
+    /// ReviewSession:identity:)`'s shape (KTD-1) but deriving phase/motifs/counts from
+    /// `CoachPromptBuilder.PlayMoveRecord`'s live-graded user moves instead of a
+    /// Stockfish-swept `ReviewSession.mistakes`. Returns nil for games under
+    /// `minPlyCountForHistory` (KTD-5): the caller must not append anything for those.
+    public func buildGameRecord(from savedGame: SavedGame, identity: PlayerIdentity) -> GameRecord? {
+        guard savedGame.moves.count >= Self.minPlyCountForHistory else { return nil }
+
+        let side = savedGame.playerIsWhite ? "white" : "black"
+        let playerName = identity.username.isEmpty ? "me" : identity.username
+        let playerID = playerName.lowercased()
+        let white = savedGame.playerIsWhite ? playerName : "Stockfish"
+        let black = savedGame.playerIsWhite ? "Stockfish" : playerName
+        let (result, playerResult) = Self.playResult(
+            text: savedGame.resultText, playerIsWhite: savedGame.playerIsWhite)
+
+        // `moveRecords` holds only the USER's plies, in play order, but carries
+        // neither the move's UCI nor its FEN-before -- recover both by pairing each
+        // record with its index into `moves`/`fenHistory` via whose-turn parity
+        // (even ply index == White's move).
+        let userPlyIndices = (0..<savedGame.moves.count).filter { idx in
+            (idx % 2 == 0) == savedGame.playerIsWhite
+        }
+
+        var counts = GameRecord.Counts()
+        var phaseLoss = GameRecord.PhaseLoss()
+        var mistakes: [GameRecord.Mistake] = []
+
+        for (idx, record) in zip(userPlyIndices, savedGame.moveRecords) {
+            let classification = record.classification.lowercased()
+            guard ["inaccuracy", "mistake", "blunder"].contains(classification) else { continue }
+            let fenBefore = savedGame.fenHistory[idx]
+            let uci = savedGame.moves[idx]
+            let phase = Self.phase(fen: fenBefore, moveNumber: record.moveNumber)
+            switch classification {
+            case "inaccuracy": counts.inaccuracy += 1
+            case "mistake": counts.mistake += 1
+            case "blunder": counts.blunder += 1
+            default: break
+            }
+            let winDrop = record.winBefore - record.winAfter
+            switch phase {
+            case "opening": phaseLoss.opening += winDrop
+            case "endgame": phaseLoss.endgame += winDrop
+            default: phaseLoss.middlegame += winDrop
+            }
+            // Graceful degradation (KTD-1/KTD-2): an older saved game (or any ply
+            // whose engine analysis raced/failed) may have no `bestUCI` -- skip
+            // motif tagging for just that ply rather than failing the whole game.
+            // `evalBefore` is passed as 0 rather than a real cp value: `PlayMoveRecord`
+            // only carries win% (0-100), not the cp scale `tagMotifs`'s missed-mate
+            // check needs, so that check simply never fires here (no false positive,
+            // since 0 is far below the mate-score threshold).
+            let motifs: [String] = record.bestUCI.map {
+                Motifs.tagMotifs(
+                    fenBefore: fenBefore, moveUCI: uci, bestUCI: $0,
+                    winSwing: winDrop, evalBefore: 0)
+            } ?? []
+            mistakes.append(
+                GameRecord.Mistake(
+                    ply: idx, moveNumber: record.moveNumber, color: side,
+                    san: record.san, uci: uci, bestSan: record.betterSan ?? record.san,
+                    bestUci: record.bestUCI, classification: classification,
+                    winBefore: Self.round1(record.winBefore), winAfter: Self.round1(record.winAfter),
+                    winDrop: Self.round1(winDrop), phase: phase, fenBefore: fenBefore,
+                    clockAfter: nil, oppClock: nil, motifs: motifs))
+        }
+
+        let accs = savedGame.moveRecords.map {
+            Evaluation.moveAccuracy(winBefore: $0.winBefore, winAfter: $0.winAfter)
+        }
+        let accuracy = Evaluation.aggregateAccuracy(accs)
+
+        return GameRecord(
+            schemaVersion: historySchemaVersion,
+            gameID: Self.gameID(savedGame),
+            reviewedSide: side,
+            analyzedAt: Self.nowISO(),
+            playerID: playerID,
+            platform: "play",
+            playerName: playerName,
+            date: nil,
+            white: white,
+            black: black,
+            result: result,
+            playerResult: playerResult,
+            eco: savedGame.openingECO,
+            opening: savedGame.openingName,
+            timeControl: nil,
+            speed: Speed.unknown.rawValue,
+            playerElo: nil,
+            opponentElo: nil,
+            gameURL: nil,
+            pgn: Self.pgn(from: savedGame, result: result),
+            sweepDepth: nil,
+            reviewElo: nil,
+            thresholds: nil,
+            plyCount: savedGame.moves.count,
+            accuracy: Self.round1(accuracy),
+            counts: counts,
+            phaseLoss: GameRecord.PhaseLoss(
+                opening: Self.round1(phaseLoss.opening),
+                middlegame: Self.round1(phaseLoss.middlegame),
+                endgame: Self.round1(phaseLoss.endgame)),
+            mistakes: mistakes)
+    }
+
+    /// "you win"/"you lose"/"You resigned."/anything else -> (PGN-style result,
+    /// player-relative outcome). Mirrors `PlayViewModel.outcome`'s own text-sniffing,
+    /// since `SavedGame.resultText` is free-form UI copy, not a PGN result code.
+    static func playResult(text: String?, playerIsWhite: Bool) -> (result: String, playerResult: String?) {
+        guard let text else { return ("*", nil) }
+        if text.contains("you win") {
+            return (playerIsWhite ? "1-0" : "0-1", "win")
+        }
+        if text.contains("you lose") || text == "You resigned." {
+            return (playerIsWhite ? "0-1" : "1-0", "loss")
+        }
+        return ("1/2-1/2", "draw")
+    }
+
+    /// A minimal, reconstructed PGN body for a Play game (no real headers exist --
+    /// it was never imported from a PGN). Good enough for `GameRecord.pgn`'s
+    /// downstream readers (coach prompt context, PGN export), not meant to be a
+    /// byte-perfect archival PGN.
+    static func pgn(from savedGame: SavedGame, result: String) -> String {
+        var lines = [
+            "[White \"\(savedGame.playerIsWhite ? "Me" : "Stockfish")\"]",
+            "[Black \"\(savedGame.playerIsWhite ? "Stockfish" : "Me")\"]",
+            "[Result \"\(result)\"]",
+            "",
+        ]
+        var body = ""
+        for (i, san) in savedGame.sanMoves.enumerated() {
+            if i % 2 == 0 { body += "\(i / 2 + 1). " }
+            body += "\(san) "
+        }
+        body += result
+        lines.append(body)
+        return lines.joined(separator: "\n")
+    }
+
+    static func gameID(_ savedGame: SavedGame) -> String {
+        let digest = Insecure.SHA1.hash(data: Data(savedGame.moves.joined().utf8))
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return String(hex.prefix(16))
+    }
+
     // MARK: - Storage
 
     /// Append the game to history. Returns the record. Port of `record_game` (minus

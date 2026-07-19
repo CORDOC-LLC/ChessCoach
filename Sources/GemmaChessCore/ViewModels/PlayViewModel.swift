@@ -450,7 +450,11 @@ public final class PlayViewModel {
                 moveRecords.append(CoachPromptBuilder.PlayMoveRecord(
                     moveNumber: moveNumber, san: san, classification: mv.classification,
                     winBefore: mv.winBefore, winAfter: mv.winAfter,
-                    betterSan: mv.isEngineBest ? nil : mv.betterMoveSAN))
+                    betterSan: mv.isEngineBest ? nil : mv.betterMoveSAN,
+                    // `moveReport.lineUCI` is the engine's own best line for `fromFEN`
+                    // (computed by this same analysis, above) -- its first move is
+                    // exactly the "best move" UCI `Motifs.tagMotifs` needs later.
+                    bestUCI: moveReport?.lineUCI.first))
             }
             let replySAN = await engineReply()
             guard gen == moveGen else { return }
