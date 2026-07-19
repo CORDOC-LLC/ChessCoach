@@ -72,3 +72,45 @@ public struct PuzzleThemeInfo: Codable, Sendable, Equatable, Identifiable {
 public struct PuzzleCatalog: Codable, Sendable, Equatable {
     public var themes: [PuzzleThemeInfo]
 }
+
+/// A rating band a theme falls into, derived purely from the theme's own
+/// `minRating` -- never a hardcoded per-theme table, so any future
+/// downloaded "extra" theme bands automatically without touching this type
+/// or the views that group by it.
+public enum PuzzleRatingBand: String, CaseIterable, Identifiable, Sendable {
+    case beginner
+    case intermediate
+    case advanced
+    /// A theme with no `minRating` at all -- degrades gracefully rather
+    /// than crashing or silently dropping the theme from the list.
+    case other
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .beginner: return "Beginner"
+        case .intermediate: return "Intermediate"
+        case .advanced: return "Advanced"
+        case .other: return "Other"
+        }
+    }
+
+    /// `< 500` -> Beginner, `500..<650` -> Intermediate, `>= 650` -> Advanced,
+    /// `nil` -> Other. Boundaries are inclusive on their lower edge (500 is
+    /// Intermediate, 650 is Advanced).
+    public static func band(forMinRating minRating: Int?) -> PuzzleRatingBand {
+        guard let minRating else { return .other }
+        switch minRating {
+        case ..<500: return .beginner
+        case 500..<650: return .intermediate
+        default: return .advanced
+        }
+    }
+}
+
+public extension PuzzleThemeInfo {
+    /// This theme's rating band, computed from `minRating` (see
+    /// `PuzzleRatingBand.band(forMinRating:)`).
+    var ratingBand: PuzzleRatingBand { PuzzleRatingBand.band(forMinRating: minRating) }
+}

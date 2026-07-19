@@ -21,18 +21,23 @@ public enum PuzzleDownloadStore {
 
     // MARK: Bundled packs
 
-    /// Theme ids bundled into this binary via `Bundle.module` -- built once,
-    /// lazily, from the bundled `catalog.json` (mirrors `Openings.book`'s
-    /// lazy-static loading style). Best-effort: a missing/corrupt bundled
-    /// catalog just means no theme reports as bundled, degrading gracefully
-    /// to the disk-cache/network path for everything.
-    static let bundledThemes: Set<String> = {
+    /// The full bundled catalog (every bundled theme's `PuzzleThemeInfo`,
+    /// including `minRating`) parsed once, lazily, from `Bundle.module`
+    /// (mirrors `Openings.book`'s lazy-static loading style). `nil` if the
+    /// bundled catalog is missing/corrupt -- exposed (not just the derived
+    /// `bundledThemes` set) so tests can verify rating-band grouping against
+    /// the real bundled data without duplicating the JSON.
+    static let bundledCatalog: PuzzleCatalog? = {
         guard let url = Bundle.module.url(forResource: "catalog", withExtension: "json", subdirectory: "puzzles"),
-              let data = try? Data(contentsOf: url),
-              let catalog = try? JSONDecoder().decode(PuzzleCatalog.self, from: data)
-        else { return [] }
-        return Set(catalog.themes.map(\.theme))
+              let data = try? Data(contentsOf: url)
+        else { return nil }
+        return try? JSONDecoder().decode(PuzzleCatalog.self, from: data)
     }()
+
+    /// Theme ids bundled into this binary. Best-effort: a missing/corrupt
+    /// bundled catalog just means no theme reports as bundled, degrading
+    /// gracefully to the disk-cache/network path for everything.
+    static let bundledThemes: Set<String> = Set(bundledCatalog?.themes.map(\.theme) ?? [])
 
     /// Whether `theme` ships inside the app binary (always available, never
     /// needs a download, and never deletable -- see `deletePack`).
