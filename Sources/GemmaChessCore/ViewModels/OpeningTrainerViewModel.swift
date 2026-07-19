@@ -2,8 +2,23 @@
 //  Opening Trainer: search the local ECO book for a line, then drill it one
 //  move at a time -- the trainer auto-plays the opponent's moves and prompts
 //  for the user's, tracking familiarity locally via OpeningTrainerStore.
-//  Entirely free -- no coach, no network; move checking is a plain SAN/UCI
-//  compare against the line's own moves, same as PuzzleViewModel's approach.
+//
+//  Three parts, two gating tiers:
+//   1. Next-move hint (`showHint()`) -- free, purely local (just reveals the
+//      line's own next move; no explanation of why).
+//   2. The line's move list (`activeLine?.sanMoves`) -- free, already public
+//      on `Openings.OpeningLine`, no extra plumbing needed.
+//   3. Coaching (`askWhyCurrentMove()` / `askQuestion(_:)`) -- Pro-gated,
+//      since both go through `CoachOrchestrator`, which applies the same
+//      uniform `ProEntitlementStore.requireProOrThrow()` gate used
+//      everywhere else in the app (see that type's header). The canned
+//      "why this move" explanation is also cache-checked first (see
+//      `OpeningExplanationCache`) since it's the same answer for every user
+//      drilling the same line/move -- free-form follow-up questions are not
+//      cached, since the question text varies per caller.
+//  Move checking itself (parts 1 and 2) stays a plain SAN/UCI compare against
+//  the line's own moves, same as PuzzleViewModel's approach -- no engine, no
+//  network for that part.
 
 import SwiftUI
 import ChessKit
@@ -39,14 +54,37 @@ public final class OpeningTrainerViewModel {
     public var correctContinuationSAN: String?
     public private(set) var familiarity: OpeningFamiliarity?
 
+    // MARK: Hint (free, local -- part 1 of 3, see header)
+    /// Set by `showHint()`: the line's own next move, revealed on request.
+    /// Distinct from `correctContinuationSAN` (which only appears after a
+    /// wrong attempt) -- this is an opt-in reveal before attempting at all.
+    public private(set) var revealedHintSAN: String?
+
+    // MARK: Coaching (Pro-gated -- part 3 of 3, see header)
+    public private(set) var coachAnswer: String?
+    public private(set) var isAskingCoach = false
+    public private(set) var coachError: String?
+    /// Set when a coaching call fails with `ProRequiredError` -- the view
+    /// watches this to present `PaywallView`, mirroring `BoardScannerView`'s
+    /// `showPaywall` pattern.
+    public var showPaywall = false
+
     private var dests: [Square: [Square]] = [:]
     private var moveCursor = 0
     private var sessionGen = 0
     /// Injectable so tests use scratch storage instead of `UserDefaults.standard`.
     private let defaults: UserDefaults
+    private let coach: CoachOrchestrator
+    private let explanationCache: OpeningExplanationCache
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(
+        defaults: UserDefaults = .standard,
+        coach: CoachOrchestrator = CoachOrchestrator(),
+        explanationCache: OpeningExplanationCache = NoOpOpeningExplanationCache()
+    ) {
         self.defaults = defaults
+        self.coach = coach
+        self.explanationCache = explanationCache
     }
 
     // MARK: Derived
@@ -57,6 +95,9 @@ public final class OpeningTrainerViewModel {
         guard let line = activeLine else { return false }
         return moveCursor >= line.sanMoves.count
     }
+    /// How many of the active line's moves have been played so far -- used
+    /// by the "Moves" list to check off what's done.
+    public var moveCursorForDisplay: Int { moveCursor }
 
     private var isUsersTurn: Bool {
         // Ply 0 (moveCursor even) is White to move.
@@ -81,6 +122,9 @@ public final class OpeningTrainerViewModel {
         lastMove = nil
         feedback = nil
         correctContinuationSAN = nil
+        revealedHintSAN = nil
+        coachAnswer = nil
+        coachError = nil
         familiarity = OpeningTrainerStore.familiarity(for: line.id, defaults: defaults)
         refreshDests()
         advanceAutoMoves()
@@ -89,6 +133,67 @@ public final class OpeningTrainerViewModel {
     public func endSession() {
         sessionGen += 1
         activeLine = nil
+    }
+
+    // MARK: Hint (free, local)
+
+    /// Reveals the line's own next move without attempting it -- purely
+    /// local, no coach, no cost. Cleared on the next tap/attempt or a new
+    /// drill start.
+    public func showHint() {
+        guard let line = activeLine, moveCursor < line.sanMoves.count else { return }
+        revealedHintSAN = line.sanMoves[moveCursor]
+    }
+
+    // MARK: Coaching (Pro-gated)
+
+    /// Asks the coach why the line's next move is the book move here --
+    /// grounded in the active line's name and the current position. Checked
+    /// against `explanationCache` first (see that type's header for why this
+    /// specific question is cacheable and free-form questions aren't).
+    public func askWhyCurrentMove() async {
+        guard let line = activeLine, moveCursor < line.sanMoves.count else { return }
+        let nextSAN = line.sanMoves[moveCursor]
+        let question = "Why is \(nextSAN) the book move here in the \(line.name)? "
+            + "One or two short sentences on the idea behind it."
+        await runCoachCall(question: question, cacheKey: (lineID: line.id, moveIndex: moveCursor))
+    }
+
+    /// A free-form follow-up question about the current position/line.
+    /// Never cached -- the question text varies per caller, so there's
+    /// nothing to deduplicate.
+    public func askQuestion(_ text: String) async {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        await runCoachCall(question: text, cacheKey: nil)
+    }
+
+    private func runCoachCall(question: String, cacheKey: (lineID: String, moveIndex: Int)?) async {
+        coachError = nil
+        if let cacheKey, let cached = await explanationCache.cachedExplanation(
+            lineID: cacheKey.lineID, moveIndex: cacheKey.moveIndex
+        ) {
+            coachAnswer = cached
+            return
+        }
+        isAskingCoach = true
+        defer { isAskingCoach = false }
+        do {
+            let reply = try await coach.answer(
+                question: question, fen: fen, playerSide: userIsWhite ? .white : .black
+            )
+            coachAnswer = reply.answer
+            if let cacheKey {
+                await explanationCache.store(
+                    explanation: reply.answer, lineID: cacheKey.lineID, moveIndex: cacheKey.moveIndex
+                )
+            }
+        } catch is ProRequiredError {
+            showPaywall = true
+        } catch let e as CoachError {
+            coachError = e.message
+        } catch {
+            coachError = error.localizedDescription
+        }
     }
 
     /// Lines whose review is due now, ranked ahead of the rest (used to
@@ -134,6 +239,9 @@ public final class OpeningTrainerViewModel {
             correct: true, lineID: line.id, isLineComplete: isLineComplete, defaults: defaults)
         feedback = .correct
         correctContinuationSAN = nil
+        revealedHintSAN = nil
+        coachAnswer = nil
+        coachError = nil
 
         if isLineFinished {
             finishLine()

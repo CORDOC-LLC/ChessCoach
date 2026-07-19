@@ -1,7 +1,9 @@
 //  PuzzleRushView.swift
 //  Puzzle Rush UI: a countdown, a running correct count, and the board --
-//  solve as many puzzles as possible before either the clock runs out or a
-//  wrong move ends the run. Entirely free -- no coach, no network beyond the
+//  solve as many puzzles as possible before the clock runs out. A wrong move
+//  costs `PuzzleRushSession.wrongAnswerPenaltySeconds` off the clock and
+//  restarts the same puzzle (a brief "-10s" toast marks it) rather than
+//  ending the run outright. Entirely free -- no coach, no network beyond the
 //  puzzle packs already downloaded via normal Puzzles mode.
 
 import SwiftUI
@@ -71,12 +73,19 @@ public struct PuzzleRushView: View {
                     .font(.caption2).foregroundStyle(theme.textColor.opacity(0.6))
             }
             Spacer()
+            if session.justPenalized {
+                Label("-10s", systemImage: "xmark.circle.fill")
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.red)
+                    .transition(.opacity)
+            }
             if session.isActive {
                 Label(timeLabel(session.remainingSeconds), systemImage: "timer")
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(session.remainingSeconds <= 10 ? .red : theme.accentColor)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: session.justPenalized)
         .padding(.horizontal, 14)
         .padding(.top, 8)
     }
@@ -129,7 +138,7 @@ public struct PuzzleRushView: View {
         VStack(spacing: 10) {
             Image(systemName: resultIcon).font(.largeTitle).foregroundStyle(theme.accent2Color)
             Text(resultTitle).font(.headline).foregroundStyle(theme.textColor)
-            Text("\(session.correctCount) solved this run.")
+            Text(resultDetail)
                 .font(.subheadline).foregroundStyle(theme.textColor.opacity(0.7))
             HStack(spacing: 10) {
                 Button("Back to Puzzles", action: onExit)
@@ -144,7 +153,6 @@ public struct PuzzleRushView: View {
 
     private var resultIcon: String {
         switch session.endReasonForDisplay {
-        case .wrongAnswer: return "xmark.circle.fill"
         case .timeExpired: return "timer"
         case .queueExhausted, nil: return "party.popper.fill"
         }
@@ -152,10 +160,15 @@ public struct PuzzleRushView: View {
 
     private var resultTitle: String {
         switch session.endReasonForDisplay {
-        case .wrongAnswer: return "Not quite — run over."
         case .timeExpired: return "Time's up!"
         case .queueExhausted, nil: return "Every puzzle solved!"
         }
+    }
+
+    private var resultDetail: String {
+        session.wrongAttempts > 0
+            ? "\(session.correctCount) solved, \(session.wrongAttempts) missed this run."
+            : "\(session.correctCount) solved this run."
     }
 
     private func timeLabel(_ seconds: Int) -> String {

@@ -1,8 +1,10 @@
 //  PuzzleRushSessionTests.swift
 //  Drives a Rush run start-to-finish with an injected clock (no real-time
 //  waiting): a correct multi-move solve advancing the queue, a wrong answer
-//  ending the run immediately, the countdown hitting zero mid-puzzle, the
-//  "no downloaded packs" empty state, and a restart leaving no stale state.
+//  costing a time penalty and retrying the same puzzle, a penalty that
+//  exhausts the clock ending the run, the countdown hitting zero mid-puzzle,
+//  the "no downloaded packs" empty state, a restart leaving no stale state,
+//  and difficulty-band shuffling for replay variety.
 
 import Testing
 import Foundation
@@ -53,13 +55,9 @@ struct PuzzleRushSessionTests {
         #expect(session.endReason == nil)
     }
 
-    @Test("a wrong answer ends the session immediately and records the final score")
-    func wrongAnswerEndsSession() throws {
-        let t0 = Date()
-        let session = PuzzleRushSession(durationSeconds: 60, now: fixedClock(t0))
-        session.start(puzzles: [mateIn1A, mateIn1B])
-
-        // Any legal move that isn't the g2-g7 mate.
+    /// Finds a legal move that isn't the g2-g7 mate, from whatever position
+    /// `session` is currently in.
+    private func aWrongMove(in session: PuzzleRushSession) throws -> (from: Square, to: Square) {
         let dests = ChessLogic.legalDestinations(forFEN: session.fen)
         let g2 = try #require(BoardGeometry.square("g2"))
         let g7 = try #require(BoardGeometry.square("g7"))
@@ -69,15 +67,49 @@ struct PuzzleRushSessionTests {
                 wrong = (from, to); break outer
             }
         }
-        let move = try #require(wrong)
+        return try #require(wrong)
+    }
 
+    @Test("a wrong answer costs a time penalty and retries the same puzzle instead of ending the run")
+    func wrongAnswerPenalizesAndRetries() throws {
+        let t0 = Date()
+        let session = PuzzleRushSession(durationSeconds: 60, now: fixedClock(t0))
+        session.start(puzzles: [mateIn1A, mateIn1B])
+        #expect(session.remainingSeconds == 60)
+
+        let move = try aWrongMove(in: session)
+        session.tap(move.from)
+        session.tap(move.to)
+
+        #expect(session.isActive)   // the run continues
+        #expect(session.hasEnded == false)
+        #expect(session.endReason == nil)
+        #expect(session.correctCount == 0)
+        #expect(session.wrongAttempts == 1)
+        #expect(session.justPenalized)
+        #expect(session.remainingSeconds == 50)   // 60 - the 10s penalty
+        #expect(session.currentPuzzle?.id == mateIn1A.id)   // same puzzle, restarted
+
+        // The next tap (a fresh attempt) clears the transient penalty flag.
+        session.tap(move.from)
+        #expect(session.justPenalized == false)
+    }
+
+    @Test("a wrong-answer penalty that exhausts the clock ends the run via timeExpired")
+    func wrongAnswerPenaltyCanExhaustClock() throws {
+        let t0 = Date()
+        // Only 5 seconds on the clock -- a single 10s penalty must end the run.
+        let session = PuzzleRushSession(durationSeconds: 5, now: fixedClock(t0))
+        session.start(puzzles: [mateIn1A, mateIn1B])
+
+        let move = try aWrongMove(in: session)
         session.tap(move.from)
         session.tap(move.to)
 
         #expect(session.isActive == false)
-        #expect(session.endReason == .wrongAnswer)
-        #expect(session.correctCount == 0)   // final score: zero solved this run
-        #expect(session.hasEnded)
+        #expect(session.endReason == .timeExpired)
+        #expect(session.wrongAttempts == 1)
+        #expect(session.remainingSeconds == 0)
     }
 
     @Test("the timer reaching zero mid-puzzle ends the session and records the final score")
@@ -116,37 +148,68 @@ struct PuzzleRushSessionTests {
     @Test("restarting after a run ended starts fresh with no stale state")
     func restartClearsStaleState() throws {
         let t0 = Date()
-        let session = PuzzleRushSession(durationSeconds: 60, now: fixedClock(t0))
+        // Exhaust the clock via a penalty so the run actually ends.
+        let session = PuzzleRushSession(durationSeconds: 5, now: fixedClock(t0))
         session.start(puzzles: [mateIn1A, mateIn1B])
 
-        // End the run with a wrong answer.
-        let dests = ChessLogic.legalDestinations(forFEN: session.fen)
-        let g2 = try #require(BoardGeometry.square("g2"))
-        let g7 = try #require(BoardGeometry.square("g7"))
-        var wrong: (from: Square, to: Square)?
-        outer: for (from, tos) in dests {
-            for to in tos where !(from == g2 && to == g7) {
-                wrong = (from, to); break outer
-            }
-        }
-        let move = try #require(wrong)
+        let move = try aWrongMove(in: session)
         session.tap(move.from)
         session.tap(move.to)
-        #expect(session.endReason == .wrongAnswer)
+        #expect(session.endReason == .timeExpired)
+        #expect(session.wrongAttempts == 1)
 
-        // Restart from scratch.
-        session.start(puzzles: [mateIn1A, mateIn1B])
+        // Restart from scratch, with a fresh duration.
+        let restarted = PuzzleRushSession(durationSeconds: 60, now: fixedClock(t0))
+        restarted.start(puzzles: [mateIn1A, mateIn1B])
 
-        #expect(session.isActive)
-        #expect(session.endReason == nil)
-        #expect(session.correctCount == 0)
-        #expect(session.currentPuzzle?.id == mateIn1A.id)
-        #expect(session.remainingSeconds == 60)
+        #expect(restarted.isActive)
+        #expect(restarted.endReason == nil)
+        #expect(restarted.correctCount == 0)
+        #expect(restarted.wrongAttempts == 0)
+        #expect(restarted.justPenalized == false)
+        #expect(restarted.currentPuzzle?.id == mateIn1A.id)
+        #expect(restarted.remainingSeconds == 60)
     }
 
     @Test("loadPuzzlePool orders puzzles difficulty-ascending across packs")
     func orderIsDifficultyAscending() {
         let ordered = PuzzleRushSession.order([mateIn1B, mateIn1A])
         #expect(ordered.map(\.id) == [mateIn1A.id, mateIn1B.id])
+    }
+
+    @Test("order shuffles within a difficulty band but keeps bands ascending")
+    func orderShufflesWithinBand() {
+        // Five puzzles all in the same 100-point band (rating/100 == 12),
+        // plus one clearly higher-rated puzzle -- the band should shuffle
+        // relative to itself across generators, while the higher band always
+        // sorts after it.
+        let sameBand = (0..<5).map { i in
+            Puzzle(id: "band-\(i)", fen: mateIn1A.fen, moves: mateIn1A.moves, rating: 1200 + i, themes: [])
+        }
+        let higher = Puzzle(id: "higher", fen: mateIn1A.fen, moves: mateIn1A.moves, rating: 1900, themes: [])
+        let all = sameBand + [higher]
+
+        var seedA = SeededGenerator(seed: 1)
+        var seedB = SeededGenerator(seed: 2)
+        let orderedA = PuzzleRushSession.order(all, using: &seedA)
+        let orderedB = PuzzleRushSession.order(all, using: &seedB)
+
+        #expect(orderedA.last?.id == "higher")   // higher band always last
+        #expect(orderedB.last?.id == "higher")
+        #expect(Set(orderedA.map(\.id)) == Set(all.map(\.id)))   // same puzzles, no loss
+        #expect(orderedA.map(\.id) != orderedB.map(\.id))   // different generators, different order
+    }
+}
+
+/// A tiny deterministic RNG so shuffle tests don't depend on real randomness
+/// or on `SystemRandomNumberGenerator`'s (unspecified) behavior.
+private struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed == 0 ? 0xdead_beef : seed }
+    mutating func next() -> UInt64 {
+        state ^= state << 13
+        state ^= state >> 7
+        state ^= state << 17
+        return state
     }
 }

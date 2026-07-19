@@ -1,8 +1,13 @@
 //  OpeningTrainerView.swift
 //  Opening Trainer UI: search the local ECO book for a line, then a compact
 //  drill session -- the board auto-plays the opponent's moves and prompts for
-//  the user's, surfacing the correct continuation on a miss. Entirely free --
-//  no coach involved.
+//  the user's, surfacing the correct continuation on a miss.
+//
+//  Three actions during a drill, two gating tiers (see OpeningTrainerViewModel's
+//  header): "Hint" (free, reveals the next move) and "Moves" (free, the full
+//  line's move list) are always available; "Coach" (Pro) asks why the move is
+//  the book move, or a free-form follow-up question, and shows the paywall on
+//  `vm.showPaywall` instead of a generic error when the caller isn't entitled.
 
 import SwiftUI
 
@@ -85,6 +90,9 @@ struct OpeningDrillView: View {
     @Bindable var vm: OpeningTrainerViewModel
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
+    @State private var showMoveList = false
+    @State private var showCoach = false
+    @State private var questionText = ""
     private var theme: Theme { themeStore.effective }
 
     var body: some View {
@@ -92,12 +100,123 @@ struct OpeningDrillView: View {
             header
             board
             statusCard
+            actionsRow
             Spacer(minLength: 0)
         }
         .padding(.bottom, 8)
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
+        .sheet(isPresented: $showMoveList) { moveListSheet }
+        .sheet(isPresented: $showCoach) { coachSheet }
+        .sheet(isPresented: $vm.showPaywall) { PaywallView() }
+    }
+
+    /// Hint and Moves are free; Coach is Pro (see this file's header).
+    @ViewBuilder
+    private var actionsRow: some View {
+        HStack(spacing: 10) {
+            actionButton(icon: "lightbulb.fill", title: "Hint") { vm.showHint() }
+            actionButton(icon: "list.bullet", title: "Moves") { showMoveList = true }
+            actionButton(icon: "bubble.left.fill", title: "Coach") { showCoach = true }
+        }
+        .padding(.horizontal, 14)
+
+        if let hint = vm.revealedHintSAN {
+            Text("Next move: \(hint)")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.accent2Color)
+                .padding(.horizontal, 14)
+        }
+    }
+
+    private func actionButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon).font(.subheadline.weight(.semibold))
+                Text(title).font(.caption2.weight(.medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(PressableStyle())
+        .foregroundStyle(theme.textColor.opacity(0.85))
+        .background(theme.cardBackgroundColor)
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var moveListSheet: some View {
+        NavigationStack {
+            List {
+                if let line = vm.activeLine {
+                    ForEach(Array(line.sanMoves.enumerated()), id: \.offset) { index, san in
+                        HStack {
+                            Text("\(index / 2 + 1)\(index % 2 == 0 ? "." : "...")")
+                                .foregroundStyle(.secondary)
+                            Text(san).font(.body.weight(.medium))
+                            Spacer()
+                            if index < vm.moveCursorForDisplay {
+                                Image(systemName: "checkmark").foregroundStyle(theme.accentColor)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(vm.activeLine?.name ?? "Moves")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailingCompat) { Button("Done") { showMoveList = false } }
+            }
+        }
+        .environment(themeStore)
+    }
+
+    private var coachSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                Button {
+                    Task { await vm.askWhyCurrentMove() }
+                } label: {
+                    Label("Why this move?", systemImage: "sparkles")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(vm.isAskingCoach)
+
+                HStack {
+                    TextField("Ask a question about this line...", text: $questionText)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.sentences)
+                        #endif
+                    Button("Ask") {
+                        let text = questionText
+                        questionText = ""
+                        Task { await vm.askQuestion(text) }
+                    }
+                    .disabled(vm.isAskingCoach || questionText.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                if vm.isAskingCoach {
+                    ProgressView().frame(maxWidth: .infinity)
+                } else if let answer = vm.coachAnswer {
+                    Text(answer).font(.subheadline).foregroundStyle(theme.textColor)
+                } else if let error = vm.coachError {
+                    Text(error).font(.footnote).foregroundStyle(.orange)
+                }
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("Coach")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailingCompat) { Button("Done") { showCoach = false } }
+            }
+        }
+        .environment(themeStore)
     }
 
     private var header: some View {

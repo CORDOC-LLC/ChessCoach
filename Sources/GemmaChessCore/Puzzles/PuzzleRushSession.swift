@@ -1,27 +1,32 @@
 //  PuzzleRushSession.swift
 //  "Puzzle Rush": a timed session over already-downloaded puzzle packs --
-//  solve as many as possible before the clock runs out, ending immediately on
-//  the first wrong answer (mirrors Chess.com/Lichess Puzzle Rush). Entirely
-//  free and local: no coach, no network, reuses the same puzzle packs
-//  `PuzzleViewModel` solves one-at-a-time in normal Puzzles mode.
+//  solve as many as possible before the clock runs out. A wrong move no
+//  longer ends the run outright: it costs `wrongAnswerPenaltySeconds` off the
+//  clock and restarts the SAME puzzle from its setup position, so one miss
+//  doesn't throw away the whole run (unless the penalty itself exhausts the
+//  clock, which ends the run via `.timeExpired` exactly as a natural
+//  countdown would). Entirely free and local: no coach, no network, reuses
+//  the same puzzle packs `PuzzleViewModel` solves one-at-a-time in normal
+//  Puzzles mode.
 //
 //  This is a standalone session/view-model rather than a `PuzzleViewModel`
 //  extension: Rush's rules diverge from normal puzzle mode in ways that don't
-//  compose cleanly with it (a wrong move ends the whole run instead of just
-//  being rejected with a retry, and the opponent's forced reply auto-plays
-//  immediately instead of after a UX pause, since speed is the point). The
-//  move-validation shape (tap-to-select, UCI compare, `ChessLogic.fen(
-//  afterMove:fromFEN:)`) is copied from `PuzzleViewModel`'s state machine
-//  rather than reinvented.
+//  compose cleanly with it (a wrong move costs time instead of just being
+//  rejected with an unlimited retry, and the opponent's forced reply
+//  auto-plays immediately instead of after a UX pause, since speed is the
+//  point). The move-validation shape (tap-to-select, UCI compare,
+//  `ChessLogic.fen(afterMove:fromFEN:)`) is copied from `PuzzleViewModel`'s
+//  state machine rather than reinvented.
 
 import Foundation
 import ChessKit
 
-/// Why a Rush run ended.
+/// Why a Rush run ended. A wrong answer alone no longer ends a run (see this
+/// file's header) -- it only shows up here if the penalty it applies happens
+/// to exhaust the clock, in which case the reason is `.timeExpired`, not a
+/// distinct "you missed one" reason.
 public enum PuzzleRushEndReason: Equatable, Sendable {
-    /// The solver played a legal-but-wrong move.
-    case wrongAnswer
-    /// The countdown reached zero.
+    /// The countdown reached zero (including via a wrong-answer penalty).
     case timeExpired
     /// The solver correctly finished every puzzle in the pool (rare, but
     /// possible with a small pool) -- distinct from failing so the UI can
@@ -45,9 +50,20 @@ public final class PuzzleRushSession {
 
     // MARK: Run state
 
+    /// Deducted from the clock on every wrong answer, in exchange for
+    /// retrying the same puzzle instead of ending the run.
+    public static let wrongAnswerPenaltySeconds: TimeInterval = 10
+
     public private(set) var queue: [Puzzle] = []
     public private(set) var index = 0
     public private(set) var correctCount = 0
+    /// Wrong attempts across the whole run (each already reflected in
+    /// `remainingSeconds` via the penalty) -- shown on the result card.
+    public private(set) var wrongAttempts = 0
+    /// Set for a brief moment right after a wrong answer, so the UI can flash
+    /// a "-10s" toast before it's cleared on the next tap/tick. Not persisted
+    /// across a restart beyond what `start(puzzles:)` already resets.
+    public private(set) var justPenalized = false
     public private(set) var isActive = false
     public private(set) var endReason: PuzzleRushEndReason?
     public private(set) var remainingSeconds: Int
@@ -79,12 +95,26 @@ public final class PuzzleRushSession {
     public var orientation: BoardOrientation { solverIsWhite ? .white : .black }
     public var legalDots: [Square] { selected.flatMap { dests[$0] } ?? [] }
 
-    /// Puzzles ordered easiest-first -- a reasonable Rush default (per the
-    /// plan's open question) since it lets a run build up a streak before
-    /// harder puzzles start costing time, mirroring how Rush difficulty
-    /// ramps in Chess.com/Lichess.
+    /// Puzzles grouped into difficulty-ascending bands (bucketed by 100
+    /// rating points), shuffled *within* each band -- keeps the same overall
+    /// easy-to-hard ramp Chess.com/Lichess Rush uses, while giving a replay a
+    /// genuinely different puzzle order instead of the exact same sequence
+    /// every time (same-rating puzzles no longer always land in the same
+    /// relative spot). `generator` is injectable so tests get a deterministic
+    /// shuffle instead of depending on real randomness.
+    public static func order<G: RandomNumberGenerator>(
+        _ puzzles: [Puzzle], using generator: inout G
+    ) -> [Puzzle] {
+        let bandSize = 100
+        let bands = Dictionary(grouping: puzzles) { $0.rating / bandSize }
+        return bands.keys.sorted().flatMap { bands[$0]!.shuffled(using: &generator) }
+    }
+
+    /// Convenience overload using the system RNG -- real variety at runtime;
+    /// tests use the generic `order(_:using:)` with a fixed generator instead.
     public static func order(_ puzzles: [Puzzle]) -> [Puzzle] {
-        puzzles.sorted { $0.rating < $1.rating }
+        var rng = SystemRandomNumberGenerator()
+        return order(puzzles, using: &rng)
     }
 
     /// Gathers puzzles from every already-downloaded pack on disk, excluding
@@ -92,7 +122,8 @@ public final class PuzzleRushSession {
     /// doesn't waste time re-solving puzzles finished outside Rush mode --
     /// unless doing so would leave a theme's pack empty, in which case that
     /// pack's puzzles are all included anyway (recycling beats an empty
-    /// pool). Difficulty-ascending across the combined pool.
+    /// pool). Difficulty-ascending across the combined pool, shuffled within
+    /// each difficulty band (see `order(_:using:)`) for replay variety.
     public static func loadPuzzlePool(
         baseDir: URL = PuzzleDownloadStore.defaultBaseDir,
         progressDefaults: UserDefaults = .standard
@@ -121,6 +152,8 @@ public final class PuzzleRushSession {
         queue = Self.order(puzzles)
         index = 0
         correctCount = 0
+        wrongAttempts = 0
+        justPenalized = false
         endReason = nil
         remainingSeconds = durationSeconds
         selected = nil
@@ -154,6 +187,7 @@ public final class PuzzleRushSession {
 
     public func tap(_ square: Square) {
         guard isActive, currentPuzzle != nil else { return }
+        justPenalized = false
         if let sel = selected, let d = dests[sel], d.contains(square) {
             attemptMove(from: sel, to: square)
             return
@@ -168,7 +202,7 @@ public final class PuzzleRushSession {
         selected = nil
         let expected = puzzle.moves[moveCursor]
         guard attempted == expected else {
-            end(reason: .wrongAnswer)
+            registerWrongAttempt()
             return
         }
         guard let next = ChessLogic.fen(afterMove: attempted, fromFEN: fromFEN) else { return }
@@ -204,6 +238,28 @@ public final class PuzzleRushSession {
     private func end(reason: PuzzleRushEndReason) {
         isActive = false
         endReason = reason
+    }
+
+    /// A wrong move costs the clock, not the run: apply the penalty, and
+    /// restart the current puzzle from its setup position unless the penalty
+    /// itself exhausted the clock (in which case `applyPenalty` already
+    /// ended the run via `.timeExpired`).
+    private func registerWrongAttempt() {
+        wrongAttempts += 1
+        justPenalized = true
+        applyPenalty(seconds: Self.wrongAnswerPenaltySeconds)
+        guard isActive else { return }
+        loadCurrentPuzzle()
+    }
+
+    /// Pulls the deadline closer by `seconds` and immediately recomputes
+    /// `remainingSeconds` against the injected clock (rather than waiting for
+    /// the next periodic `tick()`), ending the run via `.timeExpired` if that
+    /// alone exhausts the clock.
+    private func applyPenalty(seconds: TimeInterval) {
+        guard let deadline else { return }
+        self.deadline = deadline.addingTimeInterval(-seconds)
+        tick()
     }
 
     // MARK: Helpers (mirror PuzzleViewModel's private helpers)
