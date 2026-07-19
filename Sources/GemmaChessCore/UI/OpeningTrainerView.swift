@@ -12,10 +12,16 @@
 import SwiftUI
 
 /// Shows the search/browse list until a line is started, then the drill.
+/// Lines are grouped into openable family sections (e.g. every "Queen's Pawn
+/// Game: ..." variation together) rather than one long flat list -- see
+/// `Openings.OpeningLine.family` / `OpeningTrainerViewModel.groupedResults`.
 public struct OpeningTrainerContainerView: View {
     @Bindable var vm: OpeningTrainerViewModel
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
+    /// Explicit expand/collapse choices the user has made, keyed by family --
+    /// overrides the search-driven default (see `isExpandedBinding`).
+    @State private var manualExpansion: [String: Bool] = [:]
 
     public init(vm: OpeningTrainerViewModel, onExit: @escaping () -> Void) {
         self.vm = vm; self.onExit = onExit
@@ -47,10 +53,8 @@ public struct OpeningTrainerContainerView: View {
                 .textInputAutocapitalization(.words)
                 #endif
             }
-            Section("Lines") {
-                ForEach(vm.results.prefix(200)) { line in
-                    lineRow(line)
-                }
+            ForEach(vm.groupedResults) { group in
+                familyGroup(group)
             }
         }
         .scrollContentBackground(.hidden)
@@ -60,13 +64,43 @@ public struct OpeningTrainerContainerView: View {
         }
     }
 
+    private func familyGroup(_ group: OpeningFamilyGroup) -> some View {
+        DisclosureGroup(isExpanded: isExpandedBinding(for: group.id)) {
+            ForEach(group.lines) { line in
+                lineRow(line)
+            }
+        } label: {
+            HStack {
+                Text(group.title).font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(group.lines.count)")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Actively searching (a narrowed, small result set) expands every
+    /// matching family by default, since the user is looking for something
+    /// specific; browsing the full book (empty query) keeps families
+    /// collapsed by default so the list isn't hundreds of rows deep. Once
+    /// the user explicitly toggles a family, that choice wins from then on.
+    private func isExpandedBinding(for family: String) -> Binding<Bool> {
+        Binding(
+            get: {
+                manualExpansion[family]
+                    ?? !vm.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            },
+            set: { manualExpansion[family] = $0 }
+        )
+    }
+
     private func lineRow(_ line: Openings.OpeningLine) -> some View {
         Button {
             vm.start(line: line, userIsWhite: vm.userIsWhite)
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(line.name).font(.subheadline.weight(.semibold))
+                    Text(line.variationLabel ?? "Main line").font(.subheadline.weight(.semibold))
                     Text("\(line.eco) · \(line.sanMoves.count) moves")
                         .font(.caption).foregroundStyle(.secondary)
                 }
