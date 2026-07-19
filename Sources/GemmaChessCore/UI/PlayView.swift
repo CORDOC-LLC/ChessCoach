@@ -148,6 +148,7 @@ public struct PlayView: View {
         #endif
         .sheet(isPresented: $showAppearance) { AppearanceView() }
         .sheet(isPresented: $showPaywall) { PaywallView() }
+        .sheet(isPresented: $vm.showReviewPrompt) { ReviewPromptView() }
     }
 
     // Eval bar is a leading overlay so its height tracks the board exactly

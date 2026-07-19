@@ -228,6 +228,11 @@ private struct LessonPracticeView: View {
     @Environment(ThemeStore.self) private var themeStore
     @State private var showAskPanel = false
     @State private var questionText = ""
+    /// Presented once per completion when `ReviewPromptStore.shouldPrompt`
+    /// allows it -- a local, screen-owned sheet rather than a shared
+    /// coordinator, mirroring `BoardScannerView`'s `showPaywall` pattern
+    /// (plan U6/KTD-7).
+    @State private var showReviewPrompt = false
     private var theme: Theme { themeStore.effective }
 
     var body: some View {
@@ -244,6 +249,28 @@ private struct LessonPracticeView: View {
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .sheet(isPresented: $vm.showPaywall) { PaywallView() }
+        .sheet(isPresented: $showReviewPrompt) { ReviewPromptView() }
+        .onChange(of: vm.isLessonComplete) { _, isComplete in
+            guard isComplete else { return }
+            checkReviewPrompt()
+        }
+    }
+
+    /// Checked once a lesson finishes (`vm.isLessonComplete` flips true in
+    /// `LessonViewModel.finishPuzzle()`) -- one of the two engagement events
+    /// `ReviewPromptStore.shouldPrompt` gates on (the other is a finished
+    /// game, checked from `PlayViewModel`/`PlayView`). Counts are computed
+    /// here rather than read from a store-owned convenience, per U5's
+    /// Approach: `ReviewPromptStore` takes caller-supplied totals instead of
+    /// duplicating `LessonProgressStore`/`PlayStatsStore`'s own counters.
+    private func checkReviewPrompt() {
+        let lessonsCompleted = LessonCatalog.allLessons.filter {
+            LessonProgressStore.progress(for: $0.id) == .completed
+        }.count
+        let gamesPlayed = PlayStatsStore.current().totalGames
+        if ReviewPromptStore.shouldPrompt(lessonsCompleted: lessonsCompleted, gamesPlayed: gamesPlayed) {
+            showReviewPrompt = true
+        }
     }
 
     private var header: some View {
