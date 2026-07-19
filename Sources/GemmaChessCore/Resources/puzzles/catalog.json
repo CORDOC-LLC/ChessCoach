@@ -1,0 +1,164 @@
+{
+  "themes": [
+    {
+      "theme": "fork",
+      "count": 200,
+      "minRating": 552,
+      "maxRating": 2693,
+      "file": "fork.json",
+      "sizeKB": 38.7
+    },
+    {
+      "theme": "pin",
+      "count": 200,
+      "minRating": 609,
+      "maxRating": 2865,
+      "file": "pin.json",
+      "sizeKB": 38.4
+    },
+    {
+      "theme": "skewer",
+      "count": 200,
+      "minRating": 602,
+      "maxRating": 2744,
+      "file": "skewer.json",
+      "sizeKB": 39.2
+    },
+    {
+      "theme": "discoveredAttack",
+      "count": 200,
+      "minRating": 651,
+      "maxRating": 2668,
+      "file": "discoveredAttack.json",
+      "sizeKB": 42.0
+    },
+    {
+      "theme": "doubleCheck",
+      "count": 200,
+      "minRating": 656,
+      "maxRating": 2819,
+      "file": "doubleCheck.json",
+      "sizeKB": 42.0
+    },
+    {
+      "theme": "backRankMate",
+      "count": 200,
+      "minRating": 399,
+      "maxRating": 2609,
+      "file": "backRankMate.json",
+      "sizeKB": 42.5
+    },
+    {
+      "theme": "smotheredMate",
+      "count": 183,
+      "minRating": 716,
+      "maxRating": 2570,
+      "file": "smotheredMate.json",
+      "sizeKB": 38.6
+    },
+    {
+      "theme": "hangingPiece",
+      "count": 200,
+      "minRating": 419,
+      "maxRating": 2803,
+      "file": "hangingPiece.json",
+      "sizeKB": 39.5
+    },
+    {
+      "theme": "trappedPiece",
+      "count": 200,
+      "minRating": 730,
+      "maxRating": 2707,
+      "file": "trappedPiece.json",
+      "sizeKB": 39.6
+    },
+    {
+      "theme": "sacrifice",
+      "count": 200,
+      "minRating": 534,
+      "maxRating": 2739,
+      "file": "sacrifice.json",
+      "sizeKB": 42.5
+    },
+    {
+      "theme": "deflection",
+      "count": 200,
+      "minRating": 678,
+      "maxRating": 2754,
+      "file": "deflection.json",
+      "sizeKB": 41.3
+    },
+    {
+      "theme": "attraction",
+      "count": 200,
+      "minRating": 736,
+      "maxRating": 2535,
+      "file": "attraction.json",
+      "sizeKB": 43.5
+    },
+    {
+      "theme": "clearance",
+      "count": 200,
+      "minRating": 617,
+      "maxRating": 2944,
+      "file": "clearance.json",
+      "sizeKB": 42.2
+    },
+    {
+      "theme": "xRayAttack",
+      "count": 200,
+      "minRating": 636,
+      "maxRating": 2734,
+      "file": "xRayAttack.json",
+      "sizeKB": 41.5
+    },
+    {
+      "theme": "zugzwang",
+      "count": 200,
+      "minRating": 611,
+      "maxRating": 2750,
+      "file": "zugzwang.json",
+      "sizeKB": 40.1
+    },
+    {
+      "theme": "mateIn1",
+      "count": 200,
+      "minRating": 399,
+      "maxRating": 2234,
+      "file": "mateIn1.json",
+      "sizeKB": 33.9
+    },
+    {
+      "theme": "mateIn2",
+      "count": 200,
+      "minRating": 423,
+      "maxRating": 2503,
+      "file": "mateIn2.json",
+      "sizeKB": 36.5
+    },
+    {
+      "theme": "mateIn3",
+      "count": 200,
+      "minRating": 443,
+      "maxRating": 2535,
+      "file": "mateIn3.json",
+      "sizeKB": 41.2
+    },
+    {
+      "theme": "endgame",
+      "count": 200,
+      "minRating": 547,
+      "maxRating": 2766,
+      "file": "endgame.json",
+      "sizeKB": 37.0
+    },
+    {
+      "theme": "opening",
+      "count": 200,
+      "minRating": 422,
+      "maxRating": 2699,
+      "file": "opening.json",
+      "sizeKB": 38.0
+    }
+  ]
+}

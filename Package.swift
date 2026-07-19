@@ -36,6 +36,7 @@ let package = Package(
                 .copy("Resources/eco"),
                 .copy("Resources/nnue"),
                 .copy("Resources/licenses"),
+                .copy("Resources/puzzles"),
                 .process("Resources/Pieces.xcassets"),
             ]
         ),

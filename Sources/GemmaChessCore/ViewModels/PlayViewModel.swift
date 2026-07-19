@@ -86,6 +86,11 @@ public final class PlayViewModel {
     /// Lifetime win/loss/draw tally, shown in the game-over banner and Settings.
     /// Updated (and persisted) the instant a game actually ends.
     public private(set) var stats: PlayStats
+    /// Set when a finished game crosses `ReviewPromptStore.shouldPrompt`'s
+    /// threshold -- the view watches this to present `ReviewPromptView`,
+    /// mirroring `LessonViewModel`/`OpeningTrainerViewModel`'s `showPaywall`
+    /// pattern (plan U6/KTD-7).
+    public var showReviewPrompt = false
     /// Opponent strength: Stockfish "Skill Level" 0–20.
     public var skill: Int = 6
     public var coachAvailability: CoachAvailability
@@ -849,6 +854,22 @@ public final class PlayViewModel {
     private func recordOutcome() {
         guard let outcome else { return }
         stats = PlayStatsStore.record(outcome, defaults: statsDefaults)
+        checkReviewPrompt()
+    }
+
+    /// Checked after every finished game -- one of the two engagement events
+    /// `ReviewPromptStore.shouldPrompt` gates on (the other is a completed
+    /// lesson, checked from `LessonsView`). `lessonsCompleted` is computed
+    /// here rather than read from a store-owned convenience, per U5's
+    /// Approach: `ReviewPromptStore` takes caller-supplied totals instead of
+    /// duplicating `LessonProgressStore`/`PlayStatsStore`'s own counters.
+    private func checkReviewPrompt() {
+        let lessonsCompleted = LessonCatalog.allLessons.filter {
+            LessonProgressStore.progress(for: $0.id) == .completed
+        }.count
+        if ReviewPromptStore.shouldPrompt(lessonsCompleted: lessonsCompleted, gamesPlayed: stats.totalGames) {
+            showReviewPrompt = true
+        }
     }
 
     private func notation(_ sq: Square) -> String {

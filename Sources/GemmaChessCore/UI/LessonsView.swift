@@ -12,6 +12,13 @@ import SwiftUI
 public struct LessonsContainerView: View {
     var onExit: () -> Void
     @State private var selectedLesson: Lesson?
+    /// Themes unlocked via an in-place "Download" tap this session -- not
+    /// bundled and not yet cached on disk when the list first rendered, but
+    /// `PuzzleDownloadStore.downloadPack` succeeded, so the row should flip
+    /// to unlocked without waiting for a re-launch to re-check the cache.
+    @State private var sessionUnlockedThemes: Set<String> = []
+    @State private var downloadingThemes: Set<String> = []
+    @State private var downloadErrors: [String: String] = [:]
     @Environment(ThemeStore.self) private var themeStore
 
     public init(onExit: @escaping () -> Void) {
@@ -49,7 +56,25 @@ public struct LessonsContainerView: View {
         }
     }
 
+    /// A theme's data is available (bundled at build time, already cached on
+    /// disk, or just downloaded this session) once any of these is true --
+    /// mirrors `PuzzlesView`'s bundled/downloaded row-state check.
+    private func isUnlocked(_ lesson: Lesson) -> Bool {
+        PuzzleDownloadStore.isBundled(theme: lesson.theme)
+            || PuzzleDownloadStore.isDownloaded(theme: lesson.theme)
+            || sessionUnlockedThemes.contains(lesson.theme)
+    }
+
+    @ViewBuilder
     private func lessonRow(_ lesson: Lesson) -> some View {
+        if isUnlocked(lesson) {
+            unlockedLessonRow(lesson)
+        } else {
+            lockedLessonRow(lesson)
+        }
+    }
+
+    private func unlockedLessonRow(_ lesson: Lesson) -> some View {
         Button {
             selectedLesson = lesson
         } label: {
@@ -64,6 +89,58 @@ public struct LessonsContainerView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    /// A theme not yet bundled or downloaded (e.g. one of the "Special Moves"
+    /// lessons awaiting curated puzzle data -- see `LessonCatalog`). Tapping
+    /// attempts the same on-demand download `LessonViewModel.start()` uses;
+    /// on success the row flips to `unlockedLessonRow` in place, on failure
+    /// the error surfaces inline rather than crashing or failing silently.
+    private func lockedLessonRow(_ lesson: Lesson) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                downloadTheme(lesson)
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(lesson.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("\(lesson.puzzleCount) puzzles")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if downloadingThemes.contains(lesson.theme) {
+                        ProgressView()
+                    } else {
+                        Label("Download", systemImage: "lock.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(downloadingThemes.contains(lesson.theme))
+            if let error = downloadErrors[lesson.theme] {
+                Text(error).font(.caption2).foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func downloadTheme(_ lesson: Lesson) {
+        guard !downloadingThemes.contains(lesson.theme) else { return }
+        downloadingThemes.insert(lesson.theme)
+        downloadErrors[lesson.theme] = nil
+        Task {
+            do {
+                _ = try await PuzzleDownloadStore.downloadPack(theme: lesson.theme)
+                downloadingThemes.remove(lesson.theme)
+                sessionUnlockedThemes.insert(lesson.theme)
+            } catch {
+                downloadingThemes.remove(lesson.theme)
+                downloadErrors[lesson.theme] = (error as? PuzzleError)?.message ?? error.localizedDescription
+            }
+        }
     }
 
     @ViewBuilder
@@ -149,18 +226,51 @@ private struct LessonPracticeView: View {
     @Bindable var vm: LessonViewModel
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
+    @State private var showAskPanel = false
+    @State private var questionText = ""
+    /// Presented once per completion when `ReviewPromptStore.shouldPrompt`
+    /// allows it -- a local, screen-owned sheet rather than a shared
+    /// coordinator, mirroring `BoardScannerView`'s `showPaywall` pattern
+    /// (plan U6/KTD-7).
+    @State private var showReviewPrompt = false
     private var theme: Theme { themeStore.effective }
 
     var body: some View {
         VStack(spacing: 10) {
             header
             content
+            if vm.currentPuzzle != nil {
+                askCoachSection
+            }
             Spacer(minLength: 0)
         }
         .padding(.bottom, 8)
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
+        .sheet(isPresented: $vm.showPaywall) { PaywallView() }
+        .sheet(isPresented: $showReviewPrompt) { ReviewPromptView() }
+        .onChange(of: vm.isLessonComplete) { _, isComplete in
+            guard isComplete else { return }
+            checkReviewPrompt()
+        }
+    }
+
+    /// Checked once a lesson finishes (`vm.isLessonComplete` flips true in
+    /// `LessonViewModel.finishPuzzle()`) -- one of the two engagement events
+    /// `ReviewPromptStore.shouldPrompt` gates on (the other is a finished
+    /// game, checked from `PlayViewModel`/`PlayView`). Counts are computed
+    /// here rather than read from a store-owned convenience, per U5's
+    /// Approach: `ReviewPromptStore` takes caller-supplied totals instead of
+    /// duplicating `LessonProgressStore`/`PlayStatsStore`'s own counters.
+    private func checkReviewPrompt() {
+        let lessonsCompleted = LessonCatalog.allLessons.filter {
+            LessonProgressStore.progress(for: $0.id) == .completed
+        }.count
+        let gamesPlayed = PlayStatsStore.current().totalGames
+        if ReviewPromptStore.shouldPrompt(lessonsCompleted: lessonsCompleted, gamesPlayed: gamesPlayed) {
+            showReviewPrompt = true
+        }
     }
 
     private var header: some View {
@@ -182,9 +292,29 @@ private struct LessonPracticeView: View {
                 }
             }
             Spacer()
+            if vm.currentPuzzle != nil {
+                sideToMoveBadge
+            }
         }
         .padding(.horizontal, 14)
         .padding(.top, 8)
+    }
+
+    /// Which side the solver is playing this puzzle -- puzzles can start with
+    /// either color to move, so this isn't assumable from the lesson alone.
+    private var sideToMoveBadge: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(vm.solverIsWhite ? Color.white : Color.black)
+                .overlay(Circle().stroke(theme.textColor.opacity(0.35), lineWidth: 1))
+                .frame(width: 11, height: 11)
+            Text(vm.solverIsWhite ? "Playing White" : "Playing Black")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.textColor)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(theme.cardBackgroundColor, in: Capsule())
+        .overlay(Capsule().stroke(theme.cardBorderColor, lineWidth: 1))
     }
 
     @ViewBuilder
@@ -251,6 +381,49 @@ private struct LessonPracticeView: View {
         case .incorrect: return .red
         case .solved: return theme.accent2Color
         }
+    }
+
+    /// Pro-gated "Ask the coach" affordance -- a free-form question about the
+    /// current puzzle, mirroring `OpeningTrainerView`'s `coachPanel`.
+    private var askCoachSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                showAskPanel.toggle()
+            } label: {
+                Label("Ask the coach", systemImage: "sparkles")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.accentColor)
+
+            if showAskPanel {
+                HStack {
+                    TextField("Ask a question about this puzzle...", text: $questionText)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.sentences)
+                        #endif
+                    Button("Ask") {
+                        let text = questionText
+                        questionText = ""
+                        Task { await vm.askQuestion(text) }
+                    }
+                    .disabled(vm.isAskingCoach || questionText.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                if vm.isAskingCoach {
+                    ProgressView().frame(maxWidth: .infinity)
+                } else if let answer = vm.coachAnswer {
+                    Text(answer).font(.subheadline).foregroundStyle(theme.textColor)
+                } else if let error = vm.coachError {
+                    Text(error).font(.footnote).foregroundStyle(.orange)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(theme.cardBackgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 14)
     }
 
     private func errorCard(_ message: String) -> some View {

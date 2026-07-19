@@ -6,8 +6,15 @@
 //  `PuzzleViewModel`'s approach exactly (a plain string compare against the
 //  puzzle's own solution, no engine call) -- a wrong answer here allows an
 //  ordinary retry, unlike Puzzle Rush's timed penalty/end-of-run behavior,
-//  since a curated lesson isn't timed. Entirely free -- no coach, no
-//  `ProEntitlementStore` gate anywhere in this file.
+//  since a curated lesson isn't timed.
+//
+//  Coaching (`askQuestion(_:)`) is Pro-gated, mirroring
+//  `OpeningTrainerViewModel.askQuestion`/`runCoachCall` exactly: it goes
+//  through `CoachOrchestrator`, which applies the same uniform
+//  `ProEntitlementStore.requireProOrThrow()` gate used everywhere else in the
+//  app. Unlike Opening Trainer, there's no canned per-position question here
+//  (only free-form ones), so there's no `OpeningExplanationCache`-style
+//  caching seam to wire up.
 
 import SwiftUI
 import ChessKit
@@ -34,6 +41,15 @@ public final class LessonViewModel {
     public private(set) var isLoadingPack = false
     public private(set) var loadError: String?
 
+    // MARK: Coaching (Pro-gated)
+    public private(set) var coachAnswer: String?
+    public private(set) var isAskingCoach = false
+    public private(set) var coachError: String?
+    /// Set when a coaching call fails with `ProRequiredError` -- the view
+    /// watches this to present `PaywallView`, mirroring
+    /// `OpeningTrainerViewModel`'s `showPaywall` pattern.
+    public var showPaywall = false
+
     private var dests: [Square: [Square]] = [:]
     private var moveCursor = 0
     private var sessionGen = 0
@@ -41,15 +57,18 @@ public final class LessonViewModel {
     /// Application Support directory / `UserDefaults.standard`.
     private let progressDefaults: UserDefaults
     private let puzzleBaseDir: URL
+    private let coach: CoachOrchestrator
 
     public init(
         lesson: Lesson,
         progressDefaults: UserDefaults = .standard,
-        puzzleBaseDir: URL = PuzzleDownloadStore.defaultBaseDir
+        puzzleBaseDir: URL = PuzzleDownloadStore.defaultBaseDir,
+        coach: CoachOrchestrator = CoachOrchestrator()
     ) {
         self.lesson = lesson
         self.progressDefaults = progressDefaults
         self.puzzleBaseDir = puzzleBaseDir
+        self.coach = coach
     }
 
     // MARK: Derived
@@ -122,15 +141,57 @@ public final class LessonViewModel {
         status = "Find the best move."
     }
 
+    // MARK: Coaching (Pro-gated)
+
+    /// A free-form question about the current puzzle/position -- never
+    /// cached, mirroring `OpeningTrainerViewModel.askQuestion`'s free-form
+    /// path (there's no canned per-position question here to cache, see the
+    /// header).
+    public func askQuestion(_ text: String) async {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        await runCoachCall(question: text)
+    }
+
+    private func runCoachCall(question: String) async {
+        coachError = nil
+        isAskingCoach = true
+        defer { isAskingCoach = false }
+        do {
+            let reply = try await coach.answer(
+                question: question, fen: fen, playerSide: solverIsWhite ? .white : .black
+            )
+            coachAnswer = reply.answer
+        } catch is ProRequiredError {
+            showPaywall = true
+        } catch let e as CoachError {
+            coachError = e.message
+        } catch {
+            coachError = error.localizedDescription
+        }
+    }
+
     // MARK: Tap-to-move
 
     public func tap(_ square: Square) {
-        guard currentPuzzle != nil, feedback != .solved else { return }
+        // `.solved` (puzzle finished) and `.correct` (mid-way through the
+        // opponent's auto-reply delay in attemptMove) both disable tapping --
+        // `dests` briefly reflects the opponent's side to move during that
+        // window, so a tap on the user's own piece would otherwise silently
+        // do nothing and read as "the board isn't responding."
+        guard currentPuzzle != nil, feedback != .solved, feedback != .correct else { return }
         if let sel = selected, let d = dests[sel], d.contains(square) {
             attemptMove(from: sel, to: square)
             return
         }
-        selected = (dests[square] != nil) ? square : nil
+        let newSelection = (dests[square] != nil) ? square : nil
+        selected = newSelection
+        // Picking up a piece to retry clears a lingering "Not quite" from the
+        // previous miss, instead of leaving stale error feedback on screen
+        // while the user is mid-way through a fresh attempt.
+        if newSelection != nil, feedback == .incorrect {
+            feedback = nil
+            status = "Find the best move."
+        }
     }
 
     private func attemptMove(from: Square, to: Square) {
