@@ -130,6 +130,7 @@ public final class iCloudProgressSync: @unchecked Sendable {
         registerMergeRule(keyPrefix: PuzzleProgressStore.keyPrefix, strategy: .unionStringSet)
         registerMergeRule(keyPrefix: PuzzleRatingStore.key, strategy: .lastWriteWins)
         registerMergeRule(keyPrefix: PuzzleStreakStore.streakKeyPrefix, strategy: .lastWriteWins)
+        registerMergeRule(keyPrefix: LessonProgressStore.defaultsKey, strategy: .lastWriteWins)
     }
 
     private func startObservingIfNeeded() {
