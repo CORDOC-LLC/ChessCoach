@@ -1,10 +1,15 @@
 //  BeginnersView.swift
-//  A curated starting point for players who are brand new to chess: a few
-//  specific, well-regarded videos (embedded in-app) plus channels worth
-//  subscribing to for ongoing learning. Every URL below was verified via web
-//  search against the channel/video's actual current YouTube page before
-//  being hardcoded here — not generated from memory, since a wrong video ID
-//  or channel link just looks broken to the user.
+//  A curated starting point for players who are brand new to chess (and to
+//  ChessCoach itself): a plain-language walkthrough of what the app's modes
+//  do, a few specific well-regarded videos (embedded in-app), and channels
+//  worth subscribing to for ongoing learning. Every video/channel URL below
+//  was verified via web search against the actual current YouTube page
+//  before being hardcoded here — not generated from memory.
+//
+//  Three collapsed sections (collapsed by default, unlike this session's
+//  other DisclosureGroup screens which default-expand -- this page is long
+//  enough, and skimmable enough by section title, that a first-time visitor
+//  should see all three headers before committing to reading any one).
 
 import SwiftUI
 
@@ -22,10 +27,67 @@ struct BeginnerChannel: Identifiable {
     let note: String
 }
 
+/// One entry in the "How to use the app?" walkthrough -- a mode/feature name
+/// plus a plain-language explanation of what it does and when to reach for it.
+struct AppGuideEntry: Identifiable {
+    var id: String { title }
+    let icon: String
+    let title: String
+    let body: String
+}
+
 public struct BeginnersView: View {
     @State private var playingVideoID: String?
+    @State private var expandedSections: Set<String> = []
+    @Environment(ThemeStore.self) private var themeStore
+    private var theme: Theme { themeStore.effective }
 
     public init() {}
+
+    private let guideEntries: [AppGuideEntry] = [
+        .init(
+            icon: "play.fill", title: "Play a game",
+            body: "Play against Stockfish (the same engine used by every serious chess site) at a "
+                + "strength you pick. Turn on the coach to get a live written note after your moves, "
+                + "best-move hints, and an end-of-game debrief -- or turn it off and just play. Games "
+                + "checkpoint automatically, so you can close the app mid-game and resume later."
+        ),
+        .init(
+            icon: "puzzlepiece.fill", title: "Puzzles",
+            body: "Solve tactical puzzles grouped by rating band, or try Puzzle Rush for a timed run "
+                + "across all of them. Puzzles are curated from the Lichess puzzle database and are "
+                + "completely free -- no coach, no network, just Stockfish-verified positions."
+        ),
+        .init(
+            icon: "book.fill", title: "Lessons",
+            body: "A short, original explanation of one chess idea (forks, pins, back-rank mates, and "
+                + "more), paired with a handful of puzzles built for exactly that idea. Good for "
+                + "learning a pattern on purpose rather than picking it up by accident."
+        ),
+        .init(
+            icon: "book.closed.fill", title: "Opening trainer",
+            body: "Practice named opening lines move by move, with hints and a coach panel. Lines you "
+                + "get right come back less often; ones you miss come back sooner -- spaced repetition, "
+                + "so you're not wasting time re-drilling openings you already know cold."
+        ),
+        .init(
+            icon: "magnifyingglass", title: "Review a game",
+            body: "Paste in or import a PGN (from a file, or linked from your Chess.com/Lichess account) "
+                + "and get a full accuracy breakdown -- every mistake flagged, with the engine's "
+                + "preferred move instead, plus an end-of-game summary."
+        ),
+        .init(
+            icon: "camera.viewfinder", title: "Scan a board",
+            body: "Point your camera at a physical chess board and the app reads the position "
+                + "straight into a game you can keep playing or analyzing -- no manual setup needed."
+        ),
+        .init(
+            icon: "sparkles", title: "Weakness Report",
+            body: "Once you've played a few games, your coach can point out a specific recurring "
+                + "pattern in your play -- a tactic you keep missing, a phase of the game that costs "
+                + "you the most -- and point you at a Lesson or puzzle theme to work on it."
+        ),
+    ]
 
     private let videos: [BeginnerVideo] = [
         .init(
@@ -82,30 +144,89 @@ public struct BeginnersView: View {
     ]
 
     public var body: some View {
-        List {
-            Section {
-                Text("New to chess? Start with the videos below, then subscribe to a "
-                    + "few of these channels for ongoing lessons. None of this affects "
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("New to chess? Start with how the app works, then the videos below, then "
+                    + "subscribe to a few channels for ongoing lessons. None of this affects "
                     + "anything in the app — it's just a starting point.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+                    .foregroundStyle(theme.textColor.opacity(0.6))
 
-            Section("Start here") {
-                ForEach(videos) { video in
-                    VideoRow(video: video, isPlaying: playingVideoID == video.id) {
-                        playingVideoID = (playingVideoID == video.id) ? nil : video.id
+                section(id: "guide", title: "How to use the app?") {
+                    VStack(spacing: 10) {
+                        ForEach(guideEntries) { entry in
+                            guideRow(entry)
+                        }
+                    }
+                }
+
+                section(id: "videos", title: "Videos to watch") {
+                    VStack(spacing: 10) {
+                        ForEach(videos) { video in
+                            VideoRow(video: video, isPlaying: playingVideoID == video.id) {
+                                playingVideoID = (playingVideoID == video.id) ? nil : video.id
+                            }
+                        }
+                    }
+                }
+
+                section(id: "channels", title: "YouTube channels to follow") {
+                    VStack(spacing: 10) {
+                        ForEach(channels) { channel in
+                            ChannelRow(channel: channel)
+                        }
                     }
                 }
             }
-
-            Section("Channels to subscribe to") {
-                ForEach(channels) { channel in
-                    ChannelRow(channel: channel)
-                }
-            }
+            .padding(16)
         }
         .navigationTitle("New to Chess?")
+    }
+
+    /// A collapsed-by-default themed section, mirroring this app's other
+    /// `DisclosureGroup` screens (Opening Trainer, Puzzles, Lessons) -- this
+    /// page starts fully collapsed (unlike those) since a first-time visitor
+    /// should see all three headers before committing to reading any one.
+    @ViewBuilder
+    private func section<Content: View>(
+        id: String, title: String, @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        DisclosureGroup(isExpanded: isExpandedBinding(for: id)) {
+            content().padding(.top, 10)
+        } label: {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+        }
+        .tint(theme.textColor)
+        .padding(14)
+        .background(theme.cardBackgroundColor)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func isExpandedBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { expandedSections.contains(id) },
+            set: { isExpanded in
+                if isExpanded { expandedSections.insert(id) } else { expandedSections.remove(id) }
+            }
+        )
+    }
+
+    private func guideRow(_ entry: AppGuideEntry) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: entry.icon)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(theme.accent2Color)
+                .frame(width: 26)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.title).font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+                Text(entry.body).font(.caption).foregroundStyle(theme.textColor.opacity(0.7))
+            }
+        }
+        .padding(12)
+        .background(theme.surfaceColor.opacity(0.5))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -113,6 +234,8 @@ private struct VideoRow: View {
     let video: BeginnerVideo
     let isPlaying: Bool
     let toggle: () -> Void
+    @Environment(ThemeStore.self) private var themeStore
+    private var theme: Theme { themeStore.effective }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -121,9 +244,9 @@ private struct VideoRow: View {
                     thumbnail
                     VStack(alignment: .leading, spacing: 3) {
                         Text(video.title).font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                        Text(video.channelName).font(.caption).foregroundStyle(.secondary)
-                        Text(video.note).font(.caption).foregroundStyle(.secondary)
+                            .foregroundStyle(theme.textColor)
+                        Text(video.channelName).font(.caption).foregroundStyle(theme.textColor.opacity(0.6))
+                        Text(video.note).font(.caption).foregroundStyle(theme.textColor.opacity(0.6))
                     }
                 }
             }
@@ -135,7 +258,10 @@ private struct VideoRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
-        .padding(.vertical, 4)
+        .padding(12)
+        .background(theme.surfaceColor.opacity(0.5))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     @ViewBuilder
@@ -152,6 +278,7 @@ private struct VideoRow: View {
         } else {
             Image(systemName: isPlaying ? "pause.circle" : "play.circle")
                 .font(.title2)
+                .foregroundStyle(theme.textColor)
                 .frame(width: 88, height: 50)
         }
     }
@@ -159,12 +286,14 @@ private struct VideoRow: View {
 
 private struct ChannelRow: View {
     let channel: BeginnerChannel
+    @Environment(ThemeStore.self) private var themeStore
+    private var theme: Theme { themeStore.effective }
 
     var body: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(channel.name).font(.subheadline.weight(.semibold))
-                Text(channel.note).font(.caption).foregroundStyle(.secondary)
+                Text(channel.name).font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+                Text(channel.note).font(.caption).foregroundStyle(theme.textColor.opacity(0.6))
             }
             Spacer(minLength: 8)
             if let url = URL(string: channel.channelURL) {
@@ -177,6 +306,9 @@ private struct ChannelRow: View {
                 .controlSize(.small)
             }
         }
-        .padding(.vertical, 4)
+        .padding(12)
+        .background(theme.surfaceColor.opacity(0.5))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
