@@ -10,18 +10,42 @@ public enum GemmaLayoutStyle: Sendable {
     case automatic, column, split
 }
 
+/// Lets a screen whose board/non-board sub-state is private (Puzzles'
+/// theme-list-vs-session, Lessons' stage-list-vs-practice, Opening Trainer's
+/// line-list-vs-drill) report "a chessboard is on screen right now" up to
+/// `GemmaRootView` without threading a callback through every intermediate
+/// view. Play and Review don't need this -- `GemmaRootView` already owns
+/// their board-vs-not state directly (`mode == .play`, `review.session`).
+private struct BoardVisibleKey: EnvironmentKey {
+    static let defaultValue: Binding<Bool> = .constant(false)
+}
+
+extension EnvironmentValues {
+    var boardVisible: Binding<Bool> {
+        get { self[BoardVisibleKey.self] }
+        set { self[BoardVisibleKey.self] = newValue }
+    }
+}
+
 public struct GemmaRootView: View {
     @State private var review = ReviewViewModel()
     @State private var play = PlayViewModel()
     @State private var mode: Mode = .home
-    /// Whether the bottom tab bar shows while actively playing a live game
-    /// (`.play` mode) -- everywhere else it's always shown. Defaults to shown
-    /// everywhere; a Settings toggle lets a player reclaim the extra height
-    /// for the move list/coach card during a game. `@AppStorage` (not
+    /// Whether a chessboard is currently on screen inside Puzzles/Lessons/
+    /// Opening Trainer's own internal session state -- see `boardVisible`
+    /// above. Play and Review don't set this; their board-vs-not state is
+    /// computed directly from `mode`/`review.session` in `isBoardOnScreen`.
+    @State private var innerBoardVisible = false
+    /// Whether the bottom tab bar shows even while a chessboard is on screen
+    /// (Play, a Puzzle/Lesson/Opening Trainer session, or Review's analysis
+    /// screen) -- everywhere else it's always shown regardless of this.
+    /// Defaults OFF: the tab bar auto-hides whenever a board is visible,
+    /// freeing that height for the move list/coach card, and a Settings
+    /// toggle lets a player override that. `@AppStorage` (not
     /// `PlayDisplaySettings`) since this is a navigation-chrome preference,
     /// not board content, and needs to stay in sync with the same toggle in
     /// `SettingsView` without threading a shared instance through both.
-    @AppStorage("play.showTabBarDuringPlay") private var showTabBarDuringPlay = true
+    @AppStorage("play.showTabBarWithBoard") private var showTabBarWithBoard = false
     /// Whether the next `.play` route should skip the new-game setup form and
     /// go straight to the live game -- true when `play` was just `load(_:)`ed
     /// from a saved game (Resume, or a pick from My Games).
@@ -93,10 +117,11 @@ public struct GemmaRootView: View {
                     .toolbar { settingsToolbarItem }
                 }
             }
-            if mode != .play || showTabBarDuringPlay {
+            if showTabBarWithBoard || !isBoardOnScreen {
                 GlobalTabBar(activeTab: HomeTab(mode: mode), onSelect: select(_:))
             }
         }
+        .environment(\.boardVisible, $innerBoardVisible)
         .environment(themeStore)
         .gemmaChrome(theme: themeStore.effective)
         #if os(iOS)
@@ -112,6 +137,21 @@ public struct GemmaRootView: View {
         }
         #endif
         .sheet(isPresented: $showPaywall) { PaywallView().environment(themeStore) }
+    }
+
+    /// Whether a chessboard is on screen right now -- Play always is; Review
+    /// is once a session has loaded; Puzzles/Lessons/Opening Trainer report
+    /// their own internal session state via `innerBoardVisible` (set through
+    /// the `boardVisible` environment binding, since their board-vs-list
+    /// state is private to those views). The tab bar hides whenever this is
+    /// true, unless `showTabBarWithBoard` overrides it.
+    private var isBoardOnScreen: Bool {
+        switch mode {
+        case .play: true
+        case .review: review.session != nil
+        case .puzzles, .lessons, .openingTrainer: innerBoardVisible
+        default: false
+        }
     }
 
     /// Handles a tap on any `GlobalTabBar` item, from any screen -- tapping
@@ -177,11 +217,11 @@ public struct GemmaRootView: View {
 }
 
 /// The four top-level sections reachable from the global bottom tab bar
-/// (`GlobalTabBar`, present on every screen except optionally during live
-/// Play -- see `GemmaRootView.showTabBarDuringPlay`). Selecting a tab
-/// navigates to the matching screen; screens with no matching tab (Play,
-/// Review, Scan, Game Import, the Weakness Report) fall back to highlighting
-/// Home, since none of the four items represents them.
+/// (`GlobalTabBar`, present on every screen except while a chessboard is on
+/// screen -- see `GemmaRootView.isBoardOnScreen`/`showTabBarWithBoard`).
+/// Selecting a tab navigates to the matching screen; screens with no
+/// matching tab (Play, Review, Scan, Game Import, the Weakness Report) fall
+/// back to highlighting Home, since none of the four items represents them.
 enum HomeTab: String, CaseIterable {
     case home, lessons, openings, puzzles
 
@@ -215,11 +255,14 @@ enum HomeTab: String, CaseIterable {
     }
 }
 
-/// The global bottom tab bar, present on every screen (except optionally
-/// during live Play, per `GemmaRootView.showTabBarDuringPlay`) -- promoted
-/// from Home-only (this file's earlier design) after the tab bar shipped and
-/// felt inconsistent everywhere else. Not a persistent `TabView`: it's a
-/// plain navigation-trigger row that sits below whichever screen is showing,
+/// The global bottom tab bar, present on every screen except while a
+/// chessboard is actually on screen (Play, a Puzzle/Lesson/Opening Trainer
+/// session, or Review's analysis view -- see `GemmaRootView.isBoardOnScreen`),
+/// where it hides by default to give that space back to the move list/coach
+/// card (overridable via `showTabBarWithBoard`). Promoted from Home-only
+/// (this file's earlier design) after the tab bar shipped and felt
+/// inconsistent everywhere else. Not a persistent `TabView`: it's a plain
+/// navigation-trigger row that sits below whichever screen is showing,
 /// entirely independent of that screen's own `NavigationStack`.
 struct GlobalTabBar: View {
     var activeTab: HomeTab
@@ -423,9 +466,9 @@ struct HomeView: View {
             // freed this row for the two utilities the tab bar can't hold:
             // scanning a physical board and importing a game.
             HStack(spacing: 12) {
-                secondaryActionCard(icon: "magnifyingglass", title: "Review a game", action: onReview)
+                secondaryActionCard(icon: "magnifyingglass", title: "Review", action: onReview)
                 if scanEnabled {
-                    secondaryActionCard(icon: "camera.viewfinder", title: "Scan a board", action: onScan)
+                    secondaryActionCard(icon: "camera.viewfinder", title: "Scan", action: onScan)
                 }
                 secondaryActionCard(icon: "square.and.arrow.down", title: "Import", action: onGameImport)
             }
@@ -448,12 +491,12 @@ struct HomeView: View {
     }
 
     /// A compact, icon-over-label card for a secondary action -- half the
-    /// width of a full-width button, used in a 2-column row. The label
-    /// reserves room for two lines regardless of how many its own text
-    /// actually needs ("Import" is one word, "Review a game"/"Scan a board"
-    /// often wrap to two on narrower screens) -- without this, whichever
-    /// card's text happens to fit on one line renders visibly shorter than
-    /// its neighbors in the same row.
+    /// width of a full-width button, used in a 2-column row. Titles here are
+    /// deliberately short single words ("Review", "Scan", "Import") so they
+    /// always render on one line -- a previous version used longer titles
+    /// ("Review a game", "Scan a board") that wrapped to two lines on
+    /// narrower screens while "Import" stayed on one, making that card
+    /// visibly shorter than its neighbors in the same row.
     private func secondaryActionCard(icon: String, title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(alignment: .center, spacing: 10) {
@@ -463,9 +506,7 @@ struct HomeView: View {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(theme.textColor)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .frame(height: 36)
+                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(14)
