@@ -9,6 +9,10 @@ import SwiftUI
 
 public struct SettingsView: View {
     @State private var settings = PlayDisplaySettings()
+    /// Matches `GemmaRootView`'s own `@AppStorage` key exactly -- both read
+    /// the same UserDefaults entry, so toggling this here is immediately
+    /// reflected the next time the tab bar's visibility is evaluated.
+    @AppStorage("play.showTabBarDuringPlay") private var showTabBarDuringPlay = true
     @State private var stats = PlayStatsStore.current()
     @State private var showClearGamesConfirm = false
     @State private var showResetPuzzlesConfirm = false
@@ -62,11 +66,15 @@ public struct SettingsView: View {
                 Toggle(isOn: $settings.showOpening) {
                     Label("Opening name", systemImage: "book.closed.fill")
                 }
+                Toggle(isOn: $showTabBarDuringPlay) {
+                    Label("Tab bar while playing", systemImage: "rectangle.bottomthird.inset.filled")
+                }
             } header: {
                 Text("Play defaults")
             } footer: {
                 Text("Preselected the next time you start a game -- remembers whatever you last played "
-                    + "at. These are all free -- Stockfish and the local opening book, no network involved.")
+                    + "at. These are all free -- Stockfish and the local opening book, no network involved. "
+                    + "Turn off the tab bar during play to reclaim its space for the move list and coach.")
             }
 
             Section {
