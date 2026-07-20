@@ -14,6 +14,14 @@ public struct GemmaRootView: View {
     @State private var review = ReviewViewModel()
     @State private var play = PlayViewModel()
     @State private var mode: Mode = .home
+    /// Whether the bottom tab bar shows while actively playing a live game
+    /// (`.play` mode) -- everywhere else it's always shown. Defaults to shown
+    /// everywhere; a Settings toggle lets a player reclaim the extra height
+    /// for the move list/coach card during a game. `@AppStorage` (not
+    /// `PlayDisplaySettings`) since this is a navigation-chrome preference,
+    /// not board content, and needs to stay in sync with the same toggle in
+    /// `SettingsView` without threading a shared instance through both.
+    @AppStorage("play.showTabBarDuringPlay") private var showTabBarDuringPlay = true
     /// Whether the next `.play` route should skip the new-game setup form and
     /// go straight to the live game -- true when `play` was just `load(_:)`ed
     /// from a saved game (Resume, or a pick from My Games).
@@ -29,59 +37,64 @@ public struct GemmaRootView: View {
     @State private var showOnboarding = !OnboardingStore.hasCompleted()
     @State private var showPaywall = false
 
-    private enum Mode { case home, play, review, scan, puzzles, openingTrainer, gameImport, lessons, weaknessReport }
+    fileprivate enum Mode { case home, play, review, scan, puzzles, openingTrainer, gameImport, lessons, weaknessReport }
 
     public init(style: GemmaLayoutStyle = .automatic) {}
 
     public var body: some View {
-        NavigationStack {
-            switch mode {
-            case .home:
-                HomeView(
-                    onPlay: { playStartedInitially = false; mode = .play },
-                    onReview: { mode = .review },
-                    onScan: { openScan() },
-                    onResume: { openSavedGame(withID: SavedGameStore.inProgressGameID()) },
-                    onSelectSavedGame: { saved in
-                        play.load(saved)
+        VStack(spacing: 0) {
+            NavigationStack {
+                switch mode {
+                case .home:
+                    HomeView(
+                        onPlay: { playStartedInitially = false; mode = .play },
+                        onReview: { mode = .review },
+                        onScan: { openScan() },
+                        onResume: { openSavedGame(withID: SavedGameStore.inProgressGameID()) },
+                        onSelectSavedGame: { saved in
+                            play.load(saved)
+                            playStartedInitially = true
+                            mode = .play
+                        },
+                        onPuzzles: { mode = .puzzles },
+                        onOpeningTrainer: { mode = .openingTrainer },
+                        onGameImport: { mode = .gameImport },
+                        onLessons: { mode = .lessons },
+                        onWeaknessReport: { mode = .weaknessReport }
+                    )
+                case .play:
+                    PlayContainerView(vm: play, onExit: { mode = .home }, startedInitially: playStartedInitially)
+                case .review:
+                    reviewFlow
+                case .scan:
+                    BoardScannerView(onStartGame: { fen, asWhite in
+                        play.newGame(asWhite: asWhite, startFEN: fen)
                         playStartedInitially = true
                         mode = .play
-                    },
-                    onPuzzles: { mode = .puzzles },
-                    onOpeningTrainer: { mode = .openingTrainer },
-                    onGameImport: { mode = .gameImport },
-                    onLessons: { mode = .lessons },
-                    onWeaknessReport: { mode = .weaknessReport }
-                )
-            case .play:
-                PlayContainerView(vm: play, onExit: { mode = .home }, startedInitially: playStartedInitially)
-            case .review:
-                reviewFlow
-            case .scan:
-                BoardScannerView(onStartGame: { fen, asWhite in
-                    play.newGame(asWhite: asWhite, startFEN: fen)
-                    playStartedInitially = true
-                    mode = .play
-                })
-                .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
-                .toolbar { settingsToolbarItem }
-            case .puzzles:
-                PuzzlesContainerView(vm: puzzles, onExit: { mode = .home })
-            case .openingTrainer:
-                OpeningTrainerContainerView(vm: openingTrainer, onExit: { mode = .home })
-            case .gameImport:
-                GameImportView()
+                    })
                     .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
                     .toolbar { settingsToolbarItem }
-            case .lessons:
-                LessonsContainerView(onExit: { mode = .home })
-            case .weaknessReport:
-                WeaknessReportView(
-                    onExit: { mode = .home },
-                    onOpenLesson: { _ in mode = .lessons },
-                    onOpenPuzzleTheme: { _ in mode = .puzzles }
-                )
-                .toolbar { settingsToolbarItem }
+                case .puzzles:
+                    PuzzlesContainerView(vm: puzzles, onExit: { mode = .home })
+                case .openingTrainer:
+                    OpeningTrainerContainerView(vm: openingTrainer, onExit: { mode = .home })
+                case .gameImport:
+                    GameImportView()
+                        .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
+                        .toolbar { settingsToolbarItem }
+                case .lessons:
+                    LessonsContainerView(onExit: { mode = .home })
+                case .weaknessReport:
+                    WeaknessReportView(
+                        onExit: { mode = .home },
+                        onOpenLesson: { _ in mode = .lessons },
+                        onOpenPuzzleTheme: { _ in mode = .puzzles }
+                    )
+                    .toolbar { settingsToolbarItem }
+                }
+            }
+            if mode != .play || showTabBarDuringPlay {
+                GlobalTabBar(activeTab: HomeTab(mode: mode), onSelect: select(_:))
             }
         }
         .environment(themeStore)
@@ -99,6 +112,18 @@ public struct GemmaRootView: View {
         }
         #endif
         .sheet(isPresented: $showPaywall) { PaywallView().environment(themeStore) }
+    }
+
+    /// Handles a tap on any `GlobalTabBar` item, from any screen -- tapping
+    /// the tab matching the screen already on is a no-op (SwiftUI just
+    /// re-renders the same case), tapping any other tab navigates there.
+    private func select(_ tab: HomeTab) {
+        switch tab {
+        case .home: mode = .home
+        case .lessons: mode = .lessons
+        case .openings: mode = .openingTrainer
+        case .puzzles: mode = .puzzles
+        }
     }
 
     /// "Scan a board" needs the managed coach -- shows the paywall instead
@@ -151,13 +176,25 @@ public struct GemmaRootView: View {
     }
 }
 
-/// The four top-level sections reachable from Home's bottom tab bar. This bar
-/// is Home-scoped only (see RootView.swift's plan doc, KTD-1) -- it is not a
-/// persistent `TabView`, just a navigation trigger row rendered while Home is
-/// on screen. Selecting anything but `.home` immediately hands off to the
-/// matching `HomeView` callback, the same way a "More" sheet row used to.
+/// The four top-level sections reachable from the global bottom tab bar
+/// (`GlobalTabBar`, present on every screen except optionally during live
+/// Play -- see `GemmaRootView.showTabBarDuringPlay`). Selecting a tab
+/// navigates to the matching screen; screens with no matching tab (Play,
+/// Review, Scan, Game Import, the Weakness Report) fall back to highlighting
+/// Home, since none of the four items represents them.
 enum HomeTab: String, CaseIterable {
     case home, lessons, openings, puzzles
+
+    /// Maps `GemmaRootView`'s internal `Mode` to the tab that should read as
+    /// "active" -- `nil`/unmatched modes fall back to `.home`.
+    fileprivate init(mode: GemmaRootView.Mode) {
+        switch mode {
+        case .lessons, .weaknessReport: self = .lessons
+        case .openingTrainer: self = .openings
+        case .puzzles: self = .puzzles
+        default: self = .home
+        }
+    }
 
     var title: String {
         switch self {
@@ -175,6 +212,52 @@ enum HomeTab: String, CaseIterable {
         case .openings: "book.closed.fill"
         case .puzzles: "puzzlepiece.fill"
         }
+    }
+}
+
+/// The global bottom tab bar, present on every screen (except optionally
+/// during live Play, per `GemmaRootView.showTabBarDuringPlay`) -- promoted
+/// from Home-only (this file's earlier design) after the tab bar shipped and
+/// felt inconsistent everywhere else. Not a persistent `TabView`: it's a
+/// plain navigation-trigger row that sits below whichever screen is showing,
+/// entirely independent of that screen's own `NavigationStack`.
+struct GlobalTabBar: View {
+    var activeTab: HomeTab
+    var onSelect: (HomeTab) -> Void
+    @Environment(ThemeStore.self) private var themeStore
+    private var theme: Theme { themeStore.effective }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(HomeTab.allCases, id: \.self) { tab in
+                tabBarItem(tab)
+            }
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(
+            theme.cardBackgroundColor
+                .overlay(alignment: .top) {
+                    Rectangle().fill(theme.cardBorderColor).frame(height: 1)
+                }
+                .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
+    private func tabBarItem(_ tab: HomeTab) -> some View {
+        Button {
+            onSelect(tab)
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 20, weight: .semibold))
+                Text(tab.title)
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(tab == activeTab ? theme.accentColor : theme.textColor.opacity(0.6))
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(PressableStyle())
     }
 }
 
@@ -204,20 +287,17 @@ struct HomeView: View {
     private var theme: Theme { themeStore.effective }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    header
-                        .padding(.top, 64)
-                    actions
-                        .padding(.top, 28)
-                }
-                .frame(maxWidth: 460)
-                .frame(maxWidth: .infinity)
+        ScrollView {
+            VStack(spacing: 0) {
+                header
+                    .padding(.top, 64)
+                actions
+                    .padding(.top, 28)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            bottomTabBar
+            .frame(maxWidth: 460)
+            .frame(maxWidth: .infinity)
         }
+        .scrollBounceBehavior(.basedOnSize)
         .overlay(alignment: .topTrailing) {
             settingsButton
                 .padding(.top, 12)
@@ -239,49 +319,6 @@ struct HomeView: View {
             weaknessReportTeaser = CoachingProfileBuilder.topTeaserMotif(
                 CoachingProfileBuilder.buildProfile(playerID: "me", store: HistoryStore()))
         }
-    }
-
-    /// Home-scoped tab bar (see `HomeTab`) -- present only while Home is on
-    /// screen, so gameplay/session screens keep their full width for the move
-    /// list, coach card, and best-move hints (see this plan's KTD-1).
-    /// Selecting anything but `.home` immediately navigates away, at which
-    /// point this bar disappears along with the rest of Home.
-    private var bottomTabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(HomeTab.allCases, id: \.self) { tab in
-                tabBarItem(tab)
-            }
-        }
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .background(
-            theme.cardBackgroundColor
-                .overlay(alignment: .top) {
-                    Rectangle().fill(theme.cardBorderColor).frame(height: 1)
-                }
-                .ignoresSafeArea(edges: .bottom)
-        )
-    }
-
-    private func tabBarItem(_ tab: HomeTab) -> some View {
-        Button {
-            switch tab {
-            case .home: break
-            case .lessons: onLessons()
-            case .openings: onOpeningTrainer()
-            case .puzzles: onPuzzles()
-            }
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 20, weight: .semibold))
-                Text(tab.title)
-                    .font(.caption2.weight(.semibold))
-            }
-            .foregroundStyle(tab == .home ? theme.accentColor : theme.textColor.opacity(0.6))
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(PressableStyle())
     }
 
     private var settingsButton: some View {
@@ -411,7 +448,12 @@ struct HomeView: View {
     }
 
     /// A compact, icon-over-label card for a secondary action -- half the
-    /// width of a full-width button, used in a 2-column row.
+    /// width of a full-width button, used in a 2-column row. The label
+    /// reserves room for two lines regardless of how many its own text
+    /// actually needs ("Import" is one word, "Review a game"/"Scan a board"
+    /// often wrap to two on narrower screens) -- without this, whichever
+    /// card's text happens to fit on one line renders visibly shorter than
+    /// its neighbors in the same row.
     private func secondaryActionCard(icon: String, title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(alignment: .center, spacing: 10) {
@@ -422,6 +464,8 @@ struct HomeView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(theme.textColor)
                     .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .frame(height: 36)
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(14)
