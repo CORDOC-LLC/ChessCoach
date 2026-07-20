@@ -225,14 +225,22 @@ private struct LessonExplanationView: View {
     var onBack: () -> Void
     @State private var vm: LessonViewModel?
     @Environment(ThemeStore.self) private var themeStore
+    @Environment(\.boardVisible) private var boardVisible
     private var theme: Theme { themeStore.effective }
 
     var body: some View {
-        if let vm {
-            LessonPracticeView(vm: vm, onExit: onBack)
-        } else {
-            explanation
+        Group {
+            if let vm {
+                LessonPracticeView(vm: vm, onExit: onBack)
+            } else {
+                explanation
+            }
         }
+        // See `PuzzlesContainerView`'s identical pattern -- the explanation
+        // screen itself has no board (just body text), only practice does.
+        .onAppear { boardVisible.wrappedValue = vm != nil }
+        .onChange(of: vm != nil) { _, isPracticing in boardVisible.wrappedValue = isPracticing }
+        .onDisappear { boardVisible.wrappedValue = false }
     }
 
     private var explanation: some View {
