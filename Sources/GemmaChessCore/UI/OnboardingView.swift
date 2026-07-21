@@ -54,6 +54,13 @@ public struct OnboardingView: View {
                 + "always free. No subscription required to play smarter.",
             footnote: "ChessCoach Pro adds a written coach on top -- entirely optional."
         ),
+        OnboardingPage(
+            icon: "checkmark.shield.fill",
+            title: "No Ads, No Caps, No Cheaters",
+            body: "No ads interrupting your game, no daily puzzle limit to hit and wait out, and no "
+                + "matchmaking against strangers who might be cheating -- ChessCoach is just you, the board, "
+                + "and a real engine."
+        ),
     ]
 
     public init(onFinish: @escaping () -> Void) {
