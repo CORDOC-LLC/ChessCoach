@@ -30,6 +30,7 @@ public final class PlayDisplaySettings {
         static let showOpening = "play.showOpening"
         static let showCoach    = "play.showCoach"
         static let defaultEngineSkill = "play.defaultEngineSkill"
+        static let humanLikeEnabled = "play.humanLikeEnabled"
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -43,6 +44,7 @@ public final class PlayDisplaySettings {
             Key.showOpening: true,
             Key.showCoach: true,
             Key.defaultEngineSkill: 6,
+            Key.humanLikeEnabled: false,
         ])
         // Seed the observation tracking so @Observable emits on change.
         _showBestMove = defaults.bool(forKey: Key.showBestMove)
@@ -52,6 +54,7 @@ public final class PlayDisplaySettings {
         _showOpening = defaults.bool(forKey: Key.showOpening)
         _showCoach    = defaults.bool(forKey: Key.showCoach)
         _defaultEngineSkill = defaults.integer(forKey: Key.defaultEngineSkill)
+        _humanLikeEnabled = defaults.bool(forKey: Key.humanLikeEnabled)
     }
 
     public var showBestMove: Bool {
@@ -82,5 +85,12 @@ public final class PlayDisplaySettings {
     /// from Settings too.
     public var defaultEngineSkill: Int {
         didSet { defaults.set(defaultEngineSkill, forKey: Key.defaultEngineSkill) }
+    }
+    /// Opt-in "Human-like" opponent (plan R1): when on, the opening plies draw
+    /// varied lines from the bundled ECO book instead of always the engine's
+    /// own top choice. Off by default -- this changes how the opponent plays,
+    /// so it should never surprise someone who didn't ask for it.
+    public var humanLikeEnabled: Bool {
+        didSet { defaults.set(humanLikeEnabled, forKey: Key.humanLikeEnabled) }
     }
 }
