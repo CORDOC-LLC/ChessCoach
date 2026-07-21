@@ -70,9 +70,6 @@ public struct SettingsView: View {
                         value: $settings.defaultEngineSkill, in: 0...20)
                 Toggle(isOn: $settings.showCaptured) { Label("Captured pieces", systemImage: "trophy") }
                 Toggle(isOn: $settings.showMoveList) { Label("Move list", systemImage: "list.bullet") }
-                Toggle(isOn: $settings.showMoveComments) {
-                    Label("Move review", systemImage: "chart.bar.fill")
-                }
                 Toggle(isOn: $settings.showOpening) {
                     Label("Opening name", systemImage: "book.closed.fill")
                 }
@@ -95,13 +92,13 @@ public struct SettingsView: View {
                 NavigationLink {
                     CoachSettingsView()
                 } label: {
-                    Label("Coach backend (ChessCoach Pro / Gemini)", systemImage: "gearshape.2")
+                    Label("ChessCoach Pro", systemImage: "gearshape.2")
                 }
             } header: {
                 Text("Coach")
             } footer: {
-                Text("The written explanation, chat, and end-of-game debrief are the only things "
-                    + "that use Gemini credits. Turn Coach off to keep everything else free.")
+                Text("The coach's written explanation, chat, and end-of-game debrief are the only "
+                    + "things that use ChessCoach Pro. Everything else runs on-device.")
             }
 
             if stats.totalGames > 0 {
