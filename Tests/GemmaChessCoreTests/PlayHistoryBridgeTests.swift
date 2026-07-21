@@ -22,7 +22,7 @@ struct PlayHistoryBridgeTests {
     }
 
     @Test("loading an already-finished game for replay does not append a second HistoryStore record")
-    func replayingAFinishedGameDoesNotDoubleRecord() {
+    func replayingAFinishedGameDoesNotDoubleRecord() async {
         let token = UUID().uuidString
         let savedGamesDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("PlayHistoryBridgeTests-saved-\(token)", isDirectory: true)
@@ -40,6 +40,7 @@ struct PlayHistoryBridgeTests {
         let vm = makeVM()
         vm.newGame(asWhite: true)
         vm.resign()
+        await vm.flushPendingSave()   // checkpoint writes are async now
         let saved = SavedGameStore.load(id: vm.gameID, baseDir: savedGamesDir)
 
         let history = HistoryStore(baseDir: historyDir)

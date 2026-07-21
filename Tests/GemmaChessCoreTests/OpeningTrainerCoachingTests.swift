@@ -10,24 +10,27 @@ import Foundation
 @testable import GemmaChessCore
 
 /// Counts calls and returns a canned reply -- lets tests assert whether the
-/// backend was actually reached (e.g. skipped on a cache hit).
-private actor CountingMockCoach: CoachLLM {
-    nonisolated var availability: CoachAvailability { .gemini }
-    private(set) var callCount = 0
-    nonisolated let replyText = "Because it develops a piece and controls the center."
+/// backend was actually reached (e.g. skipped on a cache hit). Wraps a real
+/// `ManagedCoach` over a mock URLProtocol (see `TestSupport.swift`) since
+/// `CoachOrchestrator` now depends on `ManagedCoach` concretely -- there's no
+/// more `CoachLLM` protocol to fake.
+private final class CountingMockCoach: @unchecked Sendable {
+    let replyText = "Because it develops a piece and controls the center."
+    private let lock = NSLock()
+    private var _callCount = 0
+    var callCount: Int { lock.lock(); defer { lock.unlock() }; return _callCount }
 
-    func generate(system: String, prompt: String, sessionID: String?) async throws -> CoachReply {
-        callCount += 1
-        return CoachReply(answer: replyText)
-    }
+    lazy var orchestrator: CoachOrchestrator = CoachOrchestrator(coach: .mock { [weak self] _ in
+        self?.lock.lock(); self?._callCount += 1; self?.lock.unlock()
+        return (200, Data("{\"text\":\"\(self?.replyText ?? "")\"}".utf8))
+    })
 }
 
-/// Always throws `ProRequiredError` -- stands in for a failed entitlement gate.
-private final class ProGatedMockCoach: CoachLLM {
-    var availability: CoachAvailability { .gemini }
-    func generate(system: String, prompt: String, sessionID: String?) async throws -> CoachReply {
-        throw ProRequiredError()
-    }
+/// A `CoachOrchestrator` whose Pro-entitlement gate is forced to fail
+/// (`.appStore` channel, `isProActive` false in a test binary) -- stands in
+/// for a real gate failure without needing a real distribution channel.
+private func proGatedOrchestrator() -> CoachOrchestrator {
+    CoachOrchestrator(coach: .mockAnswering("unused"), channel: .appStore)
 }
 
 /// Records every read/write so tests can assert exactly what was cached (and
@@ -67,14 +70,14 @@ struct OpeningTrainerCoachingTests {
         let coach = CountingMockCoach()
         let vm = OpeningTrainerViewModel(
             defaults: UserDefaults(suiteName: #function)!,
-            coach: CoachOrchestrator(backends: [coach])
+            coach: coach.orchestrator
         )
         vm.start(line: line, userIsWhite: true)
 
         #expect(vm.revealedHintSAN == nil)
         vm.showHint()
         #expect(vm.revealedHintSAN == "e4")   // White to move first; user plays White here
-        #expect(await coach.callCount == 0)   // purely local, no backend call
+        #expect(coach.callCount == 0)   // purely local, no backend call
     }
 
     @Test("askWhyCurrentMove: a cache miss calls the coach and stores the result")
@@ -83,14 +86,14 @@ struct OpeningTrainerCoachingTests {
         let cache = SpyOpeningExplanationCache()
         let vm = OpeningTrainerViewModel(
             defaults: UserDefaults(suiteName: #function)!,
-            coach: CoachOrchestrator(backends: [coach]),
+            coach: coach.orchestrator,
             explanationCache: cache
         )
         vm.start(line: line, userIsWhite: true)
 
         await vm.askWhyCurrentMove()
 
-        #expect(await coach.callCount == 1)
+        #expect(coach.callCount == 1)
         #expect(vm.coachAnswer == coach.replyText)
         #expect(await cache.readCount == 1)
         #expect(await cache.writeCount == 1)
@@ -106,14 +109,14 @@ struct OpeningTrainerCoachingTests {
         await cache.seed("Cached: develops toward the center.", lineID: line.id, moveIndex: 0)
         let vm = OpeningTrainerViewModel(
             defaults: UserDefaults(suiteName: #function)!,
-            coach: CoachOrchestrator(backends: [coach]),
+            coach: coach.orchestrator,
             explanationCache: cache
         )
         vm.start(line: line, userIsWhite: true)
 
         await vm.askWhyCurrentMove()
 
-        #expect(await coach.callCount == 0)   // never reached the backend
+        #expect(coach.callCount == 0)   // never reached the backend
         #expect(vm.coachAnswer == "Cached: develops toward the center.")
         #expect(await cache.writeCount == 0)   // nothing new to store
     }
@@ -124,14 +127,14 @@ struct OpeningTrainerCoachingTests {
         let cache = SpyOpeningExplanationCache()
         let vm = OpeningTrainerViewModel(
             defaults: UserDefaults(suiteName: #function)!,
-            coach: CoachOrchestrator(backends: [coach]),
+            coach: coach.orchestrator,
             explanationCache: cache
         )
         vm.start(line: line, userIsWhite: true)
 
         await vm.askQuestion("What's the main alternative here?")
 
-        #expect(await coach.callCount == 1)
+        #expect(coach.callCount == 1)
         #expect(vm.coachAnswer == coach.replyText)
         #expect(await cache.readCount == 0)
         #expect(await cache.writeCount == 0)
@@ -141,7 +144,7 @@ struct OpeningTrainerCoachingTests {
     func gateFailureSurfacesPaywall() async {
         let vm = OpeningTrainerViewModel(
             defaults: UserDefaults(suiteName: #function)!,
-            coach: CoachOrchestrator(backends: [ProGatedMockCoach()])
+            coach: proGatedOrchestrator()
         )
         vm.start(line: line, userIsWhite: true)
 

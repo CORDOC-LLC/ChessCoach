@@ -5,8 +5,9 @@
 //  Aggregates a player's `GameRecord`s into a small, prompt-ready profile: a "recent
 //  form" sliding window plus an optional "lifetime" view. The split lets coaching adapt
 //  as a player improves (recent weaknesses surface; old, fixed ones fade out of the
-//  window). `formatProfileForPrompt` renders the compact `profileFacts` string the
-//  `CoachPromptBuilder.chatPrompt` consumes (nil when there's nothing to say).
+//  window). `formatProfileForPrompt` renders the compact `profileFacts` string
+//  `CoachOrchestrator` passes through to `/api/coach` as-is (nil when there's
+//  nothing to say) -- the gateway folds it into the prompt server-side now.
 
 import Foundation
 

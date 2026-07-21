@@ -36,6 +36,12 @@ final class ManagedCoachMockURLProtocol: URLProtocol, @unchecked Sendable {
     }
 }
 
+/// A minimal Encodable facts payload -- these tests exercise `ManagedCoach`'s
+/// HTTP/wire-format behavior directly, independent of any real `kind`'s facts shape.
+private struct DummyFacts: Encodable {
+    let note: String
+}
+
 @Suite("ManagedCoach", .serialized)
 struct ManagedCoachTests {
 
@@ -80,7 +86,7 @@ struct ManagedCoachTests {
             requestedMethod = request.httpMethod
             return (200, Data(#"{"text":"Solid move.","usage":{"inputTokens":10,"outputTokens":5}}"#.utf8))
         }
-        let reply = try await coach.generate(system: "sys", prompt: "why?", sessionID: nil)
+        let reply = try await coach.generate(kind: .chat, facts: DummyFacts(note: "why?"), sessionID: nil)
 
         #expect(reply.answer == "Solid move.")
         #expect(requestedURL == "https://gateway.test/api/coach")
@@ -95,7 +101,7 @@ struct ManagedCoachTests {
             capturedHeader = request.value(forHTTPHeaderField: "X-Debug-Token")
             return (200, Data(#"{"text":"ok","usage":{}}"#.utf8))
         }
-        _ = try await coach.generate(system: "sys", prompt: "p", sessionID: nil)
+        _ = try await coach.generate(kind: .chat, facts: DummyFacts(note: "p"), sessionID: nil)
 
         #expect(capturedHeader == "let-me-in")
     }
@@ -125,7 +131,7 @@ struct ManagedCoachTests {
             backendURL: "https://gateway.test", debugToken: "let-me-in", debugModel: "anthropic/claude-haiku-4.5"
         ) { _ in (200, Data(#"{"text":"Solid move.","model":"anthropic/claude-haiku-4.5","usage":{}}"#.utf8)) }
 
-        let reply = try await coach.generate(system: "sys", prompt: "p", sessionID: nil)
+        let reply = try await coach.generate(kind: .chat, facts: DummyFacts(note: "p"), sessionID: nil)
 
         #expect(reply.answer == "Solid move.")
     }
@@ -134,7 +140,7 @@ struct ManagedCoachTests {
     func noBackendThrows() async {
         let coach = ManagedCoach(backendURL: { nil }, debugToken: { nil }, appUserId: { "u" })
         await #expect(throws: CoachError.self) {
-            try await coach.generate(system: "sys", prompt: "p", sessionID: nil)
+            try await coach.generate(kind: .chat, facts: DummyFacts(note: "p"), sessionID: nil)
         }
     }
 
@@ -143,7 +149,7 @@ struct ManagedCoachTests {
         defer { ManagedCoachMockURLProtocol.handler = nil }
         let coach = Self.makeCoach(backendURL: "https://gateway.test") { _ in (402, Data()) }
         do {
-            _ = try await coach.generate(system: "sys", prompt: "p", sessionID: nil)
+            _ = try await coach.generate(kind: .chat, facts: DummyFacts(note: "p"), sessionID: nil)
             Issue.record("expected a throw")
         } catch let error as CoachError {
             #expect(error.message.contains("limit"))
@@ -157,7 +163,7 @@ struct ManagedCoachTests {
         defer { ManagedCoachMockURLProtocol.handler = nil }
         let coach = Self.makeCoach(backendURL: "https://gateway.test") { _ in (403, Data()) }
         do {
-            _ = try await coach.generate(system: "sys", prompt: "p", sessionID: nil)
+            _ = try await coach.generate(kind: .chat, facts: DummyFacts(note: "p"), sessionID: nil)
             Issue.record("expected a throw")
         } catch let error as CoachError {
             #expect(error.message.contains("Pro"))
@@ -180,7 +186,7 @@ struct ManagedCoachTests {
         let coach = Self.makeCoach(backendURL: "https://gateway.test") { _ in (200, Data(sse.utf8)) }
 
         var chunks: [String] = []
-        for try await partial in coach.stream(system: "sys", prompt: "p", sessionID: nil) {
+        for try await partial in coach.stream(kind: .chat, facts: DummyFacts(note: "p"), sessionID: nil) {
             chunks.append(partial)
         }
 

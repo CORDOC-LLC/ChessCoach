@@ -1,23 +1,19 @@
 //  CoachSettingsView.swift
-//  Optional Gemini API key entry, plus the managed coach (ChessCoach Pro) config.
-//  With neither configured, the app has engine-only review — no coach backend
-//  runs on-device (on-device Foundation Models/Gemma were tried and dropped for
-//  quality reasons). Stockfish still decides every grade, best move, and
-//  evaluation regardless of which coach backend is configured; the coach only
-//  writes about what the engine already computed.
+//  Managed coach (ChessCoach Pro) config. With it not configured/subscribed,
+//  the app has engine-only review — no coach backend runs on-device (on-device
+//  Foundation Models/Gemma were tried and dropped for quality reasons).
+//  Stockfish still decides every grade, best move, and evaluation regardless;
+//  the coach only writes about what the engine already computed.
+//
+//  BYOK (a user-supplied Gemini API key) was offered here until plan
+//  2026-07-21-002 (R6) retired it -- it couldn't coexist with prompts living
+//  only server-side. ChessCoach Pro is now the only backend on every channel.
 
 import SwiftUI
 
 public struct CoachSettingsView: View {
-    /// Which sections even apply -- see `BuildChannel`. Local dev builds get
-    /// both ChessCoach Pro (debug config) and Gemini BYOK; TestFlight gets
-    /// BYOK only; App Store production gets ChessCoach Pro only (no BYOK --
-    /// the subscription is the point).
+    /// Which sections apply -- see `BuildChannel`.
     let channel: BuildChannel
-
-    @State private var apiKey: String = GeminiKeyStore.load() ?? ""
-    @State private var model: String = GeminiKeyStore.loadModel()
-    @State private var saved = false
 
     // Managed coach (ChessCoach Pro) — debug/local-testing config, ahead of
     // RevenueCat being wired up. See ManagedCoachStore's header comment.
@@ -29,49 +25,15 @@ public struct CoachSettingsView: View {
     @State private var proStore = ProEntitlementStore.shared
     @State private var showPaywall = false
 
-    /// Only meaningful when `offersChoice` -- which backend answers. Persisted
-    /// via `CoachBackendPreference`; see that type for why this needs to be an
-    /// explicit, user-driven choice rather than a fixed priority order.
-    @State private var backendChoice: CoachBackendChoice = CoachBackendPreference.current()
-
-    /// Whether this channel even offers a choice between the two backends
-    /// (local dev and TestFlight do; App Store production is managed-only).
-    private var offersChoice: Bool { channel.allowsManagedCoach && channel.allowsGeminiBYOK }
-
     public init(channel: BuildChannel = .current) {
         self.channel = channel
     }
 
     public var body: some View {
         Form {
-            if offersChoice {
-                Section {
-                    Picker("Coach backend", selection: $backendChoice) {
-                        Text("ChessCoach Pro").tag(CoachBackendChoice.managed)
-                        Text("Bring your own key").tag(CoachBackendChoice.byok)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: backendChoice) { _, newValue in CoachBackendPreference.set(newValue) }
-                } footer: {
-                    Text(channel == .testFlight
-                        ? "ChessCoach Pro works out of the box for TestFlight testers. If it's not " +
-                          "responding, switch to your own Gemini key below."
-                        : "Switch between the managed backend (debug-configured below) and your own Gemini key.")
-                }
-            }
-
-            if channel.allowsManagedCoach, !offersChoice || backendChoice == .managed {
-                managedCoachSection
-            }
-            if channel == .local, backendChoice == .managed,
-               !debugToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            managedCoachSection
+            if channel == .local, !debugToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 modelOverrideSection
-            }
-            if channel.allowsGeminiBYOK, !offersChoice || backendChoice == .byok {
-                geminiIntroSection
-                geminiKeySection
-                geminiModelSection
-                geminiFooterSection
             }
         }
         .navigationTitle("Coach Settings")
@@ -180,73 +142,6 @@ public struct CoachSettingsView: View {
             }
             .pickerStyle(.inline)
             .onChange(of: debugModel) { _, newValue in ManagedCoachStore.saveDebugModel(newValue) }
-        }
-    }
-
-    // MARK: Gemini BYOK
-
-    private var geminiIntroSection: some View {
-        Section {
-            Text("Without ChessCoach Pro or a Gemini key, you still get full engine review — "
-                + "Stockfish's grades, best moves, and evaluations — just no written coaching. "
-                + "Adding your own free Gemini API key turns that on: the engine still decides "
-                + "every grade and best move; Gemini just writes about it.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var geminiKeySection: some View {
-        Section("Gemini API key") {
-            SecureField("Paste your API key", text: $apiKey)
-                #if os(iOS)
-                .textInputAutocapitalization(.never)
-                #endif
-                .autocorrectionDisabled()
-            Button("Save") {
-                GeminiKeyStore.save(apiKey)
-                saved = true
-            }
-            .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                      && GeminiKeyStore.load() == nil)
-            if !apiKey.isEmpty || GeminiKeyStore.load() != nil {
-                Button("Remove key", role: .destructive) {
-                    apiKey = ""
-                    GeminiKeyStore.save(nil)
-                    saved = true
-                }
-            }
-            if saved {
-                Label(GeminiKeyStore.load() != nil ? "Saved." : "Key removed.",
-                      systemImage: "checkmark.circle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(themeStore.effective.accentColor)
-            }
-        }
-    }
-
-    private var geminiModelSection: some View {
-        Section("Model") {
-            Picker("Model", selection: $model) {
-                ForEach(GeminiModelOption.all) { option in
-                    VStack(alignment: .leading) {
-                        Text(option.displayName)
-                        Text(option.hint).font(.caption).foregroundStyle(.secondary)
-                    }
-                    .tag(option.slug)
-                }
-            }
-            .pickerStyle(.inline)
-            .onChange(of: model) { _, newValue in GeminiKeyStore.saveModel(newValue) }
-        }
-    }
-
-    private var geminiFooterSection: some View {
-        Section {
-            Text("Get a free key at aistudio.google.com/apikey. Stored in the device "
-                + "Keychain, never sent anywhere but Google's Gemini API.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 }

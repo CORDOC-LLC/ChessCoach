@@ -2,7 +2,7 @@
 //  On-demand puzzle pack downloads: local cache round-trip (no network needed
 //  once a pack exists on disk) and the mocked-network fetch path, using this
 //  suite's own private mock URLProtocol (shared mocks race across suites --
-//  a lesson already learned with ManagedCoachTests/GeminiCoachTests).
+//  a lesson already learned with ManagedCoachTests).
 
 import Foundation
 #if canImport(FoundationNetworking)

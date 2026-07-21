@@ -76,7 +76,6 @@ public struct PlayContainerView: View {
 
     private var coachLabel: String {
         switch vm.coachAvailability {
-        case .gemini: return "Gemini"
         case .managed: return "ChessCoach Pro"
         case .unavailable(let reason): return "engine only — \(reason)"
         }

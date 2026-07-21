@@ -1,322 +1,82 @@
 //  CoachPromptTests.swift
-//  Covers U13 test scenarios from the implementation plan.
+//  `CoachPrompt.swift` used to hold the coach personas and text-formatting
+//  logic (now server-side, plan 2026-07-21-002 U1/U2) -- what's left are the
+//  plain `Codable` fact-shaping structs `CoachOrchestrator` sends as JSON.
+//  These tests pin their wire field names/shapes exactly, since a drift here
+//  would silently break `/api/coach`'s contract.
 
+import Foundation
 import Testing
 @testable import GemmaChessCore
 
-@Suite("Coach: engine facts text")
-struct EngineFactsTests {
+@Suite("Coach: fact structs are Codable with the expected wire field names")
+struct CoachFactStructWireShapeTests {
 
-    @Test("best line + near-best alternatives within the gap are listed; far ones dropped")
-    func bestAndAlternatives() {
+    @Test("CoachLineInfo encodes with camelCase field names matching the wire contract")
+    func coachLineInfoFieldNames() throws {
         let info = CoachLineInfo(
-            bestSan: "Nf3",
-            eval: "±0.30",
-            winPercent: 55.0,
-            lineSan: ["Nf3", "Nc6", "Bb5"],
-            alternatives: [
-                CoachAltLine(firstSan: "Bc4", eval: "±0.20", winPercent: 53.0), // gap 2 <= 5 -> in
-                CoachAltLine(firstSan: "d4", eval: "±0.10", winPercent: 49.0),  // gap 6 > 5 -> out
-            ]
-        )
-        let text = CoachPromptBuilder.engineFactsText(info)
-        #expect(text != nil)
-        let t = text!
-        #expect(t.contains("Best move in this position: Nf3"))
-        #expect(t.contains("principal line: Nf3 Nc6 Bb5."))
-        #expect(t.contains("Bc4 (eval ±0.20, win 53.0%)"))
-        #expect(!t.contains("d4 (eval"))               // beyond the 5-point gap
-        #expect(t.contains("within 5 win%-points"))    // gap formatted with :g
-    }
-
-    @Test("a blunder move includes classification, the better move, and the refutation")
-    func blunderMove() {
-        let info = CoachLineInfo(
-            bestSan: "c3",
-            eval: "+3.70",
-            winPercent: 90.0,
-            lineSan: ["c3"],
+            bestSan: "Nf3", eval: "+0.30", winPercent: 55.0, lineSan: ["Nf3", "Nc6"],
+            alternatives: [CoachAltLine(firstSan: "Bc4", eval: "+0.20", winPercent: 53.0)],
             move: CoachMoveInfo(
-                moveSan: "Nf3",
-                classification: "blunder",
-                winBefore: 80.8,
-                winAfter: 56.9,
-                winSwing: 23.9,
-                isEngineBest: false,
-                betterMoveSan: "c3",
+                moveSan: "g4", classification: "blunder", winBefore: 80.8, winAfter: 56.9,
+                winSwing: 23.9, isEngineBest: false, betterMoveSan: "c3",
                 refutationLineSan: ["Nxf3+", "Qxf3"]
             )
         )
-        let t = CoachPromptBuilder.engineFactsText(info)!
-        #expect(t.contains("The move Nf3 is classified a blunder"))
-        #expect(t.contains("win 80.8% → 56.9%, a drop of 23.9"))
-        #expect(t.contains("The engine prefers c3 instead."))
-        #expect(t.contains("Best reply after it: Nxf3+ Qxf3."))
+        let data = try JSONEncoder().encode(info)
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(json["bestSan"] as? String == "Nf3")
+        #expect(json["winPercent"] as? Double == 55.0)
+        #expect(json["lineSan"] as? [String] == ["Nf3", "Nc6"])
+        let move = try #require(json["move"] as? [String: Any])
+        #expect(move["moveSan"] as? String == "g4")
+        #expect(move["isEngineBest"] as? Bool == false)
+        #expect(move["betterMoveSan"] as? String == "c3")
+        #expect(move["refutationLineSan"] as? [String] == ["Nxf3+", "Qxf3"])
+
+        // Round-trips.
+        let decoded = try JSONDecoder().decode(CoachLineInfo.self, from: data)
+        #expect(decoded == info)
     }
 
-    @Test("engine-best move says so and names no 'better' move")
-    func engineBestMove() {
-        let info = CoachLineInfo(
-            bestSan: "Qxd5", eval: "+1.20", winPercent: 70.0, lineSan: ["Qxd5"],
-            move: CoachMoveInfo(moveSan: "Qxd5", classification: "best",
-                                winBefore: 70.0, winAfter: 70.0, winSwing: 0.0,
-                                isEngineBest: true)
-        )
-        let t = CoachPromptBuilder.engineFactsText(info)!
-        #expect(t.contains("It is the engine's top choice."))
-        #expect(!t.contains("The engine prefers"))
+    @Test("CoachSide encodes as lowercase \"white\"/\"black\", not a Swift case name")
+    func coachSideEncoding() throws {
+        let data = try JSONEncoder().encode(CoachSide.white)
+        #expect(String(data: data, encoding: .utf8) == "\"white\"")
+        let data2 = try JSONEncoder().encode(CoachSide.black)
+        #expect(String(data: data2, encoding: .utf8) == "\"black\"")
     }
 
-    @Test("empty info yields nil")
-    func emptyInfo() {
-        let info = CoachLineInfo(bestSan: nil, eval: "", winPercent: 0, lineSan: [])
-        #expect(CoachPromptBuilder.engineFactsText(info) == nil)
-    }
-
-    @Test("includeBestLine:false emits only the move verdict (no second best-move line)")
-    func moveOnlyFacts() {
-        let info = CoachLineInfo(
-            bestSan: "c3", eval: "+3.70", winPercent: 90.0, lineSan: ["c3"],
-            move: CoachMoveInfo(moveSan: "Nf3", classification: "blunder",
-                                winBefore: 80.8, winAfter: 56.9, winSwing: 23.9,
-                                isEngineBest: false, betterMoveSan: "c3")
-        )
-        let t = CoachPromptBuilder.engineFactsText(info, includeBestLine: false)!
-        #expect(t.contains("The move Nf3 is classified a blunder"))
-        #expect(!t.contains("Best move in this position"))   // no duplicate best-move line
-
-        // The auto move-note also drops the move-sequence ("Best reply after it") so
-        // the model isn't handed a list of moves to parrot.
-        let terse = CoachPromptBuilder.engineFactsText(
-            info, includeBestLine: false, includeRefutation: false)!
-        #expect(!terse.contains("Best reply after it"))
-        #expect(terse.contains("The engine prefers c3 instead."))
-    }
-}
-
-@Suite("Coach: chat prompt composition")
-struct ChatPromptTests {
-
-    @Test("'what should I do' routes current-position facts under CURRENT analysis")
-    func currentFactsRouting() {
-        let p = CoachPromptBuilder.chatPrompt(
-            question: "What should I do here?",
-            fen: "8/8/8/8/8/8/8/8 w - - 0 1",
-            currentFacts: "- Best move for the side to move: Re1",
-            depth: 18
-        )
-        #expect(p.contains("Current position the user is viewing (FEN): 8/8/8/8/8/8/8/8 w - - 0 1"))
-        #expect(p.contains("Engine analysis of the CURRENT position the user now faces (Stockfish depth 18):"))
-        #expect(p.contains("- Best move for the side to move: Re1"))
-        #expect(p.hasSuffix("User question: What should I do here?"))
-    }
-
-    @Test("'why is this bad' with a distinct origin routes move facts and cites the origin FEN")
-    func moveFactsRouting() {
-        let p = CoachPromptBuilder.chatPrompt(
-            question: "Why is Nf3 bad?",
-            fen: "current-fen",
-            lastMove: "Nf3",
-            moveFen: "origin-fen",
-            moveFacts: "- The move Nf3 is classified a blunder"
-        )
-        #expect(p.contains("The move under review is Nf3, which the user played from the position FEN origin-fen"))
-        #expect(p.contains("Engine analysis of the move Nf3:"))
-        #expect(p.contains("- The move Nf3 is classified a blunder"))
-    }
-
-    @Test("player side framing names the user's colour and the engine opponent")
-    func playerSideFraming() {
-        let white = CoachPromptBuilder.chatPrompt(question: "q", playerSide: .white)
-        #expect(white.contains("The user is playing the White pieces against a computer opponent (Black)."))
-        #expect(white.contains("'You'/'your' always refers to the White player"))
-
-        let black = CoachPromptBuilder.chatPrompt(question: "q", playerSide: .black)
-        #expect(black.contains("The user is playing the Black pieces against a computer opponent (White)."))
-
-        // Absent by default, so non-Play callers are unaffected.
-        let none = CoachPromptBuilder.chatPrompt(question: "q")
-        #expect(!none.contains("against a computer opponent"))
-    }
-
-    @Test("opening facts name the line and land in the prompt")
-    func openingFacts() {
-        let line = CoachPromptBuilder.openingFactsText(name: "London System", eco: "D02")
-        #expect(line?.contains("London System (ECO D02)") == true)
-        // No ECO → name only; no name → nothing.
-        #expect(CoachPromptBuilder.openingFactsText(name: "Italian Game", eco: nil)?.contains("Italian Game.") == true)
-        #expect(CoachPromptBuilder.openingFactsText(name: nil, eco: "D02") == nil)
-        #expect(CoachPromptBuilder.openingFactsText(name: "", eco: "D02") == nil)
-
-        let p = CoachPromptBuilder.chatPrompt(question: "q", openingFacts: line)
-        #expect(p.contains("London System"))
-        // Absent by default.
-        #expect(!CoachPromptBuilder.chatPrompt(question: "q").contains("known opening"))
-    }
-
-    @Test("board facts list every piece with its true square, so the model needn't parse FEN")
-    func boardFacts() {
-        // After 1. e4: the ONLY differences from the start are the e-pawn on e4.
-        let afterE4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
-        let board = try! #require(CoachPromptBuilder.boardFactsText(fen: afterE4))
-        #expect(board.contains("White pieces:"))
-        #expect(board.contains("king e1"))
-        #expect(board.contains("pawns a2, b2, c2, d2, f2, g2, h2, e4"))     // e-pawn on e4 (rank-major order)
-        #expect(board.contains("Black pieces:"))
-        #expect(board.contains("pawns a7, b7, c7, d7, e7, f7, g7, h7"))
-        #expect(board.contains("Black to move."))
-        // No white pawn can ever be on c1 — the hallucination this guards against.
-        #expect(!board.contains("c1,") || board.contains("bishops c1"))
-
-        // Unparseable FEN degrades to nil, and the prompt just omits the block.
-        #expect(CoachPromptBuilder.boardFactsText(fen: "not a fen") == nil)
-    }
-
-    @Test("chat prompt embeds the verified piece list for the viewed and move positions")
-    func boardFactsInPrompt() {
-        let start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-        let p = CoachPromptBuilder.chatPrompt(question: "q", fen: start)
-        #expect(p.contains("Verified piece placement"))
-        #expect(p.contains("Never mention a piece or square not consistent with this list"))
-
-        // Pure move review (fen == nil): the origin position's pieces are listed.
-        let m = CoachPromptBuilder.chatPrompt(question: "q", lastMove: "e2e4", moveFen: start)
-        #expect(m.contains("Verified piece placement BEFORE that move"))
-
-        // A placeholder/unparseable FEN adds no block (and breaks nothing).
-        let bad = CoachPromptBuilder.chatPrompt(question: "q", fen: "fen")
-        #expect(!bad.contains("Verified piece placement"))
-    }
-
-    @Test("move available at the current board uses the 'available in the current position' phrasing")
-    func moveAtCurrentBoard() {
-        let p = CoachPromptBuilder.chatPrompt(
-            question: "Why is Nf3 bad?", fen: "fen", lastMove: "Nf3", moveFen: "fen"
-        )
-        #expect(p.contains("The move in question is Nf3, available in the current position."))
-        #expect(!p.contains("from FEN"))
-    }
-
-    @Test("profile text included only when provided; speed context only when known")
-    func optionalContext() {
-        let without = CoachPromptBuilder.chatPrompt(question: "q")
-        #expect(!without.contains("play history"))
-        #expect(without == "User question: q")  // nothing else when no context supplied
-
-        let with = CoachPromptBuilder.chatPrompt(
-            question: "q",
-            profileFacts: "You hang pieces under time pressure.",
-            speedContext: "This is a blitz game."
-        )
-        #expect(with.contains("This is a blitz game."))
-        #expect(with.contains("Background on the user's play history"))
-        #expect(with.contains("You hang pieces under time pressure."))
-    }
-
-    @Test("persona instructions carry the grounding + no-UI rules; user prompt stays clean")
-    func personaSeparation() {
-        #expect(CoachPromptBuilder.chatInstructions.contains("TRUST it, do not recompute"))
-        #expect(CoachPromptBuilder.chatInstructions.contains("do NOT mention the web board"))
-        // The per-question prompt must not carry persona/UI text.
-        let p = CoachPromptBuilder.chatPrompt(question: "best move?", currentFacts: "- Best move ...")
-        #expect(!p.contains("web board"))
-        #expect(!p.contains("chess coach"))
-    }
-}
-
-@Suite("Coach: game summary facts")
-struct GameFactsTests {
-
-    @Test("flagged moves listed worst-first with accuracy and opponent accuracy")
-    func flaggedMoves() {
+    @Test("CoachFlaggedMove/CoachGameInput round-trip with the wire's field names")
+    func gameInputRoundTrips() throws {
         let input = CoachGameInput(
-            white: "alice", black: "bob", result: "1-0", opening: "Italian Game",
-            speed: "blitz", player: .white, accuracyWhite: 92.7, accuracyBlack: 81.0,
-            mistakes: [
-                CoachFlaggedMove(moveNumber: 10, color: .white, moveSan: "Qf3",
-                                 classification: "mistake", winBefore: 95, winAfter: 85,
-                                 winSwing: 10, bestMoveSan: "Bd3", comment: "Drops the initiative."),
-                CoachFlaggedMove(moveNumber: 4, color: .white, moveSan: "Nf3",
-                                 classification: "blunder", winBefore: 80.8, winAfter: 56.9,
-                                 winSwing: 23.9, bestMoveSan: "c3", comment: "Allows a fork."),
-            ]
+            white: "alice", black: "bob", result: "1-0", opening: "Italian Game", speed: "blitz",
+            player: .white, accuracyWhite: 92.7, accuracyBlack: 81.0,
+            mistakes: [CoachFlaggedMove(
+                moveNumber: 4, color: .white, moveSan: "Nf3", classification: "blunder",
+                winBefore: 80.8, winAfter: 56.9, winSwing: 23.9, bestMoveSan: "c3",
+                comment: "Allows a fork."
+            )]
         )
-        let t = CoachPromptBuilder.gameFactsText(input)
-        #expect(t.contains("Reviewing White. Accuracy: 92.7% (opponent 81.0%)."))
-        #expect(t.contains("Italian Game"))
-        // worst-first: the 23.9-swing blunder (move 4) precedes the 10-swing mistake (move 10)
-        let blunderIdx = t.range(of: "4.Nf3")!.lowerBound
-        let mistakeIdx = t.range(of: "10.Qf3")!.lowerBound
-        #expect(blunderIdx < mistakeIdx)
-        #expect(t.contains("engine preferred c3. Allows a fork."))
+        let data = try JSONEncoder().encode(input)
+        let decoded = try JSONDecoder().decode(CoachGameInput.self, from: data)
+        #expect(decoded == input)
+
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["player"] as? String == "white")
+        let mistake = try #require((json["mistakes"] as? [[String: Any]])?.first)
+        #expect(mistake["color"] as? String == "white")
+        #expect(mistake["bestMoveSan"] as? String == "c3")
     }
 
-    @Test("clean game phrasing when no mistakes; black uses ... move numbering")
-    func cleanGameAndBlack() {
-        let clean = CoachGameInput(
-            white: "a", black: "b", result: "0-1", opening: nil, speed: "rapid",
-            player: .black, accuracyWhite: 70, accuracyBlack: 99, mistakes: []
-        )
-        let t = CoachPromptBuilder.gameFactsText(clean)
-        #expect(t.contains("unknown opening"))
-        #expect(t.contains("Reviewing Black. Accuracy: 99.0% (opponent 70.0%)."))
-        #expect(t.contains("Black made no inaccuracies, mistakes or blunders — a clean game."))
-
-        let withBlackMove = CoachGameInput(
-            white: "a", black: "b", result: "0-1", opening: "X", speed: "rapid",
-            player: .black, accuracyWhite: 70, accuracyBlack: 80,
-            mistakes: [CoachFlaggedMove(moveNumber: 7, color: .black, moveSan: "Qd7",
-                                        classification: "mistake", winBefore: 60, winAfter: 48,
-                                        winSwing: 12, bestMoveSan: "Be7", comment: "")]
-        )
-        #expect(CoachPromptBuilder.gameFactsText(withBlackMove).contains("7...Qd7"))
-    }
-}
-
-// MARK: - Play end-of-game summary facts
-
-struct PlaySummaryFactsTests {
-
-    private func record(_ n: Int, _ san: String, _ cls: String, _ before: Double, _ after: Double,
-                        better: String? = nil) -> CoachPromptBuilder.PlayMoveRecord {
-        .init(moveNumber: n, san: san, classification: cls,
-              winBefore: before, winAfter: after, betterSan: better)
-    }
-
-    @Test("facts carry result, side, opening, accuracy and flagged moves worst-first")
-    func playFacts() {
-        let facts = CoachPromptBuilder.playGameFactsText(
-            result: "Checkmate — you lose.", playerSide: .white, opening: "London System",
-            records: [
-                record(1, "d4", "best", 52, 52),
-                record(9, "Qh5", "blunder", 55, 12, better: "Nf3"),
-                record(5, "a4", "inaccuracy", 54, 47, better: "c4"),
-            ])
-        #expect(facts.contains("Checkmate — you lose."))
-        #expect(facts.contains("played White"))
-        #expect(facts.contains("Opening: London System."))
-        #expect(facts.contains("accuracy over 3 moves"))
-        // Worst-first ordering: the blunder (43-point drop) before the inaccuracy.
-        let qh5 = facts.range(of: "9.Qh5")!.lowerBound
-        let a4 = facts.range(of: "5.a4")!.lowerBound
-        #expect(qh5 < a4)
-        #expect(facts.contains("engine preferred Nf3"))
-        // The clean best move isn't flagged.
-        #expect(!facts.contains("1.d4 (best"))
-    }
-
-    @Test("a clean game says so, and Black numbering uses '...'")
-    func cleanGameAndBlack() {
-        let clean = CoachPromptBuilder.playGameFactsText(
-            result: "Stalemate — it's a draw.", playerSide: .black, opening: nil,
-            records: [record(1, "e5", "good", 48, 48)])
-        #expect(clean.contains("played Black"))
-        #expect(clean.contains("clean game"))
-        #expect(!clean.contains("Opening:"))
-
-        let flagged = CoachPromptBuilder.playGameFactsText(
-            result: "r", playerSide: .black, opening: nil,
-            records: [record(3, "g5", "blunder", 50, 10, better: "Nf6")])
-        #expect(flagged.contains("3...g5"))
+    @Test("PlayMoveRecord round-trips, with bestUCI decoding nil when absent (older saved games)")
+    func playMoveRecordBackwardCompatibleDecode() throws {
+        let json = Data("""
+        {"moveNumber":1,"san":"d4","classification":"best","winBefore":52,"winAfter":52}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(CoachPromptBuilder.PlayMoveRecord.self, from: json)
+        #expect(decoded.bestUCI == nil)
+        #expect(decoded.san == "d4")
     }
 }

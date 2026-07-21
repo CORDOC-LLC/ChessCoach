@@ -161,7 +161,7 @@ public final class ReviewViewModel {
                 playerSide: session.map { $0.player == "white" ? .white : .black },
                 openingFacts: session.flatMap {
                     let name = $0.resolveOpening()
-                    return CoachPromptBuilder.openingFactsText(name: name.isEmpty ? nil : name, eco: nil)
+                    return name.isEmpty ? nil : name
                 },
                 profileFacts: personalize ? profileFacts() : nil,
                 speedContext: session.map { "This game's time control is \($0.speed)." },

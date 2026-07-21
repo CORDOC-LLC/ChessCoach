@@ -337,7 +337,7 @@ public final class PlayViewModel {
             // Ground the rationale in the SAME analysis that drew the arrows (passed
             // as currentFacts so the orchestrator does no second engine run), and
             // stream it so the reason appears as it's written instead of after a wait.
-            let facts = CoachPromptBuilder.engineFactsText(report.coachInfo)
+            let facts = report.coachInfo
             var question = "Why is \(bestSAN) the strongest move here? One or two short sentences on the idea behind it."
             if let alt = secondSAN {
                 question += " Add one short sentence on when \(alt) is a fine alternative."
@@ -576,7 +576,7 @@ public final class PlayViewModel {
     /// live-graded move records (no fresh engine work).
     private func startGameSummary() {
         guard coachEnabled, !moveRecords.isEmpty, gameSummary == nil, !isSummarizing else { return }
-        let facts = CoachPromptBuilder.playGameFactsText(
+        let input = CoachPlayGameInput(
             result: resultText ?? "The game is over.",
             playerSide: playerIsWhite ? .white : .black,
             opening: opening?.name, records: moveRecords)
@@ -586,7 +586,7 @@ public final class PlayViewModel {
         Task {
             defer { if gen == moveGen { isSummarizing = false } }
             do {
-                let stream = try await coach.summaryStream(facts: facts)
+                let stream = try await coach.summaryStream(input)
                 for try await partial in stream {
                     guard gen == moveGen else { return }
                     gameSummary = partial
@@ -770,9 +770,11 @@ public final class PlayViewModel {
         }
     }
 
-    /// The opening fact line for coach prompts, when a named line has been reached.
+    /// The opening name for coach prompts, when a named line has been reached
+    /// (formatting/framing this into the actual prompt now happens server-side).
     private var openingFacts: String? {
-        CoachPromptBuilder.openingFactsText(name: opening?.name, eco: opening?.eco)
+        let name = opening?.name
+        return (name?.isEmpty ?? true) ? nil : name
     }
 
     /// The short written coach note for the move you just played. Streams in after
@@ -786,42 +788,19 @@ public final class PlayViewModel {
     /// engine.
     private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?,
                                  opponentReplySAN: String? = nil, userPly: Int? = nil, gen: Int? = nil) async {
-        guard coachEnabled, let mv = moveReport?.move else { return }
+        guard coachEnabled, moveReport?.move != nil else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
-        // The engine's grade (the same one shown on the chip) is authoritative. The
-        // coach EXPLAINS the reasoning behind THAT grade, using its exact wording —
-        // it never upgrades or downgrades it (an inaccuracy stays an inaccuracy, not
-        // a "mistake").
-        let cls = mv.classification.lowercased()
-        let better = mv.isEngineBest ? nil : mv.betterMoveSAN
-        let win = "\(Int(mv.winBefore.rounded()))% to \(Int(mv.winAfter.rounded()))%"
-        var facts = "- The engine grades your move \(san) as: \(cls) (already shown to the user — do not restate it)."
-        switch cls {
-        case "best":
-            facts += " It is the engine's top choice. In a few words, say what makes it strong."
-        case "good":
-            facts += " In a few words, say what makes it solid."
-        case "inaccuracy":
-            facts += " Winning chances slipped from \(win)."
-            if let b = better { facts += " The more accurate move was \(b)." }
-            facts += " Go straight to the reason — what \(better ?? "the better move") achieves or what \(san) slightly misses."
-        case "mistake":
-            facts += " Winning chances dropped from \(win)."
-            if let b = better { facts += " The stronger move was \(b)." }
-            facts += " Go straight to the reason — what \(san) allows or misses."
-        case "blunder":
-            facts += " Winning chances fell sharply from \(win)."
-            if let b = better { facts += " A much stronger move was \(b)." }
-            facts += " Go straight to the reason — what \(san) loses or allows."
-        default:
-            if let b = better { facts += " The engine prefers \(b)." }
-        }
+        // The engine's grade (the same one shown on the chip) is authoritative --
+        // `moveReport.coachInfo` carries it (classification, win% swing, the
+        // better move if any) as structured facts; the gateway's moveNote
+        // persona is what turns that into "explain the reason, don't restate
+        // the grade" prose now (server-side, plan 2026-07-21-002 U1/U2).
+        var question = "In one or two sentences, explain the reasoning behind the engine's grade of my move \(san)."
         // The opponent's actual reply, so the note ends with what to watch for next —
         // "the opponent may be trying to…" is the half of coaching the chip can't show.
-        var question = "In one or two sentences, explain the reasoning behind the engine's grade of my move \(san)."
         if let reply = opponentReplySAN {
-            facts += "\n- The opponent then replied \(reply)."
-            question += " Then, in one more short sentence, tell me what the opponent's reply \(reply) is trying to do."
+            question += " The opponent then replied \(reply). Then, in one more short sentence, tell me "
+                + "what \(reply) is trying to do."
         }
         lastCoachError = nil
         do {
@@ -830,8 +809,8 @@ public final class PlayViewModel {
                 lastMove: uci, moveFen: fromFEN,
                 playerSide: playerIsWhite ? .white : .black,
                 openingFacts: openingFacts,
-                moveFacts: facts,
-                system: CoachPromptBuilder.moveNoteInstructions, depth: GCConfig.liveDepth)
+                moveFacts: moveReport?.coachInfo,
+                kind: .moveNote, depth: GCConfig.liveDepth)
             for try await partial in stream {
                 if let gen, gen != moveGen { return }   // retried/new game mid-stream
                 lastCoachNote = partial

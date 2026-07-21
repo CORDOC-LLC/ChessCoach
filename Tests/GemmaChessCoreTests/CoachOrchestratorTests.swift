@@ -1,62 +1,129 @@
 //  CoachOrchestratorTests.swift
-//  Covers U16 (orchestrator routing + engine→facts→prompt wiring). Model output
-//  itself is backend-dependent, so a mock backend echoes the (system, prompt)
-//  it receives.
+//  Covers the orchestrator's routing + engine -> facts wiring (plan
+//  2026-07-21-002, U1). `CoachOrchestrator` now depends on `ManagedCoach`
+//  concretely -- these tests drive it via `ManagedCoach.mock(...)` (a mock
+//  URLProtocol, see `TestSupport.swift`) and assert on the JSON body actually
+//  posted to `/api/coach`, since that's the wire contract this unit exists to
+//  get right (no client-assembled `system`/`prompt` text, ever).
 
+import Foundation
 import Testing
 @testable import GemmaChessCore
 
-/// Records and echoes what the orchestrator hands a backend.
-private final class MockCoach: CoachLLM {
-    let state: CoachAvailability
-    init(_ state: CoachAvailability) { self.state = state }
-    var availability: CoachAvailability { state }
-    func generate(system: String, prompt: String, sessionID: String?) async throws -> CoachReply {
-        CoachReply(answer: "SYS::\(system)\n>>>\n\(prompt)", sessionID: "mock-1")
+private let blunderFEN = "rnbqkbnr/pppp1ppp/8/4p3/8/5P2/PPPPP1PP/RNBQKBNR w KQkq - 0 2"
+
+/// Decodes just enough of the request body to assert on shape without
+/// depending on `CoachOrchestrator`'s private `ChatFacts` type.
+private struct CapturedCoachRequest: Decodable {
+    let kind: String
+    let facts: CapturedFacts
+    let appUserId: String
+    struct CapturedFacts: Decodable {
+        let question: String?
+        let fen: String?
+        let openingName: String?
+        let current: CoachLineInfo?
+        let move: CoachLineInfo?
     }
 }
-
-private let blunderFEN = "rnbqkbnr/pppp1ppp/8/4p3/8/5P2/PPPPP1PP/RNBQKBNR w KQkq - 0 2"
 
 @Suite("Coach: orchestrator", .serialized)
 struct CoachOrchestratorTests {
 
-    @Test("picks the first available backend; reports its state")
-    func backendSelection() {
-        let o = CoachOrchestrator(backends: [
-            MockCoach(.unavailable(reason: "no FM")),
-            MockCoach(.gemini),
-        ])
-        #expect(o.availability == .gemini)
+    @Test("reports the managed coach's availability")
+    func reportsAvailability() {
+        let o = CoachOrchestrator(coach: .mockAnswering("hi"))
+        #expect(o.availability == .managed)
     }
 
-    @Test("all-unavailable backends -> unavailable + answering throws")
-    func allUnavailable() async {
-        let o = CoachOrchestrator(backends: [MockCoach(.unavailable(reason: "x"))])
+    @Test("an unconfigured managed coach -> unavailable + answering throws")
+    func unconfiguredThrows() async {
+        let coach = ManagedCoach(backendURL: { nil }, debugToken: { nil }, appUserId: { nil })
+        let o = CoachOrchestrator(coach: coach)
         if case .unavailable = o.availability {} else { Issue.record("expected unavailable") }
         await #expect(throws: CoachError.self) {
             _ = try await o.answer(question: "best move?", fen: blunderFEN, depth: 12)
         }
     }
 
-    @Test("answer() grounds the prompt in real engine facts about the move in question")
+    @Test("answer() grounds the request in real engine facts, sent as structured JSON")
     func groundsAnswerInEngineFacts() async throws {
-        let o = CoachOrchestrator(backends: [MockCoach(.gemini)])
+        var captured: CapturedCoachRequest?
+        let o = CoachOrchestrator(coach: .mock { request in
+            captured = try? JSONDecoder().decode(CapturedCoachRequest.self, from: request.httpBody ?? Data())
+            return (200, Data(#"{"text":"g4 hangs the queen."}"#.utf8))
+        })
         let reply = try await o.answer(
             question: "Why is g4 bad here?",
             fen: blunderFEN, lastMove: "g4", moveFen: blunderFEN, depth: 12
         )
-        // The mock echoed the composed (system, prompt): both the persona and the
-        // engine-grounded verdict must be present.
-        #expect(reply.answer.contains("TRUST it, do not recompute"))     // chat persona (system)
-        #expect(reply.answer.contains("The move g4 is classified a blunder"))
-        #expect(reply.answer.contains("User question: Why is g4 bad here?"))
-        #expect(reply.sessionID == "mock-1")
+        #expect(reply.answer == "g4 hangs the queen.")
+        let req = try #require(captured)
+        #expect(req.kind == "chat")
+        #expect(req.facts.question == "Why is g4 bad here?")
+        #expect(req.facts.fen == blunderFEN)
+        // moveFen == fen -> the move is graded as part of the CURRENT-position
+        // analysis (`current.move`), not a separate `move` block (see
+        // `buildChatFacts`'s `moveAtCurrent` branch).
+        #expect(req.facts.current?.move?.moveSan == "g4")
+        #expect(req.facts.current?.move?.classification == "blunder")
     }
 
-    @Test("gameSummary() grounds the prompt in the game facts + uses the summary persona")
+    @Test("pre-supplied currentFacts/moveFacts are forwarded unchanged, no engine call needed")
+    func preSuppliedFactsPassThrough() async throws {
+        var captured: CapturedCoachRequest?
+        let o = CoachOrchestrator(coach: .mock { request in
+            captured = try? JSONDecoder().decode(CapturedCoachRequest.self, from: request.httpBody ?? Data())
+            return (200, Data(#"{"text":"ok"}"#.utf8))
+        })
+        let current = CoachLineInfo(bestSan: "Nf3", eval: "+0.30", winPercent: 55, lineSan: ["Nf3"])
+        _ = try await o.answer(question: "what now?", currentFacts: current, depth: 12)
+
+        let req = try #require(captured)
+        #expect(req.facts.current?.bestSan == "Nf3")
+        #expect(req.facts.current?.winPercent == 55)
+    }
+
+    @Test("the request body carries no system/prompt keys -- facts only")
+    func noSystemOrPromptOnTheWire() async throws {
+        var rawBody: [String: Any] = [:]
+        let o = CoachOrchestrator(coach: .mock { request in
+            if let data = request.httpBody,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                rawBody = json
+            }
+            return (200, Data(#"{"text":"ok"}"#.utf8))
+        })
+        _ = try await o.answer(question: "why?", fen: blunderFEN, depth: 12)
+
+        #expect(rawBody["system"] == nil)
+        #expect(rawBody["prompt"] == nil)
+        #expect(rawBody["kind"] as? String == "chat")
+        #expect(rawBody["facts"] != nil)
+    }
+
+    @Test("PlayViewModel's move-note path sends kind: moveNote, distinct from chat")
+    func moveNoteKindIsDistinct() async throws {
+        var capturedKind: String?
+        let o = CoachOrchestrator(coach: .mock { request in
+            let json = try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
+            capturedKind = json?["kind"] as? String
+            return (200, Data(#"{"text":"Solid."}"#.utf8))
+        })
+        _ = try await o.answer(question: "why?", lastMove: "e4", moveFen: blunderFEN, kind: .moveNote)
+        #expect(capturedKind == "moveNote")
+    }
+
+    @Test("gameSummary() sends kind: summary with the imported-game facts, source: imported")
     func gameSummaryGrounding() async throws {
-        let o = CoachOrchestrator(backends: [MockCoach(.gemini)])
+        var rawBody: [String: Any] = [:]
+        let o = CoachOrchestrator(coach: .mock { request in
+            if let data = request.httpBody,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                rawBody = json
+            }
+            return (200, Data(#"{"text":"Nice game."}"#.utf8))
+        })
         let input = CoachGameInput(
             white: "alice", black: "bob", result: "1-0", opening: "Italian Game",
             speed: "blitz", player: .white, accuracyWhite: 92.7, accuracyBlack: 81.0,
@@ -65,9 +132,36 @@ struct CoachOrchestratorTests {
                 bestMoveSan: "c3", comment: "Allows a fork.")]
         )
         let summary = try await o.gameSummary(input, profileFacts: "You hang pieces in time trouble.")
-        #expect(summary.contains("encouraging but honest chess coach"))   // summary persona
-        #expect(summary.contains("Reviewing White. Accuracy: 92.7%"))
-        #expect(summary.contains("cross-game history"))
-        #expect(summary.contains("You hang pieces in time trouble."))
+        #expect(summary == "Nice game.")
+        #expect(rawBody["kind"] as? String == "summary")
+        let facts = rawBody["facts"] as? [String: Any]
+        #expect(facts?["source"] as? String == "imported")
+        #expect(facts?["white"] as? String == "alice")
+        #expect((facts?["accuracyWhite"] as? Double) == 92.7)
+    }
+
+    @Test("summaryStream() sends kind: summary with the Play-game facts, source: play")
+    func playSummaryGrounding() async throws {
+        var rawBody: [String: Any] = [:]
+        let o = CoachOrchestrator(coach: .mock { request in
+            if let data = request.httpBody,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                rawBody = json
+            }
+            return (200, Data("data: {\"text\":\"Good fight.\"}\n\ndata: [DONE]\n\n".utf8))
+        })
+        let input = CoachPlayGameInput(
+            result: "Checkmate — you win.", playerSide: .black, opening: "Sicilian Defense",
+            records: [.init(moveNumber: 1, san: "c5", classification: "best", winBefore: 50, winAfter: 52,
+                             betterSan: nil)]
+        )
+        var chunks: [String] = []
+        for try await partial in try await o.summaryStream(input) { chunks.append(partial) }
+
+        #expect(chunks == ["Good fight."])
+        #expect(rawBody["kind"] as? String == "summary")
+        let facts = rawBody["facts"] as? [String: Any]
+        #expect(facts?["source"] as? String == "play")
+        #expect(facts?["playerSide"] as? String == "black")
     }
 }

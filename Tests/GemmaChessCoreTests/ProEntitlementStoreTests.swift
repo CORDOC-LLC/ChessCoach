@@ -15,15 +15,13 @@ import Testing
 import Foundation
 @testable import GemmaChessCore
 
-/// A coach backend that always throws `ProRequiredError`, standing in for a real
-/// backend behind a failed entitlement gate -- lets call sites' error handling
-/// be tested without needing to force `BuildChannel.current` to `.appStore` in
-/// a test binary (which is always `.local`, see `BuildChannel.current`).
-private final class ProGatedMockCoach: CoachLLM {
-    var availability: CoachAvailability { .gemini }
-    func generate(system: String, prompt: String, sessionID: String?) async throws -> CoachReply {
-        throw ProRequiredError()
-    }
+/// A `CoachOrchestrator` whose Pro-entitlement gate is forced to fail --
+/// `channel: .appStore` plus a test binary's real `ProEntitlementStore.shared`
+/// (never configured, so `isProActive == false`) makes `requireProOrThrow`
+/// actually throw `ProRequiredError`, without needing a real distribution
+/// channel or a fake backend.
+private func proGatedOrchestrator() -> CoachOrchestrator {
+    CoachOrchestrator(coach: .mockAnswering("unused"), channel: .appStore)
 }
 
 @Suite("ProEntitlementStore: uniform Pro-gate (U1)", .serialized)
@@ -81,7 +79,7 @@ struct ProEntitlementStoreTests {
     @MainActor
     @Test("requestHint: gated rationale surfaces a paywall-prompt error; best move/SAN still populate")
     func requestHintSurfacesGateFailureWithoutLosingBestMove() async {
-        let vm = PlayViewModel.forTesting(coach: CoachOrchestrator(backends: [ProGatedMockCoach()]))
+        let vm = PlayViewModel.forTesting(coach: proGatedOrchestrator())
         vm.requestHint()
 
         await wait { vm.hint?.bestUCI.isEmpty == false }

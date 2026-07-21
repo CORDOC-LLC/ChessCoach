@@ -12,33 +12,33 @@ import Foundation
 @testable import GemmaChessCore
 
 /// Counts calls and returns a canned reply -- lets tests assert the backend
-/// was actually reached.
-private actor CountingMockCoach: CoachLLM {
-    nonisolated var availability: CoachAvailability { .gemini }
-    private(set) var callCount = 0
-    nonisolated let replyText = "Look for the pin along the back rank."
+/// was actually reached. Wraps a real `ManagedCoach` over a mock URLProtocol
+/// (see `TestSupport.swift`) since `CoachOrchestrator` now depends on
+/// `ManagedCoach` concretely -- there's no more `CoachLLM` protocol to fake.
+private final class CountingMockCoach: @unchecked Sendable {
+    let replyText = "Look for the pin along the back rank."
+    private let lock = NSLock()
+    private var _callCount = 0
+    var callCount: Int { lock.lock(); defer { lock.unlock() }; return _callCount }
 
-    func generate(system: String, prompt: String, sessionID: String?) async throws -> CoachReply {
-        callCount += 1
-        return CoachReply(answer: replyText)
-    }
+    lazy var orchestrator: CoachOrchestrator = CoachOrchestrator(coach: .mock { [weak self] _ in
+        self?.lock.lock(); self?._callCount += 1; self?.lock.unlock()
+        return (200, Data("{\"text\":\"\(self?.replyText ?? "")\"}".utf8))
+    })
 }
 
-/// Always throws `ProRequiredError` -- stands in for a failed entitlement gate.
-private final class ProGatedMockCoach: CoachLLM {
-    var availability: CoachAvailability { .gemini }
-    func generate(system: String, prompt: String, sessionID: String?) async throws -> CoachReply {
-        throw ProRequiredError()
-    }
+/// A `CoachOrchestrator` whose Pro-entitlement gate is forced to fail
+/// (`.appStore` channel, `isProActive` false in a test binary) -- stands in
+/// for a real gate failure without needing a real distribution channel.
+private func proGatedOrchestrator() -> CoachOrchestrator {
+    CoachOrchestrator(coach: .mockAnswering("unused"), channel: .appStore)
 }
 
-/// Always throws a generic `CoachError` -- stands in for a non-Pro-gated
-/// backend failure (e.g. a network error surfaced as a `CoachError`).
-private final class FailingMockCoach: CoachLLM {
-    var availability: CoachAvailability { .gemini }
-    func generate(system: String, prompt: String, sessionID: String?) async throws -> CoachReply {
-        throw CoachError("The coach is temporarily unavailable.")
-    }
+/// A `CoachOrchestrator` whose managed coach always fails with a generic
+/// (non-Pro-gate) error -- stands in for a network/backend failure surfaced
+/// as a `CoachError`.
+private func failingOrchestrator() -> CoachOrchestrator {
+    CoachOrchestrator(coach: .mockFailing(status: 500))
 }
 
 @MainActor
@@ -63,14 +63,14 @@ struct LessonCoachingTests {
         let vm = LessonViewModel(
             lesson: lesson,
             progressDefaults: UserDefaults(suiteName: #function)!,
-            coach: CoachOrchestrator(backends: [coach])
+            coach: coach.orchestrator
         )
         vm.startSession(pack: pack)
 
         #expect(vm.coachAnswer == nil)
         await vm.askQuestion("Why is this the best move?")
 
-        #expect(await coach.callCount == 1)
+        #expect(coach.callCount == 1)
         #expect(vm.coachAnswer == coach.replyText)
         #expect(vm.showPaywall == false)
         #expect(vm.coachError == nil)
@@ -81,7 +81,7 @@ struct LessonCoachingTests {
         let vm = LessonViewModel(
             lesson: lesson,
             progressDefaults: UserDefaults(suiteName: #function)!,
-            coach: CoachOrchestrator(backends: [ProGatedMockCoach()])
+            coach: proGatedOrchestrator()
         )
         vm.startSession(pack: pack)
 
@@ -99,13 +99,13 @@ struct LessonCoachingTests {
         let vm = LessonViewModel(
             lesson: lesson,
             progressDefaults: UserDefaults(suiteName: #function)!,
-            coach: CoachOrchestrator(backends: [coach])
+            coach: coach.orchestrator
         )
         vm.startSession(pack: pack)
 
         await vm.askQuestion("   \n  ")
 
-        #expect(await coach.callCount == 0)
+        #expect(coach.callCount == 0)
         #expect(vm.coachAnswer == nil)
         #expect(vm.showPaywall == false)
         #expect(vm.coachError == nil)
@@ -116,13 +116,13 @@ struct LessonCoachingTests {
         let vm = LessonViewModel(
             lesson: lesson,
             progressDefaults: UserDefaults(suiteName: #function)!,
-            coach: CoachOrchestrator(backends: [FailingMockCoach()])
+            coach: failingOrchestrator()
         )
         vm.startSession(pack: pack)
 
         await vm.askQuestion("Why is this the best move?")
 
-        #expect(vm.coachError == "The coach is temporarily unavailable.")
+        #expect(vm.coachError?.contains("Managed coach error (HTTP 500)") == true)
         #expect(vm.showPaywall == false)
         #expect(vm.coachAnswer == nil)
     }
