@@ -40,11 +40,18 @@ public struct PlayContainerView: View {
                 .pickerStyle(.segmented)
                 Stepper("Engine strength: \(vm.skill)/20", value: $vm.skill, in: 0...20)
                     .onChange(of: vm.skill) { _, new in settings.defaultEngineSkill = new }
+                Toggle("Human-like opponent", isOn: Binding(
+                    get: { settings.humanLikeEnabled },
+                    set: { settings.humanLikeEnabled = $0 }
+                ))
+                Text("Varies its opening moves instead of always playing the same one.")
+                    .font(.footnote).foregroundStyle(.secondary)
                 Text("Coach: \(coachLabel)")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section {
                 Button {
+                    vm.humanLikeEnabled = settings.humanLikeEnabled
                     vm.newGame(asWhite: sideIsWhite)
                     started = true
                 } label: {
@@ -61,7 +68,10 @@ public struct PlayContainerView: View {
                 NavigationLink(destination: SettingsView()) { Image(systemName: "gearshape") }
             }
         }
-        .onAppear { vm.skill = settings.defaultEngineSkill }
+        .onAppear {
+            vm.skill = settings.defaultEngineSkill
+            vm.humanLikeEnabled = settings.humanLikeEnabled
+        }
     }
 
     private var coachLabel: String {
