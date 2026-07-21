@@ -70,6 +70,24 @@ struct PlayHintTests {
         #expect(vm.hint == nil)
     }
 
+    /// U3 — the free, template-based "why" is populated synchronously, in the same
+    /// tick as the arrows/SAN, regardless of Pro coach status (no LLM/network wait).
+    @Test func requestHintPopulatesFreeRationaleWithCoachDisabled() async {
+        let vm = PlayViewModel.forTesting()
+        vm.coachDisplayEnabled = false
+        #expect(vm.hint == nil)
+
+        vm.requestHint()
+        await wait { vm.hint?.bestUCI.isEmpty == false }
+
+        let hint = vm.hint
+        #expect(hint != nil)
+        #expect(hint?.freeRationale?.isEmpty == false)
+        // Coach is off, so the Pro rationale never fills in -- distinct fields.
+        #expect(hint?.rationale == nil)
+        #expect(hint?.isLoading == false)
+    }
+
     @Test func hintSummaryLabelFormatsBestAndAlt() {
         let both = HintInfo(bestUCI: "g1f3", secondUCI: "e2e4",
                             bestSAN: "Nf3", secondSAN: "e4",

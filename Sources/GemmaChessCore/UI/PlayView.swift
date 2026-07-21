@@ -403,6 +403,19 @@ public struct PlayView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                if let freeRationale = hint.freeRationale, !freeRationale.isEmpty {
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("FREE")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(theme.accent2Color)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Capsule().fill(theme.accent2Color.opacity(0.18)))
+                            .overlay(Capsule().stroke(theme.accent2Color.opacity(0.5), lineWidth: 1))
+                        Text(freeRationale)
+                            .font(.footnote).foregroundStyle(theme.textColor.opacity(0.9))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
                 if let rationale = hint.rationale, !rationale.isEmpty {
                     Text(rationale.asCoachMarkdown)
                         .font(.footnote).foregroundStyle(theme.textColor.opacity(0.9))
