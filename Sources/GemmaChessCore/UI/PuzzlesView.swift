@@ -285,20 +285,37 @@ struct PuzzleSessionView: View {
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
     private var theme: Theme { themeStore.effective }
+    /// Set only when a solve pushes the daily streak to one of
+    /// `StreakMilestones.values` -- surfaces a one-time share banner for
+    /// that specific moment, not on every day's solve (plan U5).
+    @State private var milestoneStreak: Int?
 
     var body: some View {
-        VStack(spacing: 10) {
-            header
-            board
-            statusCard
-            Spacer(minLength: 0)
+        ZStack {
+            VStack(spacing: 10) {
+                header
+                board
+                statusCard
+                Spacer(minLength: 0)
+            }
+            .padding(.bottom, 8)
+
+            if let milestoneStreak {
+                StreakMilestoneBanner(streak: milestoneStreak) {
+                    self.milestoneStreak = nil
+                }
+                .transition(AnyTransition.scale(scale: 0.85).combined(with: .opacity))
+            }
         }
-        .padding(.bottom, 8)
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .onChange(of: vm.sessionSolvedCount) { old, new in
-            if new > old { PuzzleStreakStore.recordSolve() }
+            guard new > old else { return }
+            let streak = PuzzleStreakStore.recordSolve()
+            if StreakMilestones.isMilestone(streak) {
+                withAnimation(.easeOut(duration: 0.25)) { milestoneStreak = streak }
+            }
         }
     }
 
@@ -401,3 +418,88 @@ struct PuzzleSessionView: View {
         }
     }
 }
+
+/// A one-time banner shown only when a solve pushes the daily streak to a
+/// milestone value (plan U5) -- mirrors `PlayView.GameOverBanner`'s
+/// share-card wiring pattern exactly (render via `ShareCardRenderer`,
+/// present `ActivityShareSheet` on success, no-op on a nil render).
+private struct StreakMilestoneBanner: View {
+    let streak: Int
+    var onDismiss: () -> Void
+
+    @Environment(ThemeStore.self) private var themeStore
+    @State private var appeared = false
+    #if os(iOS)
+    @State private var shareImage: StreakShareImageBox?
+    #endif
+    private var theme: Theme { themeStore.effective }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "flame.fill")
+                .font(.system(size: 40, weight: .semibold))
+                .foregroundStyle(theme.accent2Color)
+                .scaleEffect(appeared ? 1 : 0.4)
+                .opacity(appeared ? 1 : 0)
+            Text("\(streak)-day streak!")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(theme.textColor)
+            Text("Solved at least one puzzle every day for \(streak) days.")
+                .font(.subheadline)
+                .foregroundStyle(theme.textColor.opacity(0.75))
+                .multilineTextAlignment(.center)
+            #if os(iOS)
+            Button {
+                shareStreak()
+            } label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .tint(theme.accentColor)
+            .padding(.top, 6)
+            #endif
+            Text("Tap to dismiss")
+                .font(.caption2)
+                .foregroundStyle(theme.textColor.opacity(0.4))
+                .padding(.top, 2)
+        }
+        .padding(28)
+        .frame(maxWidth: 300)
+        .gemmaGlass(cornerRadius: 24)
+        .shadow(color: theme.accent2Color.opacity(0.35), radius: 24)
+        .onTapGesture(perform: onDismiss)
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.05)) {
+                appeared = true
+            }
+        }
+        #if os(iOS)
+        .sheet(item: $shareImage) { box in
+            ActivityShareSheet(items: [box.image])
+        }
+        #endif
+    }
+
+    #if os(iOS)
+    /// Renders the streak share card and presents the system share sheet.
+    /// If rendering fails for any reason, this is a safe no-op -- never
+    /// presents a broken/empty share sheet.
+    private func shareStreak() {
+        let card = StreakShareCard(streak: streak).environment(themeStore)
+        guard let image = ShareCardRenderer.render(card, size: StreakShareCard.cardSize) else {
+            return
+        }
+        shareImage = StreakShareImageBox(image: image)
+    }
+    #endif
+}
+
+#if os(iOS)
+/// `.sheet(item:)` needs `Identifiable`; `UIImage` isn't, so this wraps one
+/// rendered streak share-card image per presentation.
+private struct StreakShareImageBox: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+#endif
