@@ -137,7 +137,8 @@ public struct PlayView: View {
             // reopening an already-finished game (My Games) shouldn't replay this.
             if showGameOverBanner, let outcome = vm.outcome {
                 GameOverBanner(
-                    resultText: vm.resultText ?? "Game over", outcome: outcome, stats: vm.stats
+                    resultText: vm.resultText ?? "Game over", outcome: outcome, stats: vm.stats,
+                    openingName: vm.opening?.name
                 ) {
                     withAnimation(.easeOut(duration: 0.25)) { showGameOverBanner = false }
                 }
@@ -608,10 +609,14 @@ struct GameOverBanner: View {
     let resultText: String
     let outcome: PlayOutcome
     let stats: PlayStats
+    var openingName: String?
     var onDismiss: () -> Void
 
     @Environment(ThemeStore.self) private var themeStore
     @State private var appeared = false
+    #if os(iOS)
+    @State private var shareImage: ShareImageBox?
+    #endif
     private var theme: Theme { themeStore.effective }
 
     var body: some View {
@@ -632,6 +637,17 @@ struct GameOverBanner: View {
                 .font(.caption.weight(.semibold).monospacedDigit())
                 .foregroundStyle(theme.textColor.opacity(0.55))
                 .padding(.top, 4)
+            #if os(iOS)
+            Button {
+                shareGame()
+            } label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .tint(theme.accentColor)
+            .padding(.top, 6)
+            #endif
             Text("Tap to dismiss")
                 .font(.caption2)
                 .foregroundStyle(theme.textColor.opacity(0.4))
@@ -647,7 +663,26 @@ struct GameOverBanner: View {
                 appeared = true
             }
         }
+        #if os(iOS)
+        .sheet(item: $shareImage) { box in
+            ActivityShareSheet(items: [box.image])
+        }
+        #endif
     }
+
+    #if os(iOS)
+    /// Renders the share card off the live banner and presents the system
+    /// share sheet. If rendering fails for any reason, this is a safe
+    /// no-op -- never presents a broken/empty share sheet.
+    private func shareGame() {
+        let card = GameResultShareCard(resultText: resultText, outcome: outcome, openingName: openingName)
+            .environment(themeStore)
+        guard let image = ShareCardRenderer.render(card, size: GameResultShareCard.cardSize) else {
+            return
+        }
+        shareImage = ShareImageBox(image: image)
+    }
+    #endif
 
     private var icon: String {
         switch outcome {
@@ -671,6 +706,15 @@ struct GameOverBanner: View {
         }
     }
 }
+
+#if os(iOS)
+/// `.sheet(item:)` needs `Identifiable`; `UIImage` isn't, so this wraps one
+/// rendered share-card image per presentation.
+private struct ShareImageBox: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+#endif
 
 /// A compact win-probability read-out as a black/white pie: the white wedge is
 /// White's win %, the rest is Black's. Replaces the old horizontal advantage bar so
