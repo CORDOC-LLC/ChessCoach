@@ -1,0 +1,29 @@
+ChessCoach — App Store free-tier messaging copy
+=================================================
+Non-code deliverable for plan docs/plans/2026-07-21-001-feat-competitor-review-improvement-bundle-plan.md
+(R6). Consistent with the in-app onboarding slide added in U6
+(Sources/GemmaChessCore/UI/OnboardingView.swift, "No Ads, No Caps, No Cheaters").
+
+Use in the App Store description wherever free-tier messaging is called for
+(e.g. a short paragraph near the top, or a bullet block). Plain, confident
+tone -- no competitor names, no hype.
+
+--- Short paragraph (for the top of the description) ---
+
+No ads. No daily puzzle limit. No cheaters to worry about. ChessCoach's core
+experience -- playing, full engine game review, and hundreds of puzzles -- is
+free, permanently. Play against a real chess engine, get your games graded
+move by move, and sharpen your tactics without hitting a paywall or a timer.
+
+--- Bullet block (for a features list) ---
+
+• No ads, ever -- nothing interrupts your game
+• No daily puzzle cap -- solve as many as you want
+• No cheaters -- it's just you, the board, and a real engine (Stockfish),
+  not a matchmaking pool
+• Full engine game review, always free -- every grade, every best move
+• ChessCoach Pro adds an optional written coach on top -- entirely optional
+
+--- One-liner (for a short teaser/subtitle slot) ---
+
+Free chess coaching with a real engine -- no ads, no caps, no cheaters.
