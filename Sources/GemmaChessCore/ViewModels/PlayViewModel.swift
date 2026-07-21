@@ -93,6 +93,18 @@ public final class PlayViewModel {
     public var showReviewPrompt = false
     /// Opponent strength: Stockfish "Skill Level" 0–20.
     public var skill: Int = 6
+    /// Opt-in "Human-like" opponent (plan R1/U1): while true and within
+    /// `humanLikeBookPlyWindow`, engine replies are drawn from a randomly
+    /// matching ECO book line instead of the engine's own top choice. Off by
+    /// default; pushed in from `PlayDisplaySettings.humanLikeEnabled` by the view,
+    /// mirroring `coachDisplayEnabled`.
+    public var humanLikeEnabled: Bool = false
+    /// How many plies (both sides combined) the Human-like book continuation is
+    /// allowed to steer -- after this, replies always fall through to normal
+    /// engine play regardless of whether a matching line still exists deeper,
+    /// so the effect reads as "varied openings," not "the engine can't play
+    /// its own game."
+    public static let humanLikeBookPlyWindow = 8
     public var coachAvailability: CoachAvailability
     /// Live engine read-out of the current position (White's perspective).
     public var winWhite: Double = 50
@@ -581,7 +593,13 @@ public final class PlayViewModel {
         defer { engineThinking = false }
         var replySAN: String?
         do {
-            if let reply = try await EnginePool.shared.playMove(fen: fen, depth: 12, skill: skill),
+            let reply: String?
+            if let bookUCI = humanLikeBookReplyUCI() {
+                reply = bookUCI
+            } else {
+                reply = try await EnginePool.shared.playMove(fen: fen, depth: 12, skill: skill)
+            }
+            if let reply,
                let next = ChessLogic.fen(afterMove: reply, fromFEN: fen) {
                 let fromFEN = fen
                 fen = next
@@ -601,6 +619,19 @@ public final class PlayViewModel {
         }
         if !gameOver { status = "Your move" }
         return replySAN
+    }
+
+    /// The Human-like opponent's opening-book continuation for the engine's reply
+    /// (plan U1/KTD-1), or nil when it doesn't apply -- the toggle is off, the game
+    /// is past the bounded book-ply window, or no vendored ECO line's SAN prefix
+    /// matches `sanMoves` (out of book). `nil` means "fall through to normal engine
+    /// play unchanged," which is also what happens if the matched SAN can't be
+    /// converted back to UCI for the current position (should not happen for a
+    /// real book line, but never crash/lock up a game over it).
+    private func humanLikeBookReplyUCI() -> String? {
+        guard humanLikeEnabled, sanMoves.count < Self.humanLikeBookPlyWindow else { return nil }
+        guard let bookSAN = Openings.bookContinuation(afterSAN: sanMoves) else { return nil }
+        return ChessLogic.uci(fromSAN: bookSAN, inFEN: fen)
     }
 
     /// Refine the live opening name after a ply. The book lookup is a dictionary hit,
