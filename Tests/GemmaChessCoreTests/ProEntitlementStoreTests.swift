@@ -6,10 +6,10 @@
 //  `channel` override is exercised there -- `isProActive` reflects real state,
 //  which is false in a test binary that never configures Purchases).
 //
-//  Also covers the integration point this unit is really about: `requestHint`'s
-//  rationale branch surfaces `ProRequiredError` as a paywall-prompt state
-//  (`lastCoachError`) instead of silently failing or crashing, while the
-//  best-move arrow/SAN -- pure local Stockfish -- still populate.
+//  Also covers `requestHint`'s relationship to the gate: since plan
+//  2026-07-21-003 U2 the hint is engine-only on every tier, so a fully
+//  Pro-gated coach must have NO effect on it -- the hint populates completely
+//  (arrows, SAN, template rationale) and no gate error ever surfaces.
 
 import Testing
 import Foundation
@@ -66,7 +66,7 @@ struct ProEntitlementStoreTests {
         try store.requireProOrThrow(channel: .local)
     }
 
-    // MARK: requestHint integration -- rationale gated, best-move arrow unaffected
+    // MARK: requestHint integration -- engine-only, untouched by the Pro gate
 
     @MainActor
     private func wait(upTo seconds: Double = 15, until condition: () -> Bool) async {
@@ -77,22 +77,19 @@ struct ProEntitlementStoreTests {
     }
 
     @MainActor
-    @Test("requestHint: gated rationale surfaces a paywall-prompt error; best move/SAN still populate")
-    func requestHintSurfacesGateFailureWithoutLosingBestMove() async {
+    @Test("requestHint: engine-only hint fully populates behind a failing Pro gate, no error surfaces")
+    func requestHintUnaffectedByProGate() async {
         let vm = PlayViewModel.forTesting(coach: proGatedOrchestrator())
         vm.requestHint()
 
         await wait { vm.hint?.bestUCI.isEmpty == false }
 
-        // The pure-local part (Stockfish best move + a distinct alternative) is
-        // unaffected by the gate -- it never goes near the coach backend.
+        // The whole hint (Stockfish best move + alternative + template
+        // rationale) is engine-only -- it never goes near the coach backend,
+        // so a failing entitlement gate can't dent it or surface an error.
         #expect(vm.hint?.bestUCI.isEmpty == false)
         #expect(vm.hint?.bestSAN.isEmpty == false)
-
-        // The rationale branch hit the gate and surfaced it as a distinct,
-        // user-facing message instead of silently failing or crashing.
-        await wait { vm.lastCoachError != nil }
-        #expect(vm.lastCoachError == ProRequiredError().message)
-        #expect(vm.hint?.isLoading == false)
+        #expect(vm.hint?.rationale?.isEmpty == false)
+        #expect(vm.lastCoachError == nil)
     }
 }

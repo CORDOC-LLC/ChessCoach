@@ -360,13 +360,14 @@ public struct PlayView: View {
         .padding(.horizontal, 16)
     }
 
-    /// The lightbulb is the single switch for best-move graphics: tap to show the
-    /// hint (best + alternative arrows + rationale), tap again to hide them.
+    /// The lightbulb toggles hint MODE: while lit, the hint card and arrows stay
+    /// up and refresh for every new position on the user's turn. Tap again (or
+    /// close the card) to turn the mode off.
     private var hintButton: some View {
-        let on = vm.hint != nil
+        let on = vm.hintMode
         return Button {
             if showHintTip { dismissHintTip() }
-            on ? vm.clearHint() : vm.requestHint()
+            vm.toggleHintMode()
         } label: {
             Image(systemName: on ? "lightbulb.fill" : "lightbulb")
                 .font(.footnote.weight(.semibold))
@@ -374,12 +375,15 @@ public struct PlayView: View {
                 .frame(width: 26, height: 26)
         }
         .buttonStyle(PressableStyle())
-        .disabled(!vm.userToMove || vm.isViewingHistory || vm.gameOver)
-        .accessibilityLabel(on ? "Hide best move hint" : "Show best move hint")
-        .accessibilityHint("Shows the engine's best move for the current position.")
+        // Turning the mode ON only makes sense at the user's live turn, but the
+        // bulb must always stay tappable to turn the mode OFF.
+        .disabled(!on && (!vm.userToMove || vm.isViewingHistory || vm.gameOver))
+        .accessibilityLabel(on ? "Turn off move hints" : "Turn on move hints")
+        .accessibilityHint("Shows and updates the engine's suggested move as you play.")
     }
 
-    // MARK: Hint card (best + alternative + rationale, dismissible)
+    // MARK: Hint card (best + alternative + template rationale, engine-only,
+    // identical on both tiers -- closing it turns hint mode off)
 
     @ViewBuilder
     private var hintCard: some View {
@@ -391,7 +395,6 @@ public struct PlayView: View {
                         .font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
                         .lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength: 4)
-                    if hint.isLoading { ProgressView().controlSize(.small) }
                     Button { vm.clearHint() } label: {
                         Image(systemName: "xmark")
                             .font(.caption.weight(.bold)).foregroundStyle(theme.textColor.opacity(0.6))
@@ -399,21 +402,8 @@ public struct PlayView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                if let freeRationale = hint.freeRationale, !freeRationale.isEmpty {
-                    HStack(alignment: .top, spacing: 6) {
-                        Text("FREE")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(theme.accent2Color)
-                            .padding(.horizontal, 5).padding(.vertical, 2)
-                            .background(Capsule().fill(theme.accent2Color.opacity(0.18)))
-                            .overlay(Capsule().stroke(theme.accent2Color.opacity(0.5), lineWidth: 1))
-                        Text(freeRationale)
-                            .font(.footnote).foregroundStyle(theme.textColor.opacity(0.9))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
                 if let rationale = hint.rationale, !rationale.isEmpty {
-                    Text(rationale.asCoachMarkdown)
+                    Text(rationale)
                         .font(.footnote).foregroundStyle(theme.textColor.opacity(0.9))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
