@@ -110,6 +110,21 @@ public enum Openings {
         }
     }
 
+    /// A random next move continuing some vendored ECO line whose SAN prefix
+    /// exactly matches `movesPlayed`, or `nil` once no line matches (the game
+    /// has left book). Powers the Human-like opponent's opening variety (plan
+    /// U1/KTD-1): rather than always replying with the engine's own top
+    /// choice, the caller can continue along a randomly chosen real line for
+    /// a bounded number of plies before handing off to normal engine play.
+    public static func bookContinuation(afterSAN movesPlayed: [String]) -> String? {
+        let candidates = lines.filter { line in
+            line.sanMoves.count > movesPlayed.count
+                && Array(line.sanMoves.prefix(movesPlayed.count)) == movesPlayed
+        }
+        guard let pick = candidates.randomElement() else { return nil }
+        return pick.sanMoves[movesPlayed.count]
+    }
+
     /// Deepest opening match across a game's positions, or `nil`.
     ///
     /// `fens` are positions in play order — pass an analysis timeline's FENs
