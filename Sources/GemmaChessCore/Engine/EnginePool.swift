@@ -111,24 +111,23 @@ public actor EnginePool {
     /// Pick an OPPONENT reply via weighted random sampling over the engine's own top
     /// `multipv` candidate moves, for skills below `lowSkillThreshold` only (plan
     /// U2/KTD-2). Always a real engine-approved candidate at the requested depth --
-    /// never a made-up move -- just not always rank #1. Sets "Skill Level" for the
-    /// duration of the query (restored to 20 after, like `playMove`); not cached,
-    /// since Stockfish's Skill Level doesn't change the reported candidate lines
-    /// themselves, only which one a plain `go` would have picked as bestmove -- so
-    /// reusing the `analyse` cache across different skill values would be fine
-    /// correctness-wise, but this method does its own query to keep the locked
-    /// skill-set/query/restore sequence atomic under the gate (mirrors `playMove`).
+    /// never a made-up move -- just not always rank #1.
+    ///
+    /// Deliberately reuses `analyse` (its cache included) rather than issuing a
+    /// separate `runQuery`, and deliberately never touches Stockfish's own "Skill
+    /// Level" option -- both per KTD-2: every candidate here must be exactly what
+    /// `analyse` would report for this position, with the *sampling* as the sole
+    /// source of human-like imperfection. An earlier version ran its own
+    /// independent `go` search; the engine here runs multi-threaded (`ensureStarted`
+    /// sets Threads > 1), so two separate searches at the same fixed depth are not
+    /// guaranteed bit-identical at the margins -- the trailing MultiPV slot could
+    /// shuffle between runs, which `EnginePoolHumanLikeSamplingTests` caught as a
+    /// sampled move falling outside a ground-truth `analyse` call's candidate set.
+    /// Going through `analyse` guarantees the same cached result every time.
     /// Returns nil if there is no legal move (game over).
     public func humanLikeMove(fen: String, depth: Int = 12, skill: Int, multipv: Int = EnginePool.humanLikeMultiPV) async throws -> String? {
-        await acquire()
-        defer { release() }
-        try await ensureStarted()
-
         let clampedSkill = max(0, min(20, skill))
-        await engine.send(command: .setoption(id: "Skill Level", value: "\(clampedSkill)"))
-        let result = try await runQuery(fen: fen, depth: depth, multipv: max(1, multipv))
-        await engine.send(command: .setoption(id: "Skill Level", value: "20"))  // restore
-
+        let result = try await analyse(fen: fen, depth: depth, multipv: max(1, multipv))
         return Self.weightedPick(from: result.lines, skill: clampedSkill)
     }
 
