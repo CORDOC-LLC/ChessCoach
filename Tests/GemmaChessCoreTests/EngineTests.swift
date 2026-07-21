@@ -84,7 +84,8 @@ struct EngineSuite {
     func coachInfoBridge() async throws {
         let fen = "rnbqkbnr/pppp1ppp/8/4p3/8/5P2/PPPPP1PP/RNBQKBNR w KQkq - 0 2"
         let r = try await EngineLine.evaluate(fen: fen, move: "g4", depth: 14, multipv: 1, engine: EnginePool.shared)
-        let text = try #require(CoachPromptBuilder.engineFactsText(r.coachInfo))
-        #expect(text.contains("The move g4 is classified a blunder"))
+        let move = try #require(r.coachInfo.move)
+        #expect(move.moveSan == "g4")
+        #expect(move.classification == "blunder")
     }
 }

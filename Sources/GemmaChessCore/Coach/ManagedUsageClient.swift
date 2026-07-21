@@ -34,7 +34,7 @@ public enum ManagedUsageClient {
     /// `CoachError` with a user-legible message on any failure (not
     /// configured, not entitled, network error, bad response). `session`,
     /// `backendURL`, `debugToken`, and `appUserId` are injectable — same
-    /// testable-closure pattern as `ManagedCoach`/`GeminiCoach` — defaulting
+    /// testable-closure pattern as `ManagedCoach` — defaulting
     /// to the real `ManagedCoachStore`-backed values.
     public static func fetchReport(
         since: Date,

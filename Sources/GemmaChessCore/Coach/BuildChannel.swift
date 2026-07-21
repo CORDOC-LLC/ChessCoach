@@ -1,17 +1,18 @@
 //  BuildChannel.swift
-//  Which distribution channel this running binary came through -- determines
-//  which coach backends are even offered:
-//    - local (Xcode/devicectl install, no App Store receipt): both ChessCoach
-//      Pro (debug backend URL/token) and Gemini BYOK, for development.
-//    - testFlight (sandboxReceipt): BOTH ChessCoach Pro (auto-configured via
-//      a baked-in debug-bypass token against the developer's own Gemini
-//      budget -- see ManagedCoachStore.loadDebugToken()) and Gemini BYOK.
-//      No paywall surface: the managed coach "just works" for testers with
-//      zero setup, and BYOK stays available as an alternative. This is
-//      pre-RevenueCat scaffolding -- once the subscription flow lands, this
-//      may tighten to match App Store production.
-//    - appStore (receipt): ChessCoach Pro (managed, RevenueCat-entitled) only.
-//      No BYOK in production -- the whole point is the subscription.
+//  Which distribution channel this running binary came through:
+//    - local (Xcode/devicectl install, no App Store receipt): ChessCoach Pro
+//      via a debug backend URL/token, for development.
+//    - testFlight (sandboxReceipt): ChessCoach Pro, auto-configured via a
+//      baked-in debug-bypass token against the developer's own budget (see
+//      ManagedCoachStore.loadDebugToken()). No paywall surface: it "just
+//      works" for testers with zero setup. This is pre-RevenueCat
+//      scaffolding -- once the subscription flow lands, this may tighten to
+//      match App Store production.
+//    - appStore (receipt): ChessCoach Pro (managed, RevenueCat-entitled).
+//
+//  BYOK (a user's own Gemini API key, calling Gemini directly) was retired in
+//  plan 2026-07-21-002 (R6) -- it couldn't coexist with prompts living only
+//  server-side. Managed Coach is now the only backend on every channel.
 //
 //  Detection matches the same technique already proven in production on
 //  DictaWiz (FreeVoiceReaderApp/StoreKitManager.isTestFlight): check
@@ -42,14 +43,6 @@ public enum BuildChannel: Equatable, Sendable {
         #else
         return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt" ? .testFlight : .appStore
         #endif
-    }
-
-    /// Whether the user's own Gemini API key (BYOK) should be offered at all.
-    public var allowsGeminiBYOK: Bool {
-        switch self {
-        case .local, .testFlight: return true
-        case .appStore: return false
-        }
     }
 
     /// Whether the managed ChessCoach Pro backend should be offered at all.
