@@ -90,34 +90,92 @@ public actor EnginePool {
         if let cached = cache[key] { return cached }
 
         try await ensureStarted()
-
-        if mpv != currentMultipv {
-            await engine.send(command: .setoption(id: "MultiPV", value: "\(mpv)"))
-            currentMultipv = mpv
-        }
-        currentInfos = [:]
-        await engine.send(command: .position(.fen(fen)))
-
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            self.waiter = cont
-            Task { await engine.send(command: .go(depth: depth)) }
-        }
-
-        var lines: [EngineLineResult] = []
-        for idx in 1...mpv {
-            guard let info = currentInfos[idx], let score = info.score else { continue }
-            lines.append(EngineLineResult(
-                cp: score.cp.map { Int($0.rounded()) },
-                mate: score.mate,
-                pvUCI: info.pv ?? []
-            ))
-        }
-        guard !lines.isEmpty else {
-            throw EngineError("Engine returned no lines for \(fen)")
-        }
-        let result = AnalysisResult(fen: fen, depth: depth, lines: lines)
+        let result = try await runQuery(fen: fen, depth: depth, multipv: mpv)
         cache[key] = result
         return result
+    }
+
+    /// Low-skill band boundary for the Human-like opponent's weighted-sampling reply
+    /// path (plan U2/KTD-2). At/above this Stockfish "Skill Level" (0-20 range),
+    /// `humanLikeMove` is never consulted -- callers use `playMove` unchanged. Picked
+    /// as the midpoint-ish of the "beatable" half of the range: high enough that
+    /// several skill values get some sampled variety, low enough that mid/high skill
+    /// settings (where players expect a consistently strong opponent) are untouched.
+    public static let lowSkillThreshold = 10
+
+    /// Number of top candidate lines requested for weighted sampling (MultiPV). Small
+    /// enough to stay a cheap query, large enough to give genuinely different
+    /// reasonable alternatives at most positions.
+    public static let humanLikeMultiPV = 4
+
+    /// Pick an OPPONENT reply via weighted random sampling over the engine's own top
+    /// `multipv` candidate moves, for skills below `lowSkillThreshold` only (plan
+    /// U2/KTD-2). Always a real engine-approved candidate at the requested depth --
+    /// never a made-up move -- just not always rank #1. Sets "Skill Level" for the
+    /// duration of the query (restored to 20 after, like `playMove`); not cached,
+    /// since Stockfish's Skill Level doesn't change the reported candidate lines
+    /// themselves, only which one a plain `go` would have picked as bestmove -- so
+    /// reusing the `analyse` cache across different skill values would be fine
+    /// correctness-wise, but this method does its own query to keep the locked
+    /// skill-set/query/restore sequence atomic under the gate (mirrors `playMove`).
+    /// Returns nil if there is no legal move (game over).
+    public func humanLikeMove(fen: String, depth: Int = 12, skill: Int, multipv: Int = EnginePool.humanLikeMultiPV) async throws -> String? {
+        await acquire()
+        defer { release() }
+        try await ensureStarted()
+
+        let clampedSkill = max(0, min(20, skill))
+        await engine.send(command: .setoption(id: "Skill Level", value: "\(clampedSkill)"))
+        let result = try await runQuery(fen: fen, depth: depth, multipv: max(1, multipv))
+        await engine.send(command: .setoption(id: "Skill Level", value: "20"))  // restore
+
+        return Self.weightedPick(from: result.lines, skill: clampedSkill)
+    }
+
+    /// Weighted random pick of a first move (UCI) among candidate lines, favoring
+    /// earlier (better-ranked) lines more strongly as `skill` approaches
+    /// `lowSkillThreshold` -- lower skill means flatter, closer-to-random weighting;
+    /// skill just below the threshold means the top candidate dominates, so behavior
+    /// approaches (but, by construction of the caller's threshold check, never
+    /// reaches) `playMove`'s always-best behavior. Exposed for direct unit testing of
+    /// the sampling curve without spinning up the engine. Never crashes: gracefully
+    /// handles fewer than `multipv` candidates (including exactly one), and falls
+    /// back to the top candidate for any degenerate input (empty lines, all-empty
+    /// PVs, or an out-of-band skill).
+    static func weightedPick(
+        from lines: [EngineLineResult],
+        skill: Int,
+        lowSkillThreshold: Int = EnginePool.lowSkillThreshold
+    ) -> String? {
+        let candidates = lines.compactMap { $0.pvUCI.first }
+        guard !candidates.isEmpty else { return nil }
+        guard candidates.count > 1 else { return candidates[0] }
+
+        // decay in (0, 1]: how much each successive rank's weight shrinks relative to
+        // the previous one. Close to 1 => nearly flat/random; close to 0 => sharply
+        // favors rank 0. `t` sweeps 0...1 across the low-skill band.
+        let band = max(1, lowSkillThreshold - 1)
+        let t = Double(max(0, min(lowSkillThreshold - 1, skill))) / Double(band)
+        let flattestDecay = 0.85   // skill == 0: most human-like/random
+        let sharpestDecay = 0.20   // skill == lowSkillThreshold - 1: strongly favors best
+        let decay = flattestDecay + (sharpestDecay - flattestDecay) * t
+
+        var weights = [Double](repeating: 0, count: candidates.count)
+        var total = 0.0
+        for i in 0..<candidates.count {
+            let w = pow(decay, Double(i))
+            weights[i] = w
+            total += w
+        }
+        guard total > 0 else { return candidates[0] }
+
+        let r = Double.random(in: 0..<total)
+        var running = 0.0
+        for i in 0..<candidates.count {
+            running += weights[i]
+            if r < running { return candidates[i] }
+        }
+        return candidates[candidates.count - 1]
     }
 
     /// Pick a move for an OPPONENT to play (used by Play mode). Optional `skill`
@@ -160,6 +218,38 @@ public actor EnginePool {
     }
 
     // MARK: private
+
+    /// Send `position` + `go depth`, collect the resulting multipv info lines. Caller
+    /// must already hold the busy gate and have called `ensureStarted()`; shared by
+    /// `analyse` and `humanLikeMove` so both go through the identical MultiPV
+    /// request/response plumbing.
+    private func runQuery(fen: String, depth: Int, multipv: Int) async throws -> AnalysisResult {
+        if multipv != currentMultipv {
+            await engine.send(command: .setoption(id: "MultiPV", value: "\(multipv)"))
+            currentMultipv = multipv
+        }
+        currentInfos = [:]
+        await engine.send(command: .position(.fen(fen)))
+
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            self.waiter = cont
+            Task { await engine.send(command: .go(depth: depth)) }
+        }
+
+        var lines: [EngineLineResult] = []
+        for idx in 1...multipv {
+            guard let info = currentInfos[idx], let score = info.score else { continue }
+            lines.append(EngineLineResult(
+                cp: score.cp.map { Int($0.rounded()) },
+                mate: score.mate,
+                pvUCI: info.pv ?? []
+            ))
+        }
+        guard !lines.isEmpty else {
+            throw EngineError("Engine returned no lines for \(fen)")
+        }
+        return AnalysisResult(fen: fen, depth: depth, lines: lines)
+    }
 
     private func ensureStarted() async throws {
         if started { return }
