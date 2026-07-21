@@ -105,6 +105,13 @@ public final class PlayViewModel {
     /// so the effect reads as "varied openings," not "the engine can't play
     /// its own game."
     public static let humanLikeBookPlyWindow = 8
+    /// Whether the current toggle/skill combination is in the Human-like
+    /// weighted-sampling band (plan U2/KTD-2) -- i.e. `engineReply()` will call
+    /// `EnginePool.humanLikeMove` instead of `EnginePool.playMove` once past the
+    /// opening-book window. Exposed as a pure, engine-free predicate so the
+    /// threshold decision itself is directly unit-testable without a full engine
+    /// round trip.
+    var usesHumanLikeSampling: Bool { humanLikeEnabled && skill < EnginePool.lowSkillThreshold }
     public var coachAvailability: CoachAvailability
     /// Live engine read-out of the current position (White's perspective).
     public var winWhite: Double = 50
@@ -596,6 +603,11 @@ public final class PlayViewModel {
             let reply: String?
             if let bookUCI = humanLikeBookReplyUCI() {
                 reply = bookUCI
+            } else if usesHumanLikeSampling {
+                // U2/KTD-2: out of book (or book toggle off for this ply), but still
+                // in the human-like low-skill band -- weighted-sample among the
+                // engine's own top candidates instead of always its single best move.
+                reply = try await EnginePool.shared.humanLikeMove(fen: fen, depth: 12, skill: skill)
             } else {
                 reply = try await EnginePool.shared.playMove(fen: fen, depth: 12, skill: skill)
             }
