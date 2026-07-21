@@ -40,12 +40,19 @@ public struct HintInfo: Equatable, Sendable {
     public var bestSAN: String
     public var secondSAN: String?
     public var rationale: String?
+    /// Free, template-based "why" (`HintRationaleTemplates`), populated synchronously
+    /// as soon as the best move is known — regardless of Pro coach status. Additive
+    /// and independent of `rationale`, which only streams in later, and only when
+    /// Pro coaching is enabled; both may end up populated at once.
+    public var freeRationale: String?
     public var isLoading: Bool
     public init(bestUCI: String, secondUCI: String?, bestSAN: String,
-                secondSAN: String?, rationale: String?, isLoading: Bool) {
+                secondSAN: String?, rationale: String?, freeRationale: String? = nil,
+                isLoading: Bool) {
         self.bestUCI = bestUCI; self.secondUCI = secondUCI
         self.bestSAN = bestSAN; self.secondSAN = secondSAN
-        self.rationale = rationale; self.isLoading = isLoading
+        self.rationale = rationale; self.freeRationale = freeRationale
+        self.isLoading = isLoading
     }
 
     /// One-line summary for the hint card header, e.g. "Best: Nf3 · Alt: e4".
@@ -313,10 +320,17 @@ public final class PlayViewModel {
             let bestSAN = lines.first?.lineSAN.first ?? report.bestSAN ?? bestUCI
             let secondUCI = lines.count > 1 ? lines[1].lineUCI.first : nil
             let secondSAN = lines.count > 1 ? lines[1].lineSAN.first : nil
+            // Free, engine-free "why" — derived entirely from facts this analysis
+            // already computed, so it's ready the same tick as the arrows/SAN above,
+            // independent of whether Pro coaching is enabled.
+            let mateIn = HintRationaleTemplates.mateIn(fromEval: report.eval)
+            let freeRationale = HintRationaleTemplates.rationale(
+                fenBefore: position, moveUCI: bestUCI, mateIn: mateIn
+            )
             hint = HintInfo(
                 bestUCI: bestUCI, secondUCI: secondUCI,
                 bestSAN: bestSAN, secondSAN: secondSAN,
-                rationale: nil, isLoading: coachEnabled
+                rationale: nil, freeRationale: freeRationale, isLoading: coachEnabled
             )
 
             guard coachEnabled else { return }
