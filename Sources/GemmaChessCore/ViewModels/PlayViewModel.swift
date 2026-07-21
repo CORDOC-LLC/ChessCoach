@@ -143,6 +143,11 @@ public final class PlayViewModel {
     // MARK: Best Moves (engine-only, free -- no coach/network involved)
     /// Structured engine verdict on the user's latest move.
     public var lastVerdict: MoveVerdict?
+    /// Free, template-based one-line engine comment about the user's latest
+    /// move (`MoveCommentTemplates`) — set alongside `lastVerdict` from the
+    /// same analysis, cleared wherever the verdict is cleared. Engine-only,
+    /// identical on both tiers, no network.
+    public var lastEngineComment: String?
     /// The engine's top candidate moves (best first) for the position BEFORE the
     /// user's last move -- i.e. what Stockfish actually considered there, for
     /// comparison against the move played. Cleared on a new game/retry; not
@@ -248,6 +253,25 @@ public final class PlayViewModel {
         return coachDisplayEnabled
     }
 
+    /// The channel used for the client-side entitlement predicate below —
+    /// `.current` in production, overridable so tests can exercise the
+    /// App Store gating branch deterministically (mirrors
+    /// `CoachOrchestrator.channel`'s test seam).
+    var entitlementChannel: BuildChannel = .current
+
+    /// Whether this user can actually receive Pro coach prose: true on any
+    /// channel that doesn't gate (local/TestFlight dev builds), or on
+    /// App Store with an active subscription. The exact check
+    /// `PlayView.openChat()` applies before opening chat, hoisted here so the
+    /// per-move note and end-of-game debrief can skip their network calls for
+    /// free App Store users instead of firing a doomed 403 per move — and so
+    /// the card header can pick "Ask" vs "Free" from one source of truth.
+    /// Purely a client-side UI/traffic signal; real enforcement stays
+    /// server-side (see `ProEntitlementStore`'s header).
+    public var isProEntitled: Bool {
+        !(entitlementChannel.requiresProEntitlement && !ProEntitlementStore.shared.isProActive)
+    }
+
     /// True when the user is browsing a past position rather than the live game.
     public var isViewingHistory: Bool { viewingPly != nil }
 
@@ -271,6 +295,25 @@ public final class PlayViewModel {
     /// explains), or nil if none was recorded. Used when browsing history --
     /// live play instead follows `lastCoachNote`, which is always the latest.
     public func note(forPly ply: Int) -> String? { moveNotes[ply] }
+
+    /// The engine verdict for the ply at 0-based index `ply`, rebuilt from the
+    /// persisted `moveRecords` -- so the coach card's chip can show the browsed
+    /// move's own grade while viewing history (live play uses `lastVerdict`).
+    /// Nil for the engine's plies and for user moves that were never graded
+    /// (e.g. the analysis was still in flight when the game was left).
+    public func verdict(forPly ply: Int) -> MoveVerdict? {
+        guard moves.indices.contains(ply), isUserPly(ply) else { return nil }
+        // `moveRecords` holds one entry per graded USER move, in order -- the
+        // record index is how many user plies precede this one.
+        let ordinal = (0..<ply).filter(isUserPly).count
+        guard moveRecords.indices.contains(ordinal) else { return nil }
+        let record = moveRecords[ordinal]
+        // Guard against a mid-grade rewind having desynced records from plies.
+        guard sanMoves.indices.contains(ply), sanMoves[ply] == record.san else { return nil }
+        return MoveVerdict(
+            moveSAN: record.san, classification: record.classification,
+            isBest: record.betterSan == nil, betterMoveSAN: record.betterSan)
+    }
 
     public var userToMove: Bool {
         (ChessLogic.sideToMove(forFEN: fen) == .white) == playerIsWhite
@@ -400,6 +443,7 @@ public final class PlayViewModel {
         bestMoveInFlight = []
         bestMoveAnalysisCount = 0
         lastVerdict = nil
+        lastEngineComment = nil
         topMoves = []
         lastCoachNote = nil
         hint = nil
@@ -482,6 +526,7 @@ public final class PlayViewModel {
         // until the engine had already replied).
         isCoaching = true
         lastVerdict = nil
+        lastEngineComment = nil
         topMoves = []
         lastCoachNote = nil
         let gen = moveGen
@@ -500,6 +545,13 @@ public final class PlayViewModel {
                 lastVerdict = MoveVerdict(
                     moveSAN: san, classification: mv.classification,
                     isBest: mv.isEngineBest, betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN)
+                // The free one-line comment, from the same analysis' facts —
+                // available with the chip on both tiers, no network involved.
+                lastEngineComment = MoveCommentTemplates.comment(
+                    fenBefore: fromFEN, fenAfter: afterFEN, moveUCI: uci, moveSAN: san,
+                    classification: mv.classification,
+                    betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN,
+                    evalAfter: mv.evalAfter)
                 moveRecords.append(CoachPromptBuilder.PlayMoveRecord(
                     moveNumber: moveNumber, san: san, classification: mv.classification,
                     winBefore: mv.winBefore, winAfter: mv.winAfter,
@@ -546,6 +598,7 @@ public final class PlayViewModel {
         viewingPly = nil
         if !hintMode { hint = nil }   // mode on keeps the old hint until the refresh below lands
         lastVerdict = nil
+        lastEngineComment = nil
         topMoves = []
         lastCoachNote = nil
         isCoaching = false
@@ -585,7 +638,10 @@ public final class PlayViewModel {
     /// Stream the coach's written debrief of the finished game, built from the
     /// live-graded move records (no fresh engine work).
     private func startGameSummary() {
-        guard coachEnabled, !moveRecords.isEmpty, gameSummary == nil, !isSummarizing else { return }
+        // `isProEntitled`: free App Store users never fire the (Pro-gated)
+        // debrief call at all -- the engine content stands on its own.
+        guard coachEnabled, isProEntitled, !moveRecords.isEmpty,
+              gameSummary == nil, !isSummarizing else { return }
         let input = CoachPlayGameInput(
             result: resultText ?? "The game is over.",
             playerSide: playerIsWhite ? .white : .black,
@@ -755,6 +811,7 @@ public final class PlayViewModel {
         gameSummary = saved.gameSummary
         moveRecords = saved.moveRecords
         lastVerdict = nil    // not persisted -- the chip is a live-move-only affordance
+        lastEngineComment = nil   // likewise
         topMoves = []        // likewise
         hint = nil
         hintMode = false     // the bulb resets per game -- a resumed game starts with it off
@@ -802,7 +859,11 @@ public final class PlayViewModel {
     /// engine.
     private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?,
                                  opponentReplySAN: String? = nil, userPly: Int? = nil, gen: Int? = nil) async {
-        guard coachEnabled, moveReport?.move != nil else { return }
+        // `isProEntitled`: the per-move note is Pro prose -- a free App Store
+        // user would just get a 403 per move, so don't fire the request at all
+        // (the verdict chip + template comment are their coaching). Dev and
+        // TestFlight channels don't gate (`requiresProEntitlement == false`).
+        guard coachEnabled, isProEntitled, moveReport?.move != nil else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
         // The engine's grade (the same one shown on the chip) is authoritative --
         // `moveReport.coachInfo` carries it (classification, win% swing, the
