@@ -19,7 +19,7 @@ public struct OpeningTrainerContainerView: View {
     @Bindable var vm: OpeningTrainerViewModel
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
-    @Environment(\.boardVisible) private var boardVisible
+    @Environment(BoardVisibility.self) private var boardVisibility
     /// Explicit expand/collapse choices the user has made, keyed by family --
     /// overrides the search-driven default (see `isExpandedBinding`).
     @State private var manualExpansion: [String: Bool] = [:]
@@ -38,9 +38,12 @@ public struct OpeningTrainerContainerView: View {
         }
         // See `PuzzlesContainerView`'s identical pattern -- reports the
         // drill's board visibility up to `GemmaRootView`.
-        .onAppear { boardVisible.wrappedValue = vm.activeLine != nil }
-        .onChange(of: vm.activeLine) { _, line in boardVisible.wrappedValue = line != nil }
-        .onDisappear { boardVisible.wrappedValue = false }
+        .onAppear {
+            boardVisibility.visible = vm.activeLine != nil
+            vm.loadResultsIfNeeded()
+        }
+        .onChange(of: vm.activeLine) { _, line in boardVisibility.visible = line != nil }
+        .onDisappear { boardVisibility.visible = false }
     }
 
     private var lineList: some View {

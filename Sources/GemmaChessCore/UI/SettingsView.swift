@@ -33,7 +33,14 @@ public struct SettingsView: View {
     @State private var resetLessons = false
     @Environment(ThemeStore.self) private var themeStore
     @Environment(\.dismiss) private var dismiss
-    private var hasSavedGames: Bool { !SavedGameStore.loadAll().isEmpty }
+    /// Computed once on appear and refreshed after a mutating action (clearing
+    /// games, resuming one from "My Games"), NOT as a live computed property --
+    /// `SavedGameStore.loadAll()` does a full directory scan + JSON-decode of
+    /// every saved game (each with full per-ply checkpoint/coach-note data).
+    /// As a plain `var`, that ran on *every* Settings body re-evaluation --
+    /// i.e. every toggle flip or stepper tick anywhere on this screen -- which
+    /// made the whole screen feel laggy as saved-game history grew.
+    @State private var hasSavedGames = false
 
     /// Invoked when a game is picked from "My Games" (see the Data & Progress
     /// section below) -- lets whichever screen presented Settings resume that
@@ -187,6 +194,7 @@ public struct SettingsView: View {
             Button("Delete All", role: .destructive) {
                 SavedGameStore.deleteAll()
                 clearedGames = true
+                hasSavedGames = false
             }
         }
         .confirmationDialog(
@@ -246,6 +254,7 @@ public struct SettingsView: View {
                 .frame(minWidth: 480, minHeight: 640)
         }
         #endif
+        .onAppear { hasSavedGames = !SavedGameStore.loadAll().isEmpty }
     }
 
     private func statColumn(_ label: String, _ value: Int, _ color: Color) -> some View {

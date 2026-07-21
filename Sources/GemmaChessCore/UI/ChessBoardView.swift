@@ -313,10 +313,28 @@ public struct ChessBoardView: View {
                 if token == slideToken { slide = nil }
             }
         }
-        .onAppear {
+        // The check pulse only animates while a king is actually in check.
+        // This used to start unconditionally in `.onAppear`: a `repeatForever`
+        // animation on `kingPulse` forced this entire 64-cell body (including
+        // the per-eval FEN parse) to re-render EVERY frame, forever, on every
+        // screen with a board -- even a completely idle one. That was a
+        // standing CPU cost behind app-wide jank.
+        .onAppear { updateCheckPulse(active: checkSquare != nil) }
+        .onChange(of: checkSquare) { _, newValue in
+            updateCheckPulse(active: newValue != nil)
+        }
+    }
+
+    private func updateCheckPulse(active: Bool) {
+        if active {
+            guard !kingPulse else { return }
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 kingPulse = true
             }
+        } else if kingPulse {
+            // Replace the repeating animation with a short settle so the
+            // board stops re-rendering once the check clears.
+            withAnimation(.easeOut(duration: 0.2)) { kingPulse = false }
         }
     }
 

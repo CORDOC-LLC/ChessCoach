@@ -615,6 +615,17 @@ public final class PlayViewModel {
 
     // MARK: On-device persistence (resume + replay)
 
+    /// The in-flight (or last) checkpoint write -- each new checkpoint awaits
+    /// the previous one so writes stay ordered. See `persistCheckpoint`.
+    private var persistWriteTask: Task<Void, Never>?
+
+    /// Awaits any in-flight checkpoint write. Tests use this to read the
+    /// saved file deterministically; production code never needs it (the
+    /// chained writes guarantee the newest snapshot always lands last).
+    public func flushPendingSave() async {
+        await persistWriteTask?.value
+    }
+
     /// Snapshot the current game to disk. Called after every state-changing event
     /// (a move, a coach note landing, game over) so a killed app loses at most the
     /// in-flight step, never the whole game. Cheap: a small per-game JSON file, no
@@ -631,7 +642,17 @@ public final class PlayViewModel {
 
     private func persistCheckpoint() {
         let game = currentSavedGameSnapshot()
-        try? SavedGameStore.save(game, baseDir: savedGamesBaseDir)
+        let dir = savedGamesBaseDir
+        // Encode + write off the main actor: this fires on every ply, inside
+        // the same call stack as the user's tap and the move animation, and a
+        // synchronous whole-game JSON encode + atomic file write there was a
+        // per-move main-thread hitch. Chained on the previous write so
+        // checkpoints land in order (last write must be the newest snapshot).
+        let previous = persistWriteTask
+        persistWriteTask = Task.detached(priority: .utility) {
+            await previous?.value
+            try? SavedGameStore.save(game, baseDir: dir)
+        }
         if gameOver {
             // A finished game is replay-only from here -- stop offering it as "Resume".
             if SavedGameStore.inProgressGameID(defaults: savedGamesDefaults) == gameID {
