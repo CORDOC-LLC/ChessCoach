@@ -25,6 +25,10 @@ public struct GameImportView: View {
     @State private var fetchError: String?
     @State private var fetchedGames: [String] = []
     @State private var detectedHandle: String?
+    /// Shown above the account-fetch results when the fetch actually turned up
+    /// games to review -- nudges toward the Weakness Report, which is where
+    /// imported+reviewed games pay off. See `shouldShowImportNudge`.
+    @State private var showReviewNudge = false
 
     /// Which game (by index into whichever list it came from) is currently being
     /// analyzed, so its row can show a spinner instead of the whole screen blocking.
@@ -41,6 +45,7 @@ public struct GameImportView: View {
             accountSection
             if !pastedGames.isEmpty { gamesSection(title: "Pasted games", games: pastedGames, keyPrefix: "paste") }
             if !fetchedGames.isEmpty {
+                if showReviewNudge { reviewNudgeSection }
                 gamesSection(title: "\(platform.displayName) games", games: fetchedGames, keyPrefix: "account")
             }
         }
@@ -109,8 +114,10 @@ public struct GameImportView: View {
         fetchError = nil
         fetchedGames = []
         detectedHandle = nil
+        showReviewNudge = false
         defer { isFetching = false }
         let name = username.trimmingCharacters(in: .whitespaces)
+        var thrownError: GameImportError?
         do {
             let games = try await client.importAccount(platform: platform, username: name)
             fetchedGames = games
@@ -118,8 +125,36 @@ public struct GameImportView: View {
             if games.isEmpty { fetchError = "No public games found for that username." }
         } catch let error as GameImportError {
             fetchError = error.message
+            thrownError = error
         } catch {
             fetchError = error.localizedDescription
+        }
+        showReviewNudge = Self.shouldShowImportNudge(games: fetchedGames, fetchError: thrownError)
+    }
+
+    /// Pure decision for whether the post-import nudge toward the Weakness Report
+    /// should show: only when the fetch actually succeeded (no thrown
+    /// `GameImportError`) and turned up at least one game. A valid empty result
+    /// (username exists, zero public games) and any failed fetch both resolve to
+    /// `false` -- there's nothing yet to point the user toward reviewing.
+    /// Extracted as a pure, static function (rather than left inline in
+    /// `fetchAccount()`) so it's unit-testable without driving SwiftUI `@State`.
+    static func shouldShowImportNudge(games: [String], fetchError: GameImportError?) -> Bool {
+        fetchError == nil && !games.isEmpty
+    }
+
+    /// A small callout pointing at the Weakness Report -- imported games only pay
+    /// off there once a few have actually been analyzed, so this nudges the user
+    /// toward that rather than leaving the fresh import as a silent list.
+    private var reviewNudgeSection: some View {
+        Section {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(.secondary)
+                Text("Analyze a few of these games to feed your Weakness Report -- a coach-synthesized look at your recent play.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
