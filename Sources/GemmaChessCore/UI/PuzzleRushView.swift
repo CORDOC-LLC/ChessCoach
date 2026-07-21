@@ -14,6 +14,9 @@ public struct PuzzleRushView: View {
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
     private var theme: Theme { themeStore.effective }
+    #if os(iOS)
+    @State private var shareImage: RushShareImageBox?
+    #endif
 
     /// A live countdown driver -- ticks the session once a second while a run
     /// is active. Purely a UI concern; `PuzzleRushSession` itself takes an
@@ -40,7 +43,30 @@ public struct PuzzleRushView: View {
         #endif
         .task { startRun() }
         .onDisappear { timerTask?.cancel() }
+        #if os(iOS)
+        .sheet(item: $shareImage) { box in
+            ActivityShareSheet(items: [box.image])
+        }
+        #endif
     }
+
+    #if os(iOS)
+    /// Renders the Puzzle Rush result share card off the live session and
+    /// presents the system share sheet. If rendering fails for any reason,
+    /// this is a safe no-op -- never presents a broken/empty share sheet.
+    private func shareResult() {
+        let card = PuzzleRushShareCard(
+            correctCount: session.correctCount,
+            wrongAttempts: session.wrongAttempts,
+            durationSeconds: session.durationSeconds
+        )
+        .environment(themeStore)
+        guard let image = ShareCardRenderer.render(card, size: PuzzleRushShareCard.cardSize) else {
+            return
+        }
+        shareImage = RushShareImageBox(image: image)
+    }
+    #endif
 
     private func startRun() {
         let pool = PuzzleRushSession.loadPuzzlePool()
@@ -140,6 +166,16 @@ public struct PuzzleRushView: View {
             Text(resultTitle).font(.headline).foregroundStyle(theme.textColor)
             Text(resultDetail)
                 .font(.subheadline).foregroundStyle(theme.textColor.opacity(0.7))
+            #if os(iOS)
+            Button {
+                shareResult()
+            } label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .tint(theme.accentColor)
+            #endif
             HStack(spacing: 10) {
                 Button("Back to Puzzles", action: onExit)
                     .buttonStyle(.bordered)
@@ -180,3 +216,12 @@ private extension PuzzleRushSession {
     /// A small display-only convenience so the view doesn't have to unwrap.
     var endReasonForDisplay: PuzzleRushEndReason? { endReason }
 }
+
+#if os(iOS)
+/// `.sheet(item:)` needs `Identifiable`; `UIImage` isn't, so this wraps one
+/// rendered Puzzle Rush share-card image per presentation.
+private struct RushShareImageBox: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+#endif
