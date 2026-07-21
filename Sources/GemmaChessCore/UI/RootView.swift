@@ -16,15 +16,23 @@ public enum GemmaLayoutStyle: Sendable {
 /// `GemmaRootView` without threading a callback through every intermediate
 /// view. Play and Review don't need this -- `GemmaRootView` already owns
 /// their board-vs-not state directly (`mode == .play`, `review.session`).
-private struct BoardVisibleKey: EnvironmentKey {
-    static let defaultValue: Binding<Bool> = .constant(false)
-}
-
-extension EnvironmentValues {
-    var boardVisible: Binding<Bool> {
-        get { self[BoardVisibleKey.self] }
-        set { self[BoardVisibleKey.self] = newValue }
-    }
+///
+/// DELIBERATELY an `@Observable` box injected via `.environment(_:)`, NOT a
+/// `Binding` stored in a custom `EnvironmentValues` key. The first version of
+/// this used a Binding, and that hung the whole app: a fresh Binding value
+/// (new closure identities) was produced on every root body evaluation, and
+/// since Binding isn't Equatable, SwiftUI's environment diffing saw "changed"
+/// on every commit and rebuilt the entire view tree -- with the standing
+/// board/emblem animations committing every frame, that meant a full-app
+/// rebuild per frame, a pinned main thread, and iOS's scene-create watchdog
+/// killing the app at launch (0x8BADF00D, confirmed via device crash logs and
+/// a simulator bisect). A class instance has stable identity, so the
+/// environment never reads as changed; observation triggers re-render only
+/// when `visible` actually flips.
+@MainActor
+@Observable
+final class BoardVisibility {
+    var visible = false
 }
 
 public struct GemmaRootView: View {
@@ -32,20 +40,35 @@ public struct GemmaRootView: View {
     @State private var play = PlayViewModel()
     @State private var mode: Mode = .home
     /// Whether a chessboard is currently on screen inside Puzzles/Lessons/
-    /// Opening Trainer's own internal session state -- see `boardVisible`
+    /// Opening Trainer's own internal session state -- see `BoardVisibility`
     /// above. Play and Review don't set this; their board-vs-not state is
     /// computed directly from `mode`/`review.session` in `isBoardOnScreen`.
-    @State private var innerBoardVisible = false
+    @State private var boardVisibility = BoardVisibility()
     /// Whether the bottom tab bar shows even while a chessboard is on screen
     /// (Play, a Puzzle/Lesson/Opening Trainer session, or Review's analysis
     /// screen) -- everywhere else it's always shown regardless of this.
     /// Defaults OFF: the tab bar auto-hides whenever a board is visible,
     /// freeing that height for the move list/coach card, and a Settings
-    /// toggle lets a player override that. `@AppStorage` (not
-    /// `PlayDisplaySettings`) since this is a navigation-chrome preference,
-    /// not board content, and needs to stay in sync with the same toggle in
-    /// `SettingsView` without threading a shared instance through both.
-    @AppStorage("play.showTabBarWithBoard") private var showTabBarWithBoard = false
+    /// toggle lets a player override that.
+    ///
+    /// DELIBERATELY a `UserDefaults`-mirroring `@State`, NOT `@AppStorage`.
+    /// On iOS 26, an `@AppStorage` property read inside THIS view's body
+    /// re-invalidated the root on every animation frame (verified by a
+    /// simulator A/B: identical body with `@AppStorage` pins the CPU at
+    /// 100% and the first frame never commits -- iOS's scene-create
+    /// watchdog then kills the app at launch, 0x8BADF00D; the same body
+    /// with `@State` idles at ~4%). The previous condition (`mode != .play
+    /// || showTabBarDuringPlay`) only dodged this by accident: `||`
+    /// short-circuited, so the `@AppStorage` was never actually read
+    /// outside Play mode. The `.onReceive` below keeps this in sync with
+    /// the `SettingsView` toggle (which still writes the same
+    /// `UserDefaults` key) -- state is only mutated when the value truly
+    /// changed, so the notification handler can never re-render-loop.
+    @State private var showTabBarWithBoard =
+        UserDefaults.standard.bool(forKey: GemmaRootView.showTabBarWithBoardKey)
+
+    /// The `UserDefaults` key shared with `SettingsView`'s toggle.
+    static let showTabBarWithBoardKey = "play.showTabBarWithBoard"
     /// Whether the next `.play` route should skip the new-game setup form and
     /// go straight to the live game -- true when `play` was just `load(_:)`ed
     /// from a saved game (Resume, or a pick from My Games).
@@ -68,60 +91,13 @@ public struct GemmaRootView: View {
     public var body: some View {
         VStack(spacing: 0) {
             NavigationStack {
-                switch mode {
-                case .home:
-                    HomeView(
-                        onPlay: { playStartedInitially = false; mode = .play },
-                        onReview: { mode = .review },
-                        onScan: { openScan() },
-                        onResume: { openSavedGame(withID: SavedGameStore.inProgressGameID()) },
-                        onSelectSavedGame: { saved in
-                            play.load(saved)
-                            playStartedInitially = true
-                            mode = .play
-                        },
-                        onPuzzles: { mode = .puzzles },
-                        onOpeningTrainer: { mode = .openingTrainer },
-                        onGameImport: { mode = .gameImport },
-                        onLessons: { mode = .lessons },
-                        onWeaknessReport: { mode = .weaknessReport }
-                    )
-                case .play:
-                    PlayContainerView(vm: play, onExit: { mode = .home }, startedInitially: playStartedInitially)
-                case .review:
-                    reviewFlow
-                case .scan:
-                    BoardScannerView(onStartGame: { fen, asWhite in
-                        play.newGame(asWhite: asWhite, startFEN: fen)
-                        playStartedInitially = true
-                        mode = .play
-                    })
-                    .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
-                    .toolbar { settingsToolbarItem }
-                case .puzzles:
-                    PuzzlesContainerView(vm: puzzles, onExit: { mode = .home })
-                case .openingTrainer:
-                    OpeningTrainerContainerView(vm: openingTrainer, onExit: { mode = .home })
-                case .gameImport:
-                    GameImportView()
-                        .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
-                        .toolbar { settingsToolbarItem }
-                case .lessons:
-                    LessonsContainerView(onExit: { mode = .home })
-                case .weaknessReport:
-                    WeaknessReportView(
-                        onExit: { mode = .home },
-                        onOpenLesson: { _ in mode = .lessons },
-                        onOpenPuzzleTheme: { _ in mode = .puzzles }
-                    )
-                    .toolbar { settingsToolbarItem }
-                }
+                modeContent
             }
             if showTabBarWithBoard || !isBoardOnScreen {
                 GlobalTabBar(activeTab: HomeTab(mode: mode), onSelect: select(_:))
             }
         }
-        .environment(\.boardVisible, $innerBoardVisible)
+        .environment(boardVisibility)
         .environment(themeStore)
         .gemmaChrome(theme: themeStore.effective)
         #if os(iOS)
@@ -137,19 +113,85 @@ public struct GemmaRootView: View {
         }
         #endif
         .sheet(isPresented: $showPaywall) { PaywallView().environment(themeStore) }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            let value = UserDefaults.standard.bool(forKey: Self.showTabBarWithBoardKey)
+            if value != showTabBarWithBoard { showTabBarWithBoard = value }
+        }
+    }
+
+    /// The active screen, type-erased per case. AnyView here is deliberate and
+    /// load-bearing, not laziness: with all nine cases composed as one
+    /// `_ConditionalContent` sum type (each case carrying its own toolbars and
+    /// full screen hierarchy), the root view's generic type became so enormous
+    /// that SwiftUI's FIRST render spent 20+ seconds of CPU instantiating its
+    /// metadata and diffing it -- iOS's scene-create watchdog then killed the
+    /// app (0x8BADF00D, verified from on-device .ips crash logs; the crashes
+    /// began the exact evening this switch moved inside the VStack+tab-bar
+    /// wrapper). Erasing each case caps the composed type at AnyView, and
+    /// costs nothing real: the cases are entirely different screens, so
+    /// cross-case diffing was never useful.
+    private var modeContent: AnyView {
+        switch mode {
+        case .home:
+            AnyView(HomeView(
+                onPlay: { playStartedInitially = false; mode = .play },
+                onReview: { mode = .review },
+                onScan: { openScan() },
+                onResume: { openSavedGame(withID: SavedGameStore.inProgressGameID()) },
+                onSelectSavedGame: { saved in
+                    play.load(saved)
+                    playStartedInitially = true
+                    mode = .play
+                },
+                onPuzzles: { mode = .puzzles },
+                onOpeningTrainer: { mode = .openingTrainer },
+                onGameImport: { mode = .gameImport },
+                onLessons: { mode = .lessons },
+                onWeaknessReport: { mode = .weaknessReport }
+            ))
+        case .play:
+            AnyView(PlayContainerView(vm: play, onExit: { mode = .home }, startedInitially: playStartedInitially))
+        case .review:
+            AnyView(reviewFlow)
+        case .scan:
+            AnyView(BoardScannerView(onStartGame: { fen, asWhite in
+                play.newGame(asWhite: asWhite, startFEN: fen)
+                playStartedInitially = true
+                mode = .play
+            })
+            .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
+            .toolbar { settingsToolbarItem })
+        case .puzzles:
+            AnyView(PuzzlesContainerView(vm: puzzles, onExit: { mode = .home }))
+        case .openingTrainer:
+            AnyView(OpeningTrainerContainerView(vm: openingTrainer, onExit: { mode = .home }))
+        case .gameImport:
+            AnyView(GameImportView()
+                .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
+                .toolbar { settingsToolbarItem })
+        case .lessons:
+            AnyView(LessonsContainerView(onExit: { mode = .home }))
+        case .weaknessReport:
+            AnyView(WeaknessReportView(
+                onExit: { mode = .home },
+                onOpenLesson: { _ in mode = .lessons },
+                onOpenPuzzleTheme: { _ in mode = .puzzles }
+            )
+            .toolbar { settingsToolbarItem })
+        }
     }
 
     /// Whether a chessboard is on screen right now -- Play always is; Review
     /// is once a session has loaded; Puzzles/Lessons/Opening Trainer report
-    /// their own internal session state via `innerBoardVisible` (set through
-    /// the `boardVisible` environment binding, since their board-vs-list
-    /// state is private to those views). The tab bar hides whenever this is
-    /// true, unless `showTabBarWithBoard` overrides it.
+    /// their own internal session state via the shared `BoardVisibility` box
+    /// (injected through the environment, since their board-vs-list state is
+    /// private to those views). The tab bar hides whenever this is true,
+    /// unless `showTabBarWithBoard` overrides it.
     private var isBoardOnScreen: Bool {
         switch mode {
         case .play: true
         case .review: review.session != nil
-        case .puzzles, .lessons, .openingTrainer: innerBoardVisible
+        case .puzzles, .lessons, .openingTrainer: boardVisibility.visible
         default: false
         }
     }
@@ -358,9 +400,14 @@ struct HomeView: View {
                 emblemBreath = true
             }
             // Local-only, no network regardless of Pro status (R6) -- safe to
-            // compute on every Home appearance.
-            weaknessReportTeaser = CoachingProfileBuilder.topTeaserMotif(
-                CoachingProfileBuilder.buildProfile(playerID: "me", store: HistoryStore()))
+            // compute on every Home appearance. Dispatched off the main actor:
+            // this reads and decodes the full history file from disk, which
+            // was blocking the Home transition (worse as history grows).
+            Task.detached(priority: .utility) {
+                let teaser = CoachingProfileBuilder.topTeaserMotif(
+                    CoachingProfileBuilder.buildProfile(playerID: "me", store: HistoryStore()))
+                await MainActor.run { weaknessReportTeaser = teaser }
+            }
         }
     }
 
@@ -433,7 +480,11 @@ struct HomeView: View {
                             .stroke(theme.accentColor.opacity(0.45), lineWidth: 1)
                     )
             )
-            .shadow(color: theme.accentColor.opacity(0.34), radius: 40)
+            // Shadow radius kept modest (was 40): the breathing animation
+            // below re-composites this view every frame while Home is
+            // visible, and a huge blur radius made that a standing offscreen
+            // render pass. 14pt reads nearly identically on a 90pt emblem.
+            .shadow(color: theme.accentColor.opacity(0.4), radius: 14)
             .scaleEffect(emblemBreath ? 1.04 : 1.0)
             .opacity(emblemBreath ? 1.0 : 0.85)
     }

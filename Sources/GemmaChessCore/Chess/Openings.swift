@@ -22,20 +22,27 @@ import ChessKit
 /// Opening classification by deepest position match against the vendored ECO data.
 public enum Openings {
 
+    /// The single shared parse of the vendored ECO data -- `book` and `lines`
+    /// both project from this ONE `loadAll()` pass. They were previously two
+    /// independent `static let`s each calling `loadAll()`, which replayed all
+    /// ~3.7k lines' movetext (a full legal-move replay per line) TWICE per
+    /// process -- one of them synchronously on the main thread at app launch.
+    private static let loaded: (book: [String: Opening], lines: [OpeningLine]) = loadAll()
+
     /// EPD (position key) -> (eco, name). Built once, lazily, on first lookup.
     ///
     /// Replays each line's movetext to its final position; ~3.7k short lines, a
     /// one-time cost paid by the first classification, then reused for the process.
     /// Best-effort: a missing/corrupt data file contributes nothing (callers
     /// degrade to no name).
-    static let book: [String: Opening] = loadAll().book
+    static var book: [String: Opening] { loaded.book }
 
     /// Every vendored ECO line, in its raw move-sequence form -- the Opening
     /// Trainer's source of practiceable lines. Unlike `book` (keyed by final
     /// position, one entry per position -- later duplicates overwrite earlier
     /// ones), this keeps every named line's own move-by-move path so a line can
     /// be replayed and drilled ply by ply.
-    public static let lines: [OpeningLine] = loadAll().lines
+    public static var lines: [OpeningLine] { loaded.lines }
 
     /// A classified opening: its ECO code and human-readable name.
     public struct Opening: Equatable, Sendable {

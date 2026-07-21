@@ -16,6 +16,10 @@ struct OpeningTrainerGroupingTests {
     @Test("lines sharing a family land in one group")
     func linesShareFamilyGroup() {
         let vm = OpeningTrainerViewModel(defaults: UserDefaults(suiteName: #function)!)
+        // `results` no longer populates at init (the ECO parse is deferred off
+        // the launch path); an empty search fills it synchronously, standing in
+        // for the screen's `loadResultsIfNeeded()` on-appear load.
+        vm.search("")
 
         // The real vendored book has multiple lines under "Queen's Pawn Game"
         // (e.g. the Accelerated London System and its sub-variations).
@@ -29,6 +33,7 @@ struct OpeningTrainerGroupingTests {
     @Test("family groups are ordered alphabetically")
     func groupsAreAlphabetical() {
         let vm = OpeningTrainerViewModel(defaults: UserDefaults(suiteName: #function)!)
+        vm.search("")   // see linesShareFamilyGroup -- results are lazy now
         let titles = vm.groupedResults.map(\.title)
         #expect(titles == titles.sorted())
     }

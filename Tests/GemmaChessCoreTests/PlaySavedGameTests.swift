@@ -35,17 +35,19 @@ struct PlaySavedGameTests {
 
         let id = vm.gameID
         #expect(SavedGameStore.inProgressGameID(defaults: vm.savedGamesDefaults) == id)
+        await vm.flushPendingSave()   // checkpoint writes are async now
         let saved = try #require(SavedGameStore.load(id: id, baseDir: vm.savedGamesBaseDir))
         #expect(saved.moves == vm.moves)
         #expect(saved.isGameOver == false)
     }
 
     @Test("resigning ends the game -- the file is kept (isGameOver) but no longer offered for resume")
-    func resignClearsInProgressPointer() {
+    func resignClearsInProgressPointer() async {
         let vm = PlayViewModel.forTesting()
         vm.newGame(asWhite: true)
         let id = vm.gameID
         vm.resign()
+        await vm.flushPendingSave()   // checkpoint writes are async now
 
         #expect(SavedGameStore.inProgressGameID(defaults: vm.savedGamesDefaults) == nil)
         let saved = try? SavedGameStore.load(id: id, baseDir: vm.savedGamesBaseDir)
@@ -64,6 +66,7 @@ struct PlaySavedGameTests {
         let e4 = try #require(BoardGeometry.square("e4"))
         original.tap(e2); original.tap(e4)
         #expect(await wait { original.moves.count >= 2 })
+        await original.flushPendingSave()   // checkpoint writes are async now
         let saved = try #require(SavedGameStore.load(id: original.gameID, baseDir: original.savedGamesBaseDir))
 
         let resumed = PlayViewModel.forTesting()
@@ -78,10 +81,11 @@ struct PlaySavedGameTests {
     }
 
     @Test("load() on a finished game sets up read-only replay -- gameOver stays true, tap is a no-op")
-    func loadSetsUpReplayForAFinishedGame() {
+    func loadSetsUpReplayForAFinishedGame() async {
         let vm = PlayViewModel.forTesting()
         vm.newGame(asWhite: true)
         vm.resign()
+        await vm.flushPendingSave()   // checkpoint writes are async now
         let saved = try? SavedGameStore.load(id: vm.gameID, baseDir: vm.savedGamesBaseDir)
 
         let replay = PlayViewModel.forTesting()
@@ -110,6 +114,7 @@ struct PlaySavedGameTests {
         // generated -- but the ply-0 lookup must not crash either way, and a
         // round trip through the store must preserve whatever's there.
         let noteBefore = vm.note(forPly: 0)
+        await vm.flushPendingSave()   // checkpoint writes are async now
         let saved = try #require(SavedGameStore.load(id: vm.gameID, baseDir: vm.savedGamesBaseDir))
         #expect(saved.moveNotes[0] == noteBefore)
 

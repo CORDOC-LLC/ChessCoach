@@ -9,7 +9,7 @@ public struct PuzzlesContainerView: View {
     @Bindable var vm: PuzzleViewModel
     var onExit: () -> Void
     @Environment(ThemeStore.self) private var themeStore
-    @Environment(\.boardVisible) private var boardVisible
+    @Environment(BoardVisibility.self) private var boardVisibility
     @State private var showingRush = false
     @State private var streak = PuzzleStreakStore.currentStreak()
     @State private var pendingDeleteTheme: String?
@@ -35,10 +35,10 @@ public struct PuzzlesContainerView: View {
         // Reports "a board is on screen" up to `GemmaRootView` so the global
         // tab bar can hide during an active session, without that view
         // needing to know Puzzles' own internal list-vs-session state.
-        .onAppear { boardVisible.wrappedValue = showingRush || vm.activeTheme != nil }
-        .onChange(of: showingRush) { _, isRushing in boardVisible.wrappedValue = isRushing || vm.activeTheme != nil }
-        .onChange(of: vm.activeTheme) { _, theme in boardVisible.wrappedValue = showingRush || theme != nil }
-        .onDisappear { boardVisible.wrappedValue = false }
+        .onAppear { boardVisibility.visible = showingRush || vm.activeTheme != nil }
+        .onChange(of: showingRush) { _, isRushing in boardVisibility.visible = isRushing || vm.activeTheme != nil }
+        .onChange(of: vm.activeTheme) { _, theme in boardVisibility.visible = showingRush || theme != nil }
+        .onDisappear { boardVisibility.visible = false }
     }
 
     private var theme: Theme { themeStore.effective }

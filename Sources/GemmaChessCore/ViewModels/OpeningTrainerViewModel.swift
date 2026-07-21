@@ -48,7 +48,28 @@ public final class OpeningTrainerViewModel {
     public var searchQuery: String = "" {
         didSet { results = Openings.search(searchQuery) }
     }
-    public private(set) var results: [Openings.OpeningLine] = Openings.search("")
+    /// Starts empty rather than `Openings.search("")` -- an eager default here
+    /// forced the full ECO book parse (~3.7k movetext replays) synchronously at
+    /// app launch, because `GemmaRootView` constructs this view model as a
+    /// `@State` default. `loadResultsIfNeeded()` fills it when the Opening
+    /// Trainer screen actually appears.
+    public private(set) var results: [Openings.OpeningLine] = []
+
+    /// Populates `results` on first appearance of the Opening Trainer screen
+    /// (no-op after that, or once a search has run). Safe to call repeatedly.
+    /// The first call is what actually triggers the one-time ECO book parse,
+    /// so it runs detached -- the screen shows instantly and the list fills
+    /// in a beat later instead of blocking the push animation.
+    public func loadResultsIfNeeded() {
+        guard results.isEmpty, searchQuery.isEmpty else { return }
+        Task.detached(priority: .userInitiated) {
+            let lines = Openings.search("")
+            await MainActor.run { [weak self] in
+                guard let self, self.results.isEmpty, self.searchQuery.isEmpty else { return }
+                self.results = lines
+            }
+        }
+    }
 
     /// `results` grouped by opening family (see `Openings.OpeningLine.family`),
     /// families ordered alphabetically for predictable browsing. Lines within
