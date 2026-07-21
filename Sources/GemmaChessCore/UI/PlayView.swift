@@ -114,15 +114,13 @@ public struct PlayView: View {
             if settings.showOpening, let opening = vm.opening {
                 openingRow(opening)
             }
-            if settings.showMoveComments {
-                bestMovesCard
-                    .padding(.horizontal, 12)
-            }
+            bestMovesCard
+                .padding(.horizontal, 12)
             if settings.showCoach {
                 coachCard
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.horizontal, 12)
-            } else if !settings.showMoveComments {
+            } else {
                 Spacer(minLength: 0)
             }
         }
@@ -321,9 +319,8 @@ public struct PlayView: View {
             Section("Show") {
                 Toggle(isOn: $settings.showCaptured) { Label("Captured pieces", systemImage: "trophy") }
                 Toggle(isOn: $settings.showMoveList) { Label("Move list", systemImage: "list.bullet") }
-                Toggle(isOn: $settings.showMoveComments) { Label("Move review", systemImage: "chart.bar.fill") }
                 Toggle(isOn: $settings.showOpening) { Label("Opening name", systemImage: "book.closed.fill") }
-                Toggle(isOn: $settings.showCoach) { Label("Coach (uses credits)", systemImage: "bubble.left.fill") }
+                Toggle(isOn: $settings.showCoach) { Label("Coach", systemImage: "bubble.left.fill") }
             }
             Section {
                 Button { showAppearance = true } label: { Label("Appearance & themes", systemImage: "paintpalette.fill") }
