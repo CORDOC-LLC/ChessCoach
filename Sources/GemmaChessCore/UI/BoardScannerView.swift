@@ -179,11 +179,18 @@ public struct BoardScannerView: View {
 
             Button {
                 editedFEN = FENBoardEditor.rotated180(fen: editedFEN)
+                sideIsWhite.toggle()
                 pickedSquare = nil
             } label: {
-                Label("Rotate board 180°", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                Label("Board looks upside down? Flip it", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
             }
             .font(.footnote)
+
+            Picker("You play", selection: $sideIsWhite) {
+                Text("White").tag(true)
+                Text("Black").tag(false)
+            }
+            .pickerStyle(.segmented)
 
             HStack {
                 if editedFEN != scannedFEN {
@@ -364,12 +371,10 @@ public struct BoardScannerView: View {
 
     private func playSection(fen: String) -> some View {
         Section("Start a game from here") {
-            Picker("You play", selection: $sideIsWhite) {
-                Text("White").tag(true)
-                Text("Black").tag(false)
-            }
-            .pickerStyle(.segmented)
-            Button("Start playing") { onStartGame(fen, sideIsWhite) }
+            // "You play" is set during the board review step above, right
+            // next to the orientation fix -- no separate picker here to
+            // avoid a second, easy-to-miss control for the same choice.
+            Button("Start playing as \(sideIsWhite ? "White" : "Black")") { onStartGame(fen, sideIsWhite) }
                 .buttonStyle(.borderedProminent)
                 .frame(maxWidth: .infinity)
         }
@@ -426,8 +431,14 @@ public struct BoardScannerView: View {
             // (the model reads the nearest edge as rank 1). When White's
             // pieces clearly sit in the top half, un-rotate before showing --
             // the user can still hit "Rotate board 180°" if we guessed wrong.
+            // That same signal is the best guess at which side the photo was
+            // actually taken from, so default "You play" to match it instead
+            // of always assuming White -- the user can still change it below.
             if FENBoardEditor.looksRotated(fen: fen) {
                 fen = FENBoardEditor.rotated180(fen: fen)
+                sideIsWhite = false
+            } else {
+                sideIsWhite = true
             }
             editedFEN = fen
             scannedFEN = fen
