@@ -114,15 +114,11 @@ public struct PlayView: View {
             if settings.showOpening, let opening = vm.opening {
                 openingRow(opening)
             }
-            if settings.showMoveComments {
-                bestMovesCard
-                    .padding(.horizontal, 12)
-            }
             if settings.showCoach {
                 coachCard
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.horizontal, 12)
-            } else if !settings.showMoveComments {
+            } else {
                 Spacer(minLength: 0)
             }
         }
@@ -321,9 +317,8 @@ public struct PlayView: View {
             Section("Show") {
                 Toggle(isOn: $settings.showCaptured) { Label("Captured pieces", systemImage: "trophy") }
                 Toggle(isOn: $settings.showMoveList) { Label("Move list", systemImage: "list.bullet") }
-                Toggle(isOn: $settings.showMoveComments) { Label("Move review", systemImage: "chart.bar.fill") }
                 Toggle(isOn: $settings.showOpening) { Label("Opening name", systemImage: "book.closed.fill") }
-                Toggle(isOn: $settings.showCoach) { Label("Coach (uses credits)", systemImage: "bubble.left.fill") }
+                Toggle(isOn: $settings.showCoach) { Label("Coach", systemImage: "bubble.left.fill") }
             }
             Section {
                 Button { showAppearance = true } label: { Label("Appearance & themes", systemImage: "paintpalette.fill") }
@@ -363,13 +358,14 @@ public struct PlayView: View {
         .padding(.horizontal, 16)
     }
 
-    /// The lightbulb is the single switch for best-move graphics: tap to show the
-    /// hint (best + alternative arrows + rationale), tap again to hide them.
+    /// The lightbulb toggles hint MODE: while lit, the hint card and arrows stay
+    /// up and refresh for every new position on the user's turn. Tap again (or
+    /// close the card) to turn the mode off.
     private var hintButton: some View {
-        let on = vm.hint != nil
+        let on = vm.hintMode
         return Button {
             if showHintTip { dismissHintTip() }
-            on ? vm.clearHint() : vm.requestHint()
+            vm.toggleHintMode()
         } label: {
             Image(systemName: on ? "lightbulb.fill" : "lightbulb")
                 .font(.footnote.weight(.semibold))
@@ -377,12 +373,15 @@ public struct PlayView: View {
                 .frame(width: 26, height: 26)
         }
         .buttonStyle(PressableStyle())
-        .disabled(!vm.userToMove || vm.isViewingHistory || vm.gameOver)
-        .accessibilityLabel(on ? "Hide best move hint" : "Show best move hint")
-        .accessibilityHint("Shows the engine's best move for the current position.")
+        // Turning the mode ON only makes sense at the user's live turn, but the
+        // bulb must always stay tappable to turn the mode OFF.
+        .disabled(!on && (!vm.userToMove || vm.isViewingHistory || vm.gameOver))
+        .accessibilityLabel(on ? "Turn off move hints" : "Turn on move hints")
+        .accessibilityHint("Shows and updates the engine's suggested move as you play.")
     }
 
-    // MARK: Hint card (best + alternative + rationale, dismissible)
+    // MARK: Hint card (best + alternative + template rationale, engine-only,
+    // identical on both tiers -- closing it turns hint mode off)
 
     @ViewBuilder
     private var hintCard: some View {
@@ -394,7 +393,6 @@ public struct PlayView: View {
                         .font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
                         .lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength: 4)
-                    if hint.isLoading { ProgressView().controlSize(.small) }
                     Button { vm.clearHint() } label: {
                         Image(systemName: "xmark")
                             .font(.caption.weight(.bold)).foregroundStyle(theme.textColor.opacity(0.6))
@@ -402,21 +400,8 @@ public struct PlayView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                if let freeRationale = hint.freeRationale, !freeRationale.isEmpty {
-                    HStack(alignment: .top, spacing: 6) {
-                        Text("FREE")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(theme.accent2Color)
-                            .padding(.horizontal, 5).padding(.vertical, 2)
-                            .background(Capsule().fill(theme.accent2Color.opacity(0.18)))
-                            .overlay(Capsule().stroke(theme.accent2Color.opacity(0.5), lineWidth: 1))
-                        Text(freeRationale)
-                            .font(.footnote).foregroundStyle(theme.textColor.opacity(0.9))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
                 if let rationale = hint.rationale, !rationale.isEmpty {
-                    Text(rationale.asCoachMarkdown)
+                    Text(rationale)
                         .font(.footnote).foregroundStyle(theme.textColor.opacity(0.9))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -446,61 +431,42 @@ public struct PlayView: View {
         .padding(.horizontal, 16)
     }
 
-    // MARK: Move Review card (verdict on the move you just played + the top-3
-    // continuations the engine considered there -- all engine-only, free, no
-    // Gemini/network involved). Distinct from the hint (lightbulb): this is
-    // always-on feedback about a move already played; the hint is an
-    // on-demand suggestion for the move about to be played.
+    // MARK: Unified Coach card (plan 2026-07-21-003 U4) — verdict chip + free
+    // engine comment + the engine's top-3 lines on BOTH tiers, with the Pro
+    // coach's streamed prose (focusLine) beneath for subscribers. This is the
+    // only card that ever spends coach credits — and only its focusLine does.
 
-    private var bestMovesCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "chart.bar.fill").foregroundStyle(theme.accent2Color).font(.footnote)
-                Text("Move Review").font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
-                if let v = vm.lastVerdict { verdictChip(v) }
-                Spacer(minLength: 4)
-            }
-            if vm.topMoves.isEmpty {
-                Text("Play a move and I'll grade it here, with the engine's top 3 choices.")
-                    .font(.footnote).foregroundStyle(theme.textColor.opacity(0.6))
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(vm.topMoves.enumerated()), id: \.offset) { index, line in
-                        HStack(spacing: 8) {
-                            Text("\(index + 1).")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(theme.textColor.opacity(0.4))
-                                .frame(width: 16, alignment: .trailing)
-                            Text(line.lineSAN.first ?? "—")
-                                .font(.callout.weight(.semibold))
-                                .foregroundStyle(theme.textColor)
-                            Spacer(minLength: 8)
-                            Text(line.eval)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(theme.textColor.opacity(0.6))
-                        }
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .gemmaGlass(cornerRadius: 16)
+    /// The chip in the card header: the browsed ply's own grade while viewing
+    /// history (rebuilt from `moveRecords`), else the live move's verdict —
+    /// so the chip never shows live content against a historical position.
+    private var headerVerdict: MoveVerdict? {
+        if let ply = vm.viewingPly { return vm.verdict(forPly: ply) }
+        return vm.lastVerdict
     }
-
-    // MARK: Coach card (written explanation + chat — the ONLY piece that spends
-    // Gemini credits)
 
     private var coachCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "graduationcap.fill").foregroundStyle(theme.accentColor).font(.footnote)
                 Text("Coach").font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+                if let v = headerVerdict { verdictChip(v) }
                 Spacer(minLength: 4)
                 if vm.isCoaching || vm.isSummarizing {
                     ProgressView().controlSize(.small)
                 }
-                if vm.coachEnabled {
+                if !vm.isProEntitled {
+                    // Free tier: an explicit tier marker that opens the paywall
+                    // -- same visual weight as "Ask" so the card reads the same
+                    // shape on both tiers.
+                    Button { showPaywall = true } label: {
+                        Label("Free", systemImage: "sparkles")
+                            .font(.caption2.weight(.semibold))
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(theme.accent2Color)
+                    }
+                    .buttonStyle(PressableStyle())
+                    .accessibilityLabel("Free plan — see ChessCoach Pro")
+                } else if vm.coachEnabled {
                     Button { openChat() } label: {
                         Label("Ask", systemImage: "bubble.left.and.bubble.right.fill")
                             .font(.caption2.weight(.semibold))
@@ -510,15 +476,54 @@ public struct PlayView: View {
                     .buttonStyle(PressableStyle())
                 }
             }
-            // The focus line scrolls within the card's bounds so a long note never
+            // The body scrolls within the card's bounds so a long note never
             // pushes the layout or clips.
-            ScrollView { focusLine }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    // Live-only engine content: the free comment + top-3 lines
+                    // describe the LIVE position, so they hide while browsing
+                    // history (the browsed ply's chip + note take over above).
+                    if !vm.isViewingHistory {
+                        if let comment = vm.lastEngineComment, !comment.isEmpty {
+                            Text(comment)
+                                .font(.footnote)
+                                .foregroundStyle(theme.textColor.opacity(0.9))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        if !vm.topMoves.isEmpty { topLinesList }
+                    }
+                    focusLine
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
         .gemmaGlass(cornerRadius: 18)
         .sheet(isPresented: $showChat) { PlayCoachChatView(vm: vm) }
+    }
+
+    /// The engine's top-3 candidate moves for the position before the user's
+    /// last move (moved here from the retired Move Review card, unchanged).
+    private var topLinesList: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(vm.topMoves.enumerated()), id: \.offset) { index, line in
+                HStack(spacing: 8) {
+                    Text("\(index + 1).")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(theme.textColor.opacity(0.4))
+                        .frame(width: 16, alignment: .trailing)
+                    Text(line.lineSAN.first ?? "—")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(theme.textColor)
+                    Spacer(minLength: 8)
+                    Text(line.eval)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(theme.textColor.opacity(0.6))
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -556,9 +561,6 @@ public struct PlayView: View {
                 .textSelection(.enabled)
         } else if vm.isCoaching {
             Text("Reading the position…")
-                .font(.footnote).foregroundStyle(theme.textColor.opacity(0.6))
-        } else if !vm.coachEnabled {
-            Text("Engine review only on this device. I'll still grade your moves.")
                 .font(.footnote).foregroundStyle(theme.textColor.opacity(0.6))
         } else if let error = vm.lastCoachError {
             // A configuration/entitlement/network failure -- shown specifically

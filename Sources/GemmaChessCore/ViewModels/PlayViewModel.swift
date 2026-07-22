@@ -31,28 +31,28 @@ public struct MoveVerdict: Equatable, Sendable {
     }
 }
 
-/// An on-demand hint: the engine's best move plus a good alternative, with an
-/// optional one-line coach rationale. Distinct from the always-on best-move toggle —
-/// it is requested explicitly and dismissed by the user.
+/// A hint: the engine's best move plus a good alternative, with a one-line
+/// template-based rationale. Entirely engine-derived (`HintRationaleTemplates`) —
+/// identical on both tiers, no LLM, no network. Shown while the bulb's hint
+/// mode (`PlayViewModel.hintMode`) is on.
 public struct HintInfo: Equatable, Sendable {
     public var bestUCI: String
     public var secondUCI: String?
     public var bestSAN: String
     public var secondSAN: String?
+    /// Template-based "why" (`HintRationaleTemplates`), built from facts the
+    /// hint analysis already computed — ready the same tick as the arrows/SAN.
     public var rationale: String?
-    /// Free, template-based "why" (`HintRationaleTemplates`), populated synchronously
-    /// as soon as the best move is known — regardless of Pro coach status. Additive
-    /// and independent of `rationale`, which only streams in later, and only when
-    /// Pro coaching is enabled; both may end up populated at once.
-    public var freeRationale: String?
-    public var isLoading: Bool
+    /// The position this hint was computed for. While hint mode refreshes
+    /// across a turn the previous hint stays visible, so this is how callers
+    /// (and tests) tell "still the old position's hint" from "the refresh
+    /// landed" — when it matches the live FEN, the hint is current.
+    public var forFEN: String
     public init(bestUCI: String, secondUCI: String?, bestSAN: String,
-                secondSAN: String?, rationale: String?, freeRationale: String? = nil,
-                isLoading: Bool) {
+                secondSAN: String?, rationale: String?, forFEN: String = "") {
         self.bestUCI = bestUCI; self.secondUCI = secondUCI
         self.bestSAN = bestSAN; self.secondSAN = secondSAN
-        self.rationale = rationale; self.freeRationale = freeRationale
-        self.isLoading = isLoading
+        self.rationale = rationale; self.forFEN = forFEN
     }
 
     /// One-line summary for the hint card header, e.g. "Best: Nf3 · Alt: e4".
@@ -143,6 +143,11 @@ public final class PlayViewModel {
     // MARK: Best Moves (engine-only, free -- no coach/network involved)
     /// Structured engine verdict on the user's latest move.
     public var lastVerdict: MoveVerdict?
+    /// Free, template-based one-line engine comment about the user's latest
+    /// move (`MoveCommentTemplates`) — set alongside `lastVerdict` from the
+    /// same analysis, cleared wherever the verdict is cleared. Engine-only,
+    /// identical on both tiers, no network.
+    public var lastEngineComment: String?
     /// The engine's top candidate moves (best first) for the position BEFORE the
     /// user's last move -- i.e. what Stockfish actually considered there, for
     /// comparison against the move played. Cleared on a new game/retry; not
@@ -159,10 +164,21 @@ public final class PlayViewModel {
     /// start of every new coach request.
     public var lastCoachError: String?
 
-    // MARK: On-demand hint
-    /// The current hint, or nil when none is shown. Set by `requestHint`, cleared by
-    /// `clearHint`, a new move, or a new game.
+    // MARK: Hint mode (the bulb)
+    /// Whether the bulb's persistent hint mode is on. While on, the hint
+    /// auto-refreshes whenever it becomes the user's turn (after the engine's
+    /// reply, after undo). Not persisted — resets to off with every new game
+    /// and every loaded game.
+    public var hintMode: Bool = false
+    /// The current hint, or nil when none is shown. Set by `requestHint`;
+    /// cleared by `clearHint` (which also turns hint mode off) or a new game.
+    /// While hint mode refreshes across a turn, the previous hint stays
+    /// visible until the new analysis resolves.
     public var hint: HintInfo?
+    /// Number of hint analyses actually launched (test hook, mirroring
+    /// `bestMoveAnalysisCount`) — distinguishes "a fresh hint landed" from
+    /// "the old hint happens to look identical" in the auto-refresh tests.
+    public private(set) var hintRequestCount = 0
 
     // MARK: End-of-game summary + retry (the teach-back loop)
     /// The coach's written debrief of the finished game, streamed in at game over.
@@ -237,6 +253,25 @@ public final class PlayViewModel {
         return coachDisplayEnabled
     }
 
+    /// The channel used for the client-side entitlement predicate below —
+    /// `.current` in production, overridable so tests can exercise the
+    /// App Store gating branch deterministically (mirrors
+    /// `CoachOrchestrator.channel`'s test seam).
+    var entitlementChannel: BuildChannel = .current
+
+    /// Whether this user can actually receive Pro coach prose: true on any
+    /// channel that doesn't gate (local/TestFlight dev builds), or on
+    /// App Store with an active subscription. The exact check
+    /// `PlayView.openChat()` applies before opening chat, hoisted here so the
+    /// per-move note and end-of-game debrief can skip their network calls for
+    /// free App Store users instead of firing a doomed 403 per move — and so
+    /// the card header can pick "Ask" vs "Free" from one source of truth.
+    /// Purely a client-side UI/traffic signal; real enforcement stays
+    /// server-side (see `ProEntitlementStore`'s header).
+    public var isProEntitled: Bool {
+        !(entitlementChannel.requiresProEntitlement && !ProEntitlementStore.shared.isProActive)
+    }
+
     /// True when the user is browsing a past position rather than the live game.
     public var isViewingHistory: Bool { viewingPly != nil }
 
@@ -260,6 +295,25 @@ public final class PlayViewModel {
     /// explains), or nil if none was recorded. Used when browsing history --
     /// live play instead follows `lastCoachNote`, which is always the latest.
     public func note(forPly ply: Int) -> String? { moveNotes[ply] }
+
+    /// The engine verdict for the ply at 0-based index `ply`, rebuilt from the
+    /// persisted `moveRecords` -- so the coach card's chip can show the browsed
+    /// move's own grade while viewing history (live play uses `lastVerdict`).
+    /// Nil for the engine's plies and for user moves that were never graded
+    /// (e.g. the analysis was still in flight when the game was left).
+    public func verdict(forPly ply: Int) -> MoveVerdict? {
+        guard moves.indices.contains(ply), isUserPly(ply) else { return nil }
+        // `moveRecords` holds one entry per graded USER move, in order -- the
+        // record index is how many user plies precede this one.
+        let ordinal = (0..<ply).filter(isUserPly).count
+        guard moveRecords.indices.contains(ordinal) else { return nil }
+        let record = moveRecords[ordinal]
+        // Guard against a mid-grade rewind having desynced records from plies.
+        guard sanMoves.indices.contains(ply), sanMoves[ply] == record.san else { return nil }
+        return MoveVerdict(
+            moveSAN: record.san, classification: record.classification,
+            isBest: record.betterSan == nil, betterMoveSAN: record.betterSan)
+    }
 
     public var userToMove: Bool {
         (ChessLogic.sideToMove(forFEN: fen) == .white) == playerIsWhite
@@ -297,16 +351,39 @@ public final class PlayViewModel {
         }
     }
 
-    // MARK: On-demand hint
+    // MARK: Hint mode (the bulb)
 
-    /// Analyse the live position at multipv 2 for the best move + a good alternative,
-    /// then (if a coach is available) attach a short rationale. Only valid at the
+    /// The bulb tap: turn hint mode on (requesting a hint for the current
+    /// position right away) or off (clearing any showing hint and stopping
+    /// the per-turn auto-refresh).
+    public func toggleHintMode() {
+        if hintMode {
+            clearHint()
+        } else {
+            hintMode = true
+            requestHint()
+        }
+    }
+
+    /// Re-request a hint if hint mode is on. Called at every turn transition
+    /// back to the user (engine reply landed, undo). `requestHint`'s own
+    /// guards drop the request when it isn't actually the user's live turn
+    /// (game over, browsing history).
+    private func maybeAutoRequestHint() {
+        guard hintMode else { return }
+        requestHint()
+    }
+
+    /// Analyse the live position at multipv 2 for the best move + a good
+    /// alternative, with a template-based rationale (`HintRationaleTemplates`)
+    /// — engine-only, identical on both tiers, no network. Only valid at the
     /// user's live turn — ignored while browsing history or after game over.
+    /// Any previously showing hint stays visible until the new result lands;
+    /// a result for a position the board has moved past is dropped.
     public func requestHint() {
         guard !isViewingHistory, !gameOver, userToMove else { return }
         let position = fen
-        hint = HintInfo(bestUCI: "", secondUCI: nil, bestSAN: "", secondSAN: nil,
-                        rationale: nil, isLoading: true)
+        hintRequestCount += 1
         Task {
             guard let report = try? await EngineLine.evaluate(fen: position, depth: GCConfig.liveDepth, multipv: 2) else {
                 if position == fen { hint = nil }
@@ -320,56 +397,25 @@ public final class PlayViewModel {
             let bestSAN = lines.first?.lineSAN.first ?? report.bestSAN ?? bestUCI
             let secondUCI = lines.count > 1 ? lines[1].lineUCI.first : nil
             let secondSAN = lines.count > 1 ? lines[1].lineSAN.first : nil
-            // Free, engine-free "why" — derived entirely from facts this analysis
-            // already computed, so it's ready the same tick as the arrows/SAN above,
-            // independent of whether Pro coaching is enabled.
+            // Template-based "why" — derived entirely from facts this analysis
+            // already computed, so it's ready the same tick as the arrows/SAN.
             let mateIn = HintRationaleTemplates.mateIn(fromEval: report.eval)
-            let freeRationale = HintRationaleTemplates.rationale(
+            let rationale = HintRationaleTemplates.rationale(
                 fenBefore: position, moveUCI: bestUCI, mateIn: mateIn
             )
             hint = HintInfo(
                 bestUCI: bestUCI, secondUCI: secondUCI,
                 bestSAN: bestSAN, secondSAN: secondSAN,
-                rationale: nil, freeRationale: freeRationale, isLoading: coachEnabled
+                rationale: rationale, forFEN: position
             )
-
-            guard coachEnabled else { return }
-            // Ground the rationale in the SAME analysis that drew the arrows (passed
-            // as currentFacts so the orchestrator does no second engine run), and
-            // stream it so the reason appears as it's written instead of after a wait.
-            let facts = report.coachInfo
-            var question = "Why is \(bestSAN) the strongest move here? One or two short sentences on the idea behind it."
-            if let alt = secondSAN {
-                question += " Add one short sentence on when \(alt) is a fine alternative."
-            }
-            do {
-                let stream = try await coach.answerStream(
-                    question: question,
-                    fen: position, playerSide: playerIsWhite ? .white : .black,
-                    openingFacts: openingFacts, currentFacts: facts,
-                    depth: GCConfig.liveDepth
-                )
-                for try await partial in stream {
-                    guard position == fen, hint != nil else { return }
-                    hint?.rationale = partial
-                }
-            } catch let e as ProRequiredError {
-                // Rationale is Pro-gated (see `CoachOrchestrator.answerStream`) --
-                // the best-move arrow/SAN above already stand on their own; this
-                // just says why the rationale line didn't fill in, distinctly
-                // from a generic failure, so the UI can offer the paywall.
-                if position == fen { lastCoachError = e.message }
-            } catch {
-                // No rationale — the arrows and SANs still stand on their own,
-                // but the coach card (shared error slot) shows why it failed.
-                if position == fen { lastCoachError = (error as? CoachError)?.message ?? error.localizedDescription }
-            }
-            if position == fen { hint?.isLoading = false }
         }
     }
 
-    /// Dismiss the current hint.
-    public func clearHint() { hint = nil }
+    /// Dismiss the current hint and turn hint mode off (bulb tap / card close).
+    public func clearHint() {
+        hintMode = false
+        hint = nil
+    }
 
     // MARK: Game lifecycle
 
@@ -397,9 +443,11 @@ public final class PlayViewModel {
         bestMoveInFlight = []
         bestMoveAnalysisCount = 0
         lastVerdict = nil
+        lastEngineComment = nil
         topMoves = []
         lastCoachNote = nil
         hint = nil
+        hintMode = false   // the bulb resets per game, never persisted
         opening = nil
         gameSummary = nil
         isSummarizing = false
@@ -430,6 +478,7 @@ public final class PlayViewModel {
     public func resign() {
         guard !gameOver else { return }
         gameOver = true
+        hint = nil   // no next move to suggest; hint mode stops auto-requesting
         resultText = "You resigned."
         status = resultText!
         startGameSummary()
@@ -450,7 +499,11 @@ public final class PlayViewModel {
 
     private func makeUserMove(from: Square, to: Square) {
         returnToLive()   // a move only happens on the live board
-        hint = nil       // a fresh position invalidates any showing hint
+        // With hint mode on, the previous hint stays visible across the turn
+        // (never a blank flash) — engineReply refreshes it once it's the user's
+        // move again. With the mode off, a fresh position clears any hint that
+        // was requested directly.
+        if !hintMode { hint = nil }
         let fromFEN = fen
         let uci = uci(from: from, to: to, in: fromFEN)
         guard let afterFEN = ChessLogic.fen(afterMove: uci, fromFEN: fromFEN) else { return }
@@ -473,6 +526,7 @@ public final class PlayViewModel {
         // until the engine had already replied).
         isCoaching = true
         lastVerdict = nil
+        lastEngineComment = nil
         topMoves = []
         lastCoachNote = nil
         let gen = moveGen
@@ -491,6 +545,13 @@ public final class PlayViewModel {
                 lastVerdict = MoveVerdict(
                     moveSAN: san, classification: mv.classification,
                     isBest: mv.isEngineBest, betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN)
+                // The free one-line comment, from the same analysis' facts —
+                // available with the chip on both tiers, no network involved.
+                lastEngineComment = MoveCommentTemplates.comment(
+                    fenBefore: fromFEN, fenAfter: afterFEN, moveUCI: uci, moveSAN: san,
+                    classification: mv.classification,
+                    betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN,
+                    evalAfter: mv.evalAfter)
                 moveRecords.append(CoachPromptBuilder.PlayMoveRecord(
                     moveNumber: moveNumber, san: san, classification: mv.classification,
                     winBefore: mv.winBefore, winAfter: mv.winAfter,
@@ -535,8 +596,9 @@ public final class PlayViewModel {
         lastMove = moves.last.flatMap { squares(fromUCI: $0) }
         selected = nil
         viewingPly = nil
-        hint = nil
+        if !hintMode { hint = nil }   // mode on keeps the old hint until the refresh below lands
         lastVerdict = nil
+        lastEngineComment = nil
         topMoves = []
         lastCoachNote = nil
         isCoaching = false
@@ -547,6 +609,7 @@ public final class PlayViewModel {
         status = "Your move"
         refreshDests()
         refreshEval()
+        maybeAutoRequestHint()   // hint mode: refresh for the rewound position
         persistCheckpoint()
     }
 
@@ -575,7 +638,10 @@ public final class PlayViewModel {
     /// Stream the coach's written debrief of the finished game, built from the
     /// live-graded move records (no fresh engine work).
     private func startGameSummary() {
-        guard coachEnabled, !moveRecords.isEmpty, gameSummary == nil, !isSummarizing else { return }
+        // `isProEntitled`: free App Store users never fire the (Pro-gated)
+        // debrief call at all -- the engine content stands on its own.
+        guard coachEnabled, isProEntitled, !moveRecords.isEmpty,
+              gameSummary == nil, !isSummarizing else { return }
         let input = CoachPlayGameInput(
             result: resultText ?? "The game is over.",
             playerSide: playerIsWhite ? .white : .black,
@@ -634,7 +700,7 @@ public final class PlayViewModel {
                 sanMoves.append(replySAN!)
                 fenHistory.append(next)
                 lastMove = squares(fromUCI: reply)
-                hint = nil   // the position changed under any showing hint
+                if !hintMode { hint = nil }   // mode off: the position changed under any showing hint
                 refreshDests()
                 refreshEval()
                 updateOpening(afterFEN: next)
@@ -643,7 +709,10 @@ public final class PlayViewModel {
         } catch {
             // engine hiccup — leave it the user's move
         }
-        if !gameOver { status = "Your move" }
+        if !gameOver {
+            status = "Your move"
+            maybeAutoRequestHint()   // hint mode: refresh for the new position
+        }
         return replySAN
     }
 
@@ -742,8 +811,10 @@ public final class PlayViewModel {
         gameSummary = saved.gameSummary
         moveRecords = saved.moveRecords
         lastVerdict = nil    // not persisted -- the chip is a live-move-only affordance
+        lastEngineComment = nil   // likewise
         topMoves = []        // likewise
         hint = nil
+        hintMode = false     // the bulb resets per game -- a resumed game starts with it off
         selected = nil
         viewingPly = nil
         isCoaching = false
@@ -788,7 +859,11 @@ public final class PlayViewModel {
     /// engine.
     private func streamCoachNote(fromFEN: String, uci: String, moveReport: EngineLineReport?,
                                  opponentReplySAN: String? = nil, userPly: Int? = nil, gen: Int? = nil) async {
-        guard coachEnabled, moveReport?.move != nil else { return }
+        // `isProEntitled`: the per-move note is Pro prose -- a free App Store
+        // user would just get a 403 per move, so don't fire the request at all
+        // (the verdict chip + template comment are their coaching). Dev and
+        // TestFlight channels don't gate (`requiresProEntitlement == false`).
+        guard coachEnabled, isProEntitled, moveReport?.move != nil else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
         // The engine's grade (the same one shown on the chip) is authoritative --
         // `moveReport.coachInfo` carries it (classification, win% swing, the
@@ -897,6 +972,7 @@ public final class PlayViewModel {
         switch ChessLogic.status(forFEN: fen) {
         case .checkmate:
             gameOver = true
+            hint = nil   // no next move to suggest; hint mode stops auto-requesting
             let stmWhite = ChessLogic.sideToMove(forFEN: fen) == .white
             let matedIsUser = (stmWhite == playerIsWhite)   // side to move is the mated one
             resultText = matedIsUser ? "Checkmate — you lose." : "Checkmate — you win! 🎉"
@@ -907,6 +983,7 @@ public final class PlayViewModel {
             return true
         case .stalemate:
             gameOver = true
+            hint = nil   // no next move to suggest; hint mode stops auto-requesting
             resultText = "Stalemate — it's a draw."
             status = resultText!
             startGameSummary()
