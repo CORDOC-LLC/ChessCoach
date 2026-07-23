@@ -114,6 +114,73 @@ struct CoachOrchestratorTests {
         #expect(capturedKind == "moveNote")
     }
 
+    // MARK: groundingFen (U1, 2026-07-22-001) -- the moveNote path's board-fact
+    // grounding channel, distinct from `fen`: it must set `ChatFacts.fen` for
+    // the gateway's `boardFactsText` grounding, WITHOUT triggering the
+    // `current`-analysis engine call that the `fen` parameter triggers.
+
+    @Test("groundingFen sets facts.fen to the live post-reply position, not the pre-move moveFen")
+    func groundingFenSetsFactsFenToLivePosition() async throws {
+        let postReplyFEN = "rnbqkbnr/ppp2ppp/4p3/3p4/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3"
+        var captured: CapturedCoachRequest?
+        let o = CoachOrchestrator(coach: .mock { request in
+            captured = try? JSONDecoder().decode(CapturedCoachRequest.self, from: request.httpBody ?? Data())
+            return (200, Data(#"{"text":"Solid."}"#.utf8))
+        })
+        let stream = try await o.answerStream(
+            question: "why?", groundingFen: postReplyFEN,
+            lastMove: "e4", moveFen: blunderFEN, kind: .moveNote
+        )
+        for try await _ in stream {}
+        let req = try #require(captured)
+        // The wire fen is the live post-reply position -- NOT blunderFEN, which
+        // is the pre-move `moveFen`/`fromFEN` the caller also passes.
+        #expect(req.facts.fen == postReplyFEN)
+        #expect(req.facts.fen != blunderFEN)
+    }
+
+    @Test("groundingFen does not trigger a fresh `current` engine analysis (R2: no extra Stockfish call)")
+    func groundingFenDoesNotTriggerExtraEngineAnalysis() async throws {
+        var captured: CapturedCoachRequest?
+        let o = CoachOrchestrator(coach: .mock { request in
+            captured = try? JSONDecoder().decode(CapturedCoachRequest.self, from: request.httpBody ?? Data())
+            return (200, Data(#"{"text":"Solid."}"#.utf8))
+        })
+        // No `currentFacts` override and no `fen` -- only `groundingFen`. If
+        // `groundingFen` incorrectly fed the `current == nil, let fen` branch in
+        // `buildChatFacts`, this would kick off an `EngineLine.evaluate` call and
+        // populate `current`; instead it must stay nil since only the `move`
+        // facts were supplied by the caller (mirroring `streamCoachNote`, which
+        // passes `moveFacts:` and never `currentFacts:`).
+        let stream = try await o.answerStream(
+            question: "why?", groundingFen: blunderFEN,
+            lastMove: "g4", moveFen: blunderFEN,
+            moveFacts: CoachLineInfo(bestSan: "Nf3", eval: "+0.30", winPercent: 55, lineSan: ["Nf3"]),
+            kind: .moveNote
+        )
+        for try await _ in stream {}
+        let req = try #require(captured)
+        #expect(req.facts.fen == blunderFEN)
+        #expect(req.facts.current == nil)
+        #expect(req.facts.move?.bestSan == "Nf3")
+    }
+
+    @Test("the free-form chat call site is unaffected: fen: still triggers a fresh current analysis")
+    func chatFenStillTriggersFreshCurrentAnalysis() async throws {
+        var captured: CapturedCoachRequest?
+        let o = CoachOrchestrator(coach: .mock { request in
+            captured = try? JSONDecoder().decode(CapturedCoachRequest.self, from: request.httpBody ?? Data())
+            return (200, Data(#"{"text":"g4 hangs the queen."}"#.utf8))
+        })
+        let stream = try await o.answerStream(question: "Why is g4 bad here?", fen: blunderFEN, depth: 12)
+        for try await _ in stream {}
+        let req = try #require(captured)
+        #expect(req.facts.fen == blunderFEN)
+        // Unlike groundingFen, plain `fen` (no currentFacts override) computes a
+        // fresh `current` engine line -- this must remain true post-U1.
+        #expect(req.facts.current != nil)
+    }
+
     @Test("gameSummary() sends kind: summary with the imported-game facts, source: imported")
     func gameSummaryGrounding() async throws {
         var rawBody: [String: Any] = [:]

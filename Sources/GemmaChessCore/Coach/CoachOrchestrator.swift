@@ -65,6 +65,7 @@ public final class CoachOrchestrator: Sendable {
     public func answer(
         question: String,
         fen: String? = nil,
+        groundingFen: String? = nil,
         lastMove: String? = nil,
         moveFen: String? = nil,
         playerSide: CoachSide? = nil,
@@ -80,7 +81,7 @@ public final class CoachOrchestrator: Sendable {
         try await ProEntitlementStore.shared.requireProOrThrow(channel: channel)
         try requireAvailable()
         let facts = try await buildChatFacts(
-            question: question, fen: fen, lastMove: lastMove, moveFen: moveFen, playerSide: playerSide,
+            question: question, fen: fen, groundingFen: groundingFen, lastMove: lastMove, moveFen: moveFen, playerSide: playerSide,
             openingFacts: openingFacts, currentFacts: currentFacts, moveFacts: moveFacts,
             profileFacts: profileFacts, speedContext: speedContext, depth: depth
         )
@@ -93,6 +94,7 @@ public final class CoachOrchestrator: Sendable {
     public func answerStream(
         question: String,
         fen: String? = nil,
+        groundingFen: String? = nil,
         lastMove: String? = nil,
         moveFen: String? = nil,
         playerSide: CoachSide? = nil,
@@ -108,7 +110,7 @@ public final class CoachOrchestrator: Sendable {
         try await ProEntitlementStore.shared.requireProOrThrow(channel: channel)
         try requireAvailable()
         let facts = try await buildChatFacts(
-            question: question, fen: fen, lastMove: lastMove, moveFen: moveFen, playerSide: playerSide,
+            question: question, fen: fen, groundingFen: groundingFen, lastMove: lastMove, moveFen: moveFen, playerSide: playerSide,
             openingFacts: openingFacts, currentFacts: currentFacts, moveFacts: moveFacts,
             profileFacts: profileFacts, speedContext: speedContext, depth: depth
         )
@@ -119,8 +121,16 @@ public final class CoachOrchestrator: Sendable {
     /// Computes engine facts only for the parts the caller didn't already supply
     /// (`currentFacts`/`moveFacts` overrides) -- same reuse contract as before,
     /// just handing back a `CoachLineInfo` (structured) instead of formatted text.
+    ///
+    /// `groundingFen` is a board-fact-grounding-only channel, distinct from
+    /// `fen`: it only sets `ChatFacts.fen` (so the gateway's `boardFactsText`
+    /// grounding fires) and never triggers the `current`-analysis branch below,
+    /// which stays keyed strictly on `fen`. `fen` wins when both are given,
+    /// though in practice today only one or the other is ever passed by any
+    /// call site (`streamCoachNote` passes `groundingFen` only; the free-form
+    /// chat call site passes `fen` only). See `PlayViewModel.streamCoachNote`.
     private func buildChatFacts(
-        question: String, fen: String?, lastMove: String?, moveFen: String?,
+        question: String, fen: String?, groundingFen: String? = nil, lastMove: String?, moveFen: String?,
         playerSide: CoachSide?, openingFacts: String?,
         currentFacts: CoachLineInfo?, moveFacts: CoachLineInfo?,
         profileFacts: String?, speedContext: String?, depth: Int
@@ -144,7 +154,7 @@ public final class CoachOrchestrator: Sendable {
         }
 
         return ChatFacts(
-            question: question, fen: fen, lastMove: lastMove, moveFen: moveFen,
+            question: question, fen: fen ?? groundingFen, lastMove: lastMove, moveFen: moveFen,
             playerSide: playerSide, openingName: openingFacts, openingEco: nil,
             profileFacts: profileFacts, speedContext: speedContext,
             current: current, move: move, depth: depth
