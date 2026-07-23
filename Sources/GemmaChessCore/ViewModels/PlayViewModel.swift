@@ -881,6 +881,7 @@ public final class PlayViewModel {
         do {
             let stream = try await coach.answerStream(
                 question: question,
+                groundingFen: fen,
                 lastMove: uci, moveFen: fromFEN,
                 playerSide: playerIsWhite ? .white : .black,
                 openingFacts: openingFacts,
