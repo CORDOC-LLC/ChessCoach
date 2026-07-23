@@ -56,7 +56,8 @@ struct CoachFactStructWireShapeTests {
             mistakes: [CoachFlaggedMove(
                 moveNumber: 4, color: .white, moveSan: "Nf3", classification: "blunder",
                 winBefore: 80.8, winAfter: 56.9, winSwing: 23.9, bestMoveSan: "c3",
-                comment: "Allows a fork."
+                comment: "Allows a fork.",
+                fen: "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
             )]
         )
         let data = try JSONEncoder().encode(input)
@@ -68,15 +69,42 @@ struct CoachFactStructWireShapeTests {
         let mistake = try #require((json["mistakes"] as? [[String: Any]])?.first)
         #expect(mistake["color"] as? String == "white")
         #expect(mistake["bestMoveSan"] as? String == "c3")
+        #expect(mistake["fen"] as? String == "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3")
     }
 
-    @Test("PlayMoveRecord round-trips, with bestUCI decoding nil when absent (older saved games)")
+    @Test("CoachFlaggedMove decodes fen as nil when absent (older data predating this field)")
+    func coachFlaggedMoveBackwardCompatibleDecode() throws {
+        let json = Data("""
+        {"moveNumber":4,"color":"white","moveSan":"Nf3","classification":"blunder",
+         "winBefore":80.8,"winAfter":56.9,"winSwing":23.9,"bestMoveSan":"c3","comment":"Allows a fork."}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(CoachFlaggedMove.self, from: json)
+        #expect(decoded.fen == nil)
+        #expect(decoded.moveSan == "Nf3")
+    }
+
+    @Test("PlayMoveRecord round-trips, with bestUCI/fen decoding nil when absent (older saved games)")
     func playMoveRecordBackwardCompatibleDecode() throws {
         let json = Data("""
         {"moveNumber":1,"san":"d4","classification":"best","winBefore":52,"winAfter":52}
         """.utf8)
         let decoded = try JSONDecoder().decode(CoachPromptBuilder.PlayMoveRecord.self, from: json)
         #expect(decoded.bestUCI == nil)
+        #expect(decoded.fen == nil)
         #expect(decoded.san == "d4")
+    }
+
+    @Test("PlayMoveRecord encodes fen with the wire's field name when present")
+    func playMoveRecordFenEncodes() throws {
+        let record = CoachPromptBuilder.PlayMoveRecord(
+            moveNumber: 1, san: "d4", classification: "best",
+            winBefore: 52, winAfter: 52, betterSan: nil,
+            bestUCI: "d2d4", fen: "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1")
+        let data = try JSONEncoder().encode(record)
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["fen"] as? String == "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1")
+
+        let decoded = try JSONDecoder().decode(CoachPromptBuilder.PlayMoveRecord.self, from: data)
+        #expect(decoded == record)
     }
 }

@@ -203,7 +203,8 @@ public final class ReviewViewModel {
                 winAfter: m.winAfter,
                 winSwing: m.winSwing,
                 bestMoveSan: m.bestMoveSAN,
-                comment: m.comment)
+                comment: m.comment,
+                fen: m.fenAfter)
         }
         return CoachGameInput(
             white: s.headers["White"] ?? "?",
