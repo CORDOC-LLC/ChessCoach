@@ -559,7 +559,7 @@ public final class PlayViewModel {
                     // `moveReport.lineUCI` is the engine's own best line for `fromFEN`
                     // (computed by this same analysis, above) -- its first move is
                     // exactly the "best move" UCI `Motifs.tagMotifs` needs later.
-                    bestUCI: moveReport?.lineUCI.first))
+                    bestUCI: moveReport?.lineUCI.first, fen: afterFEN))
             }
             let replySAN = await engineReply()
             guard gen == moveGen else { return }

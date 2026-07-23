@@ -80,12 +80,19 @@ public struct CoachFlaggedMove: Sendable, Equatable, Codable {
     public var winSwing: Double
     public var bestMoveSan: String
     public var comment: String
+    /// The position after this move, so the gateway can ground its commentary in a
+    /// verified piece list (`boardFactsText`) instead of inferring the board from
+    /// SAN alone. Optional: older callers/data that predate this field decode as
+    /// nil (synthesized `Decodable` treats a missing key on an `Optional` property
+    /// as absent, not an error), matching `PlayMoveRecord.bestUCI`'s precedent below.
+    public var fen: String?
     public init(moveNumber: Int, color: CoachSide, moveSan: String, classification: String,
                 winBefore: Double, winAfter: Double, winSwing: Double, bestMoveSan: String,
-                comment: String) {
+                comment: String, fen: String? = nil) {
         self.moveNumber = moveNumber; self.color = color; self.moveSan = moveSan
         self.classification = classification; self.winBefore = winBefore; self.winAfter = winAfter
         self.winSwing = winSwing; self.bestMoveSan = bestMoveSan; self.comment = comment
+        self.fen = fen
     }
 }
 
@@ -141,12 +148,16 @@ public enum CoachPromptBuilder {
         /// an `Optional` property as absent, not an error), and the default `nil` in
         /// the memberwise init below keeps existing call sites compiling unchanged.
         public var bestUCI: String?
+        /// The position after this move -- same board-grounding purpose as
+        /// `CoachFlaggedMove.fen` above. Optional for the same forward-compatibility
+        /// reason as `bestUCI`: older persisted `SavedGame` data decodes as nil.
+        public var fen: String?
         public init(moveNumber: Int, san: String, classification: String,
                     winBefore: Double, winAfter: Double, betterSan: String?,
-                    bestUCI: String? = nil) {
+                    bestUCI: String? = nil, fen: String? = nil) {
             self.moveNumber = moveNumber; self.san = san; self.classification = classification
             self.winBefore = winBefore; self.winAfter = winAfter; self.betterSan = betterSan
-            self.bestUCI = bestUCI
+            self.bestUCI = bestUCI; self.fen = fen
         }
     }
 }
