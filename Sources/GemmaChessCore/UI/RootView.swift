@@ -4,6 +4,9 @@
 //  (paste/import a game and study it). Each mode runs in the navigation stack.
 
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 /// Retained for source compatibility with the app shells; the root is stack-based.
 public enum GemmaLayoutStyle: Sendable {
@@ -363,6 +366,12 @@ struct HomeView: View {
     @State private var showSettings = false
     @State private var emblemBreath = false
     @State private var weaknessReportTeaser: String?
+    /// The current announcement, once fetched -- nil before the fetch
+    /// resolves (no skeleton/placeholder shown meanwhile) and after dismiss.
+    /// Shown at most once per process lifetime: re-entering Home mid-session
+    /// doesn't re-fetch or re-show it (plan 2026-07-24-001, U3).
+    @State private var announcement: Announcement?
+    @State private var announcementFetchTask: Task<Void, Never>?
     /// "Scan a board" needs the managed coach (ChessCoach Pro) — a photo has
     /// to go over the network to be read, unlike everything else in the app.
     private var scanEnabled: Bool { ManagedCoachStore.loadBackendURL() != nil }
@@ -408,6 +417,28 @@ struct HomeView: View {
                     CoachingProfileBuilder.buildProfile(playerID: "me", store: HistoryStore()))
                 await MainActor.run { weaknessReportTeaser = teaser }
             }
+            // Occasional announcement (plan 2026-07-24-001, U3) -- only fetched
+            // once per HomeView lifetime (guarded below), and cancelled if the
+            // view disappears before the network call resolves. Fails soft:
+            // AnnouncementClient never throws, so no error handling needed here.
+            guard announcementFetchTask == nil, announcement == nil else { return }
+            announcementFetchTask = Task {
+                guard let fetched = await AnnouncementClient.fetchCurrent() else { return }
+                guard !Task.isCancelled else { return }
+                AnnouncementStore.recordSeen(fetched)
+                let dismissedIDs = AnnouncementStore.dismissedIDs()
+                if AnnouncementStore.shouldShow(fetched, dismissedIDs: dismissedIDs) {
+                    announcement = fetched
+                }
+            }
+        }
+        .onDisappear {
+            // Cancel and clear so a genuinely-interrupted fetch (view torn
+            // down before the network call resolved) can retry next time
+            // Home appears -- only a *completed* fetch counts toward "once
+            // per process lifetime" (the `announcement == nil` guard above).
+            announcementFetchTask?.cancel()
+            announcementFetchTask = nil
         }
     }
 
@@ -536,6 +567,15 @@ struct HomeView: View {
                 weaknessReportCard(motif)
                     .padding(.top, 6)
             }
+
+            // Occasional announcement (plan 2026-07-24-001, U3) -- own themed
+            // card, separate from the teaser/beginners cards above so its
+            // dismiss control and link-opening tap target stay independent
+            // (never nested inside one wrapping Button).
+            if let announcement {
+                announcementCard(announcement)
+                    .padding(.top, 6)
+            }
         }
         .padding(.horizontal, 32)
         .padding(.bottom, 48)
@@ -606,6 +646,61 @@ struct HomeView: View {
             .padding(14)
         }
         .buttonStyle(PressableStyle())
+        .background(theme.cardBackgroundColor)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// A themed nudge card for the occasional announcement (plan
+    /// 2026-07-24-001, U3) -- a promo code, launch announcement, etc. The
+    /// title/body region and the dismiss control (✕) are SIBLING tap
+    /// targets, not nested Buttons: nesting a Button inside another
+    /// Button's content produces undefined/conflicting tap behavior in
+    /// SwiftUI, which is exactly the bug this structure avoids.
+    private func announcementCard(_ announcement: Announcement) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Button {
+                #if os(iOS)
+                if let link = announcement.link, let url = URL(string: link) {
+                    UIApplication.shared.open(url)
+                }
+                #endif
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "megaphone.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(theme.accent2Color)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(announcement.title)
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
+                        Text(announcement.body)
+                            .font(.caption).foregroundStyle(theme.textColor.opacity(0.6))
+                    }
+                    if announcement.link != nil {
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(theme.textColor.opacity(0.3))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .disabled(announcement.link == nil)
+
+            Button {
+                AnnouncementStore.dismiss(id: announcement.id)
+                self.announcement = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(theme.textColor.opacity(0.5))
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss announcement")
+        }
+        .padding(14)
         .background(theme.cardBackgroundColor)
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
