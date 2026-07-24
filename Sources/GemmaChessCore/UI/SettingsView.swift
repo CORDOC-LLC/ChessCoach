@@ -174,6 +174,12 @@ public struct SettingsView: View {
                 Text("About")
             }
 
+            Section {
+                NavigationLink("Announcements") { AnnouncementsView() }
+            } header: {
+                Text("Announcements")
+            }
+
             if BuildChannel.current != .appStore {
                 Section {
                     Button("Preview Paywall") { showPaywall = true }
