@@ -1,3 +1,9 @@
+> **SUPERSEDED (2026-07-25)** by `todo.md` at the repo root. This four-shot
+> set predates Puzzles, Lessons, Opening Trainer, the Weakness Report, and
+> the redesigned share card, and it positions the app before the
+> beginner/free-tier ASO rewrite. Kept for the caption wording, which is
+> still good.
+
 # Suggested App Store / Website Screenshots
 
 Four screenshots, same set reused for both the App Store Connect listing and
