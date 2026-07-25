@@ -23,11 +23,20 @@ public struct PlayContainerView: View {
     }
 
     public var body: some View {
-        if started {
-            PlayView(vm: vm, onNewGame: { started = false })
-        } else {
-            setup
+        Group {
+            if started {
+                PlayView(vm: vm, onNewGame: { started = false })
+            } else {
+                setup
+            }
         }
+        // The single exit hook for result recording (plan U3). It lives here,
+        // not on the `onExit`/`onNewGame` closures, because the global tab bar
+        // swaps this screen out by reassigning `RootView`'s mode directly and
+        // never calls those closures -- wiring finalize to them alone would
+        // silently stop recording results for every tab-bar exit. `onDisappear`
+        // catches all of them. Idempotent, so firing more than once is safe.
+        .onDisappear { vm.finalizeOutcome() }
     }
 
     private var setup: some View {
@@ -132,7 +141,7 @@ public struct PlayView: View {
             // reopening an already-finished game (My Games) shouldn't replay this.
             if showGameOverBanner, let outcome = vm.outcome {
                 GameOverBanner(
-                    resultText: vm.resultText ?? "Game over", outcome: outcome, stats: vm.stats,
+                    resultText: vm.resultText ?? "Game over", outcome: outcome, stats: vm.projectedStats,
                     openingName: vm.opening?.name
                 ) {
                     withAnimation(.easeOut(duration: 0.25)) { showGameOverBanner = false }

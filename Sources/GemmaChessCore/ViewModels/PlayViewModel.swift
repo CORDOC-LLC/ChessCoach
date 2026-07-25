@@ -90,9 +90,36 @@ public final class PlayViewModel {
         if resultText.contains("you lose") || resultText == "You resigned." { return .loss }
         return .draw
     }
-    /// Lifetime win/loss/draw tally, shown in the game-over banner and Settings.
-    /// Updated (and persisted) the instant a game actually ends.
+    /// Lifetime win/loss/draw tally, shown in Settings. As of the deferred
+    /// finalization change (plan U3) this is *not* updated the instant a game
+    /// ends -- it's updated when the player actually leaves the game, via
+    /// `finalizeOutcome()`. Use `projectedStats` for anything shown alongside
+    /// the game-over result.
     public private(set) var stats: PlayStats
+    /// The result of a game that has ended but hasn't been recorded yet.
+    ///
+    /// Set by `checkGameOver`/`resign` instead of recording immediately, and
+    /// consumed exactly once by `finalizeOutcome()` when the player leaves the
+    /// game. Undo clears it, so taking back a mating move leaves no trace in
+    /// stats or history -- neither `PlayStatsStore` nor `HistoryStore` has a
+    /// rollback API, so *not writing yet* is the only safe design (plan U3).
+    public private(set) var pendingOutcome: PlayOutcome?
+    /// The lifetime tally with `pendingOutcome` folded in, unpersisted.
+    ///
+    /// The game-over banner shows this rather than `stats`: with recording
+    /// deferred, `stats` excludes the game that just finished, so a player
+    /// winning their first game would otherwise read "0W - 0L - 0D" next to
+    /// "you win".
+    public var projectedStats: PlayStats {
+        guard let pendingOutcome else { return stats }
+        var projected = stats
+        switch pendingOutcome {
+        case .win: projected.wins += 1
+        case .loss: projected.losses += 1
+        case .draw: projected.draws += 1
+        }
+        return projected
+    }
     /// Set when a finished game crosses `ReviewPromptStore.shouldPrompt`'s
     /// threshold -- the view watches this to present `ReviewPromptView`,
     /// mirroring `LessonViewModel`/`OpeningTrainerViewModel`'s `showPaywall`
@@ -426,12 +453,18 @@ public final class PlayViewModel {
     /// so scanning a photo where it's Black's move with the user playing
     /// White correctly hands the first move to the engine.
     public func newGame(asWhite: Bool, startFEN: String = PlayViewModel.startFEN) {
+        // Starting a new game is one of the two ways a player leaves the old
+        // one. Finalize before any state is reset, so the history record is
+        // built from the game that just ended (plan U3).
+        finalizeOutcome()
         playerIsWhite = asWhite
         fen = startFEN
         moves = []
         lastMove = nil
         selected = nil
         gameOver = false
+        pendingOutcome = nil   // already consumed by finalizeOutcome() above
+        clearGameOverExplanation()
         resultText = nil
         coachNotes = []
         winWhite = 50
@@ -482,7 +515,7 @@ public final class PlayViewModel {
         resultText = "You resigned."
         status = resultText!
         startGameSummary()
-        recordOutcome()
+        pendingOutcome = outcome
         persistCheckpoint()
     }
 
@@ -603,6 +636,10 @@ public final class PlayViewModel {
         lastCoachNote = nil
         isCoaching = false
         gameOver = false
+        // Nothing was recorded at game over, so an undone mate needs no
+        // rollback -- just drop the pending result and its explanation (R8).
+        pendingOutcome = nil
+        clearGameOverExplanation()
         resultText = nil
         gameSummary = nil
         isSummarizing = false
@@ -804,6 +841,13 @@ public final class PlayViewModel {
         fen = saved.fenHistory.last ?? saved.startFEN
         skill = saved.skill
         gameOver = saved.isGameOver
+        // A resumed finished game was already recorded when its player left it
+        // (or deliberately lost, per U3's KTD on hard exits) -- resuming must
+        // never set a pending outcome, or replaying an old game would
+        // double-count it. This preserves the "history is never written from
+        // load(_:)" invariant from the Weakness Report plan.
+        pendingOutcome = nil
+        clearGameOverExplanation()
         resultText = saved.resultText
         opening = saved.openingName.map { Openings.Opening(eco: saved.openingECO ?? "", name: $0) }
         moveNotes = saved.moveNotes
@@ -979,7 +1023,8 @@ public final class PlayViewModel {
             resultText = matedIsUser ? "Checkmate — you lose." : "Checkmate — you win! 🎉"
             status = resultText!
             startGameSummary()
-            recordOutcome()
+            pendingOutcome = outcome
+            updateGameOverExplanation()
             persistCheckpoint()
             return true
         case .stalemate:
@@ -988,7 +1033,8 @@ public final class PlayViewModel {
             resultText = "Stalemate — it's a draw."
             status = resultText!
             startGameSummary()
-            recordOutcome()
+            pendingOutcome = outcome
+            updateGameOverExplanation()
             persistCheckpoint()
             return true
         default:
@@ -996,21 +1042,54 @@ public final class PlayViewModel {
         }
     }
 
-    /// Tallies the just-finished game into the lifetime win/loss/draw stats,
-    /// and -- new for the Coach Weakness Report (plan U2) -- folds the game
-    /// into `HistoryStore` so it feeds the same coaching profile Review mode's
-    /// imported games already do. Called from `checkGameOver`/`resign` exactly
-    /// once per real ending -- never from `load(_:)`, so reopening an
-    /// already-finished saved game for replay doesn't double-count it or
-    /// re-append a duplicate history record.
-    private func recordOutcome() {
-        guard let outcome else { return }
-        stats = PlayStatsStore.record(outcome, defaults: statsDefaults)
+    /// Records the finished game -- lifetime win/loss/draw tally, plus the
+    /// `HistoryStore` entry that feeds the Coach Weakness Report the same way
+    /// Review mode's imported games do -- and runs the review-prompt check.
+    ///
+    /// Called when the player actually *leaves* the game, not when it ends:
+    /// `PlayContainerView.onDisappear` (which covers every route out, including
+    /// the global tab bar, since that reassigns `RootView`'s mode directly and
+    /// bypasses Play's own `onExit`/`onNewGame` closures) and the top of
+    /// `newGame(...)`. Deliberately *not* wired to app backgrounding -- a player
+    /// who mates, backgrounds, comes back and then undoes would already have had
+    /// the result written, with no rollback API to reverse it (plan U3 KTD).
+    ///
+    /// Idempotent (R9): it only does anything when a pending outcome exists and
+    /// clears it first, so however many times an exit path fires, the result is
+    /// recorded exactly once. `undoLastMove()` clears the pending outcome, so an
+    /// undone mate finalizes to nothing (R8). `load(_:)` sets `gameOver`
+    /// directly without going through `checkGameOver`, so a resumed finished
+    /// game has no pending outcome and cannot double-record.
+    public func finalizeOutcome() {
+        guard let pending = pendingOutcome else { return }
+        pendingOutcome = nil
+        stats = PlayStatsStore.record(pending, defaults: statsDefaults)
         let history = HistoryStore(baseDir: historyBaseDir)
         if let record = history.buildGameRecord(from: currentSavedGameSnapshot(), identity: PlayerIdentity()) {
             history.appendRecord(record)
         }
         checkReviewPrompt()
+    }
+
+    /// Computes and stores the "why is this mate/stalemate" explanation the
+    /// board renders (plan U2). Computed once here, when `gameOver` is set,
+    /// rather than derived in `PlayView.body` -- it's up to eight
+    /// `fen(afterMove:)` + `isCheck` round trips, far too heavy to re-run on
+    /// every body evaluation while the banner animates.
+    ///
+    /// TODO(U2): store `ChessLogic`'s mate/stalemate explanation (added by U1)
+    /// in a property here, and pass it to `ChessBoardView` from `PlayView`. The
+    /// lifecycle is already wired: set here, cleared in
+    /// `clearGameOverExplanation()` everywhere `gameOver` is cleared.
+    private func updateGameOverExplanation() {
+        // TODO(U2): mateExplanation = ChessLogic.<U1 function>(forFEN: fen)
+    }
+
+    /// Clears the stored explanation. Called wherever `gameOver` is cleared, so
+    /// a stale tint can never outlive the mate it describes -- undo clears it,
+    /// and a second mate after undo-and-replay recomputes it fresh.
+    private func clearGameOverExplanation() {
+        // TODO(U2): mateExplanation = nil
     }
 
     /// Checked after every finished game -- one of the two engagement events
