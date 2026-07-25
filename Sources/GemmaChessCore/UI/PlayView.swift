@@ -23,11 +23,20 @@ public struct PlayContainerView: View {
     }
 
     public var body: some View {
-        if started {
-            PlayView(vm: vm, onNewGame: { started = false })
-        } else {
-            setup
+        Group {
+            if started {
+                PlayView(vm: vm, onNewGame: { started = false })
+            } else {
+                setup
+            }
         }
+        // The single exit hook for result recording (plan U3). It lives here,
+        // not on the `onExit`/`onNewGame` closures, because the global tab bar
+        // swaps this screen out by reassigning `RootView`'s mode directly and
+        // never calls those closures -- wiring finalize to them alone would
+        // silently stop recording results for every tab-bar exit. `onDisappear`
+        // catches all of them. Idempotent, so firing more than once is safe.
+        .onDisappear { vm.finalizeOutcome() }
     }
 
     private var setup: some View {
@@ -114,7 +123,24 @@ public struct PlayView: View {
             if settings.showOpening, let opening = vm.opening {
                 openingRow(opening)
             }
-            if settings.showCoach {
+            // The banner takes the coach card's slot while the result is
+            // undismissed (plan U4): `body` is a plain non-scrolling VStack
+            // with no room to simply append a ~300pt card, and during the
+            // teaching moment the coach card has nothing to show anyway --
+            // the debrief deliberately hasn't started. Dismissing hands the
+            // slot back and the debrief streams into the coach card as usual.
+            if showGameOverBanner, let outcome = vm.outcome {
+                GameOverBanner(
+                    resultText: vm.resultText ?? "Game over", outcome: outcome,
+                    stats: vm.projectedStats, openingName: vm.opening?.name,
+                    compact: true
+                ) {
+                    dismissGameOverBanner()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.horizontal, 12)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if settings.showCoach {
                 coachCard
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.horizontal, 12)
@@ -127,22 +153,12 @@ public struct PlayView: View {
         .onChange(of: settings.showCoach, initial: true) { _, showCoach in
             vm.coachDisplayEnabled = showCoach
         }
-        .overlay {
-            // Only on a LIVE transition into game-over (see the onChange below) --
-            // reopening an already-finished game (My Games) shouldn't replay this.
-            if showGameOverBanner, let outcome = vm.outcome {
-                GameOverBanner(
-                    resultText: vm.resultText ?? "Game over", outcome: outcome, stats: vm.stats,
-                    openingName: vm.opening?.name
-                ) {
-                    withAnimation(.easeOut(duration: 0.25)) { showGameOverBanner = false }
-                }
-                .transition(AnyTransition.scale(scale: 0.85).combined(with: .opacity))
-            }
-        }
+        // Only on a LIVE transition into game-over -- reopening an
+        // already-finished game (My Games) shouldn't replay this.
         .onChange(of: vm.gameOver) { _, isOver in
             if isOver {
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
+                // The app's celebration spring (plan U4).
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
                     showGameOverBanner = true
                 }
             } else {
@@ -168,6 +184,11 @@ public struct PlayView: View {
             selectedSquare: vm.selected,
             legalDots: vm.legalDots,
             checkSquare: checkInfo?.king,
+            // Computed once by the view model when the game ended -- deliberately
+            // NOT derived here (plan U2: it's far too heavy for a body read).
+            // Only for the live board; browsing back through the game shouldn't
+            // paint the final position's mate geometry over an earlier one.
+            terminalExplanation: vm.isViewingHistory ? nil : vm.mateExplanation,
             boardLight: theme.boardLightColor,
             boardDark: theme.boardDarkColor,
             highlightColor: theme.accent2Color,
@@ -220,7 +241,48 @@ public struct PlayView: View {
                 arrows.append(BoardArrow(from: attacker, to: checkInfo.king, color: .red, thick: true))
             }
         }
+        arrows.append(contentsOf: coverageArrows)
         return arrows
+    }
+
+    /// The teaching moment's coverage arrows: from each enemy piece to the
+    /// flight square it takes away (plan U2/R1). Orange rather than the check
+    /// arrows' red, so "this is why you couldn't run there" reads as a
+    /// different statement from "this is what's checking you".
+    ///
+    /// One arrow per (coverer, flight square) pair, since the honest full
+    /// picture is the teaching goal -- but past `maxCoverageArrows` a dense
+    /// mate turns into a scribble, so beyond that we thin to the NEAREST
+    /// coverer per square. The complete list always survives in the
+    /// accessibility summary either way.
+    private static let maxCoverageArrows = 8
+
+    private var coverageArrows: [BoardArrow] {
+        guard !vm.isViewingHistory, let explanation = vm.mateExplanation else { return [] }
+        var pairs: [(from: Square, to: Square)] = []
+        for flight in explanation.flightSquares {
+            guard case .covered(let coverers) = flight.availability else { continue }
+            for coverer in coverers { pairs.append((coverer, flight.square)) }
+        }
+        if pairs.count > Self.maxCoverageArrows {
+            var nearest: [(from: Square, to: Square)] = []
+            for flight in explanation.flightSquares {
+                guard case .covered(let coverers) = flight.availability,
+                      let closest = coverers.min(by: {
+                          distance($0, flight.square) < distance($1, flight.square)
+                      })
+                else { continue }
+                nearest.append((closest, flight.square))
+            }
+            pairs = nearest
+        }
+        return pairs.map { BoardArrow(from: $0.from, to: $0.to, color: .orange, thick: false) }
+    }
+
+    /// King-move distance between two squares — the natural "nearest coverer"
+    /// measure on a board.
+    private func distance(_ a: Square, _ b: Square) -> Int {
+        max(abs(a.file.number - b.file.number), abs(a.rank.value - b.rank.value))
     }
 
     // MARK: Header
@@ -273,6 +335,15 @@ public struct PlayView: View {
         .gemmaGlass(cornerRadius: 12)
         .padding(.horizontal, 14)
         .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    /// Explicit dismissal, replacing tap-anywhere: the board stays interactive
+    /// underneath the banner, so a stray tap must never end the teaching
+    /// moment. Dismissing is also what releases the coach debrief and the
+    /// review prompt (plan R5) -- the board explanation itself stays up.
+    private func dismissGameOverBanner() {
+        withAnimation(.easeOut(duration: 0.25)) { showGameOverBanner = false }
+        vm.dismissGameOverResult()
     }
 
     private func dismissHintTip() {
@@ -617,13 +688,17 @@ public struct PlayView: View {
 
 /// A brief animated card announcing how the game ended -- makes the moment
 /// impossible to miss, instead of only a small status-pill text change.
-/// Tap anywhere to dismiss (the board underneath still shows the final
-/// position, with the check/checkmate arrows if it ended that way).
+/// Sits inline below the board rather than covering it, so the player can keep
+/// studying the final position (and its mate explanation) while it's up, and
+/// dismisses only via its explicit button.
 struct GameOverBanner: View {
     let resultText: String
     let outcome: PlayOutcome
     let stats: PlayStats
     var openingName: String?
+    /// Tighter type and spacing for the inline placement, where the card shares
+    /// a non-scrolling column with the board on the smallest supported screen.
+    var compact: Bool = false
     var onDismiss: () -> Void
 
     @Environment(ThemeStore.self) private var themeStore
@@ -634,44 +709,50 @@ struct GameOverBanner: View {
     private var theme: Theme { themeStore.effective }
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: compact ? 6 : 10) {
             Image(systemName: icon)
-                .font(.system(size: 40, weight: .semibold))
+                .font(.system(size: compact ? 26 : 40, weight: .semibold))
                 .foregroundStyle(tint)
                 .scaleEffect(appeared ? 1 : 0.4)
                 .opacity(appeared ? 1 : 0)
             Text(title)
-                .font(.title3.weight(.bold))
+                .font(compact ? .headline : .title3.weight(.bold))
                 .foregroundStyle(theme.textColor)
             Text(resultText)
-                .font(.subheadline)
+                .font(compact ? .caption : .subheadline)
                 .foregroundStyle(theme.textColor.opacity(0.75))
                 .multilineTextAlignment(.center)
             Text("\(stats.wins)W · \(stats.losses)L · \(stats.draws)D")
                 .font(.caption.weight(.semibold).monospacedDigit())
                 .foregroundStyle(theme.textColor.opacity(0.55))
-                .padding(.top, 4)
-            #if os(iOS)
-            Button {
-                shareGame()
-            } label: {
-                Label("Share", systemImage: "square.and.arrow.up")
-                    .font(.caption.weight(.semibold))
+                .padding(.top, compact ? 0 : 4)
+            HStack(spacing: 10) {
+                #if os(iOS)
+                Button {
+                    shareGame()
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.accentColor)
+                #endif
+                // Explicit dismissal: the board stays live underneath, so
+                // tap-anywhere would end the teaching moment by accident.
+                Button(action: onDismiss) {
+                    Text("Continue")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(theme.accentColor)
+                .accessibilityHint("Dismisses the result and starts the coach's game debrief.")
             }
-            .buttonStyle(.bordered)
-            .tint(theme.accentColor)
-            .padding(.top, 6)
-            #endif
-            Text("Tap to dismiss")
-                .font(.caption2)
-                .foregroundStyle(theme.textColor.opacity(0.4))
-                .padding(.top, 2)
+            .padding(.top, compact ? 2 : 6)
         }
-        .padding(28)
-        .frame(maxWidth: 300)
-        .gemmaGlass(cornerRadius: 24)
-        .shadow(color: tint.opacity(0.35), radius: 24)
-        .onTapGesture(perform: onDismiss)
+        .padding(compact ? 14 : 28)
+        .frame(maxWidth: compact ? .infinity : 300)
+        .gemmaGlass(cornerRadius: compact ? 18 : 24)
+        .shadow(color: tint.opacity(0.35), radius: compact ? 12 : 24)
         .onAppear {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.05)) {
                 appeared = true

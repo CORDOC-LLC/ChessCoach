@@ -97,6 +97,167 @@ public enum ChessLogic {
         return hasMoves ? .normal : .stalemate
     }
 
+    // MARK: Why is it over?
+
+    /// Why a position is terminal: which king is trapped (or which side has run out
+    /// of moves), and, square by square, what stops the king from stepping away.
+    ///
+    /// Deliberately keeps square identities rather than booleans so a UI layer can
+    /// both tint the board and build a spoken summary from the same value.
+    public struct TerminalExplanation: Equatable, Sendable {
+
+        /// Which kind of ending this is.
+        public enum Reason: String, Equatable, Sendable {
+            case checkmate
+            case stalemate
+        }
+
+        /// Why one of the king's steps is not an escape.
+        public enum Availability: Equatable, Sendable {
+            /// The square holds one of the mated side's own pieces.
+            case blockedByOwnPiece(Piece.Kind)
+            /// The square is empty (or holds a capturable enemy piece) but stepping
+            /// there stays in check. `squares` names the enemy pieces responsible,
+            /// including a checking slider that x-rays through the king.
+            case covered(by: [Square])
+        }
+
+        /// One step the king could otherwise take, and what stops it.
+        public struct FlightSquare: Equatable, Sendable {
+            public let square: Square
+            public let availability: Availability
+
+            public init(square: Square, availability: Availability) {
+                self.square = square
+                self.availability = availability
+            }
+        }
+
+        /// Checkmate or stalemate.
+        public let reason: Reason
+        /// The side that is mated or stalemated (the side to move).
+        public let side: Piece.Color
+        /// That side's king square. For stalemate this is where the king stands, not
+        /// a claim that it is attacked.
+        public let kingSquare: Square
+        /// The enemy pieces giving check. Empty for stalemate.
+        public let checkers: [Square]
+        /// Every pseudo-legal king step, with the reason it is unavailable. Empty for
+        /// stalemate, where the ending is not about king-trap geometry.
+        public let flightSquares: [FlightSquare]
+        /// For stalemate: every piece of `side`, none of which has a legal move.
+        /// Empty for checkmate.
+        public let stuckPieces: [Square]
+
+        public init(
+            reason: Reason,
+            side: Piece.Color,
+            kingSquare: Square,
+            checkers: [Square],
+            flightSquares: [FlightSquare],
+            stuckPieces: [Square]
+        ) {
+            self.reason = reason
+            self.side = side
+            self.kingSquare = kingSquare
+            self.checkers = checkers
+            self.flightSquares = flightSquares
+            self.stuckPieces = stuckPieces
+        }
+    }
+
+    /// Explain *why* `fen` is checkmate or stalemate, or `nil` when the position is
+    /// not terminal (or the FEN is unparseable).
+    ///
+    /// Availability of a king step is decided by actually playing the move and asking
+    /// whether the king is still attacked afterwards. That is authoritative and, in
+    /// particular, correct for x-rays: `BoardAttacks.attackers(of:on:)` runs against
+    /// the current position, where the king still blocks a checking slider's ray, so
+    /// the square directly behind the king reads as unattacked even though it is not
+    /// an escape. The attacker query is therefore used only to *name* the pieces
+    /// covering a square that is already known to be unavailable.
+    public static func terminalExplanation(forFEN fen: String) -> TerminalExplanation? {
+        guard let position = Position(fen: fen), let outcome = status(forFEN: fen) else { return nil }
+        let side = position.sideToMove
+        guard let king = position.pieces.first(where: { $0.color == side && $0.kind == .king })
+        else { return nil }
+        let enemy: Piece.Color = side == .white ? .black : .white
+
+        switch outcome {
+        case .normal, .check:
+            return nil
+
+        case .stalemate:
+            // "No piece has a legal move" is the whole story; report it as such and
+            // do not claim the king is checked.
+            let stuck = position.pieces
+                .filter { $0.color == side }
+                .map(\.square)
+                .sorted { $0.rawValue < $1.rawValue }
+            return TerminalExplanation(
+                reason: .stalemate, side: side, kingSquare: king.square,
+                checkers: [], flightSquares: [], stuckPieces: stuck
+            )
+
+        case .checkmate:
+            let checkers = BoardAttacks.attackers(of: enemy, on: king.square, in: position)
+            var flights: [TerminalExplanation.FlightSquare] = []
+            let steps = BoardAttacks.attackSquares(of: king, in: position)
+                .sorted { $0.rawValue < $1.rawValue }
+
+            for step in steps {
+                if let occupant = position.piece(at: step), occupant.color == side {
+                    flights.append(.init(square: step, availability: .blockedByOwnPiece(occupant.kind)))
+                    continue
+                }
+                // Authoritative: play the move and see whether the king is safe there.
+                if kingEscapes(from: king.square, to: step, side: side, fromFEN: fen) { continue }
+                var coverers = BoardAttacks.attackers(of: enemy, on: step, in: position)
+                if coverers.isEmpty {
+                    coverers = xRayCoverers(of: step, kingSquare: king.square,
+                                            checkers: checkers, in: position)
+                }
+                flights.append(.init(square: step, availability: .covered(by: coverers)))
+            }
+
+            return TerminalExplanation(
+                reason: .checkmate, side: side, kingSquare: king.square,
+                checkers: checkers, flightSquares: flights, stuckPieces: []
+            )
+        }
+    }
+
+    /// Whether the king can legally step from `origin` to `target`: the move is made
+    /// on a real board and the resulting position is queried with the king already
+    /// out of the way, so x-rayed squares resolve correctly.
+    private static func kingEscapes(
+        from origin: Square, to target: Square, side: Piece.Color, fromFEN fenString: String
+    ) -> Bool {
+        guard let after = fen(afterMove: origin.notation + target.notation, fromFEN: fenString),
+              let position = Position(fen: after),
+              let king = position.pieces.first(where: { $0.color == side && $0.kind == .king })
+        else { return false }
+        let enemy: Piece.Color = side == .white ? .black : .white
+        return BoardAttacks.attackers(of: enemy, on: king.square, in: position).isEmpty
+    }
+
+    /// Checking sliders whose ray runs through the king and onto `target` — the
+    /// squares `attackers(of:on:)` cannot see, because the king blocks the ray.
+    private static func xRayCoverers(
+        of target: Square, kingSquare: Square, checkers: [Square], in position: Position
+    ) -> [Square] {
+        func step(_ delta: Int) -> Int { delta == 0 ? 0 : (delta > 0 ? 1 : -1) }
+        let kf = BoardAttacks.file(kingSquare), kr = BoardAttacks.rank(kingSquare)
+        return checkers.filter { checker in
+            guard let piece = position.piece(at: checker),
+                  piece.kind == .rook || piece.kind == .bishop || piece.kind == .queen
+            else { return false }
+            let df = step(kf - BoardAttacks.file(checker))
+            let dr = step(kr - BoardAttacks.rank(checker))
+            return BoardAttacks.square(file: kf + df, rank: kr + dr) == target
+        }
+    }
+
     /// Legal-move destinations for every piece of the side to move, keyed by the
     /// piece's square. Empty squares and the idle side's pieces are omitted.
     /// Returns an empty dictionary if the FEN is invalid.

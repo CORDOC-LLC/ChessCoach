@@ -139,6 +139,82 @@ public enum BoardGeometry {
     }
 }
 
+/// Turns a mate/stalemate explanation into one spoken sentence.
+///
+/// Board squares carry no accessibility labels, so this summary is the ONLY
+/// form the teaching visualization takes for a VoiceOver user (plan R10) --
+/// it's the feature for them, not a nicety. Kept as a pure function (rather
+/// than assembled inside a view body) so it's directly testable and costs
+/// nothing to re-derive.
+public enum TerminalExplanationSummary {
+
+    /// A sentence describing why the position is mate/stalemate, or nil when
+    /// there's nothing to say (no explanation, or a FEN that won't parse).
+    /// `fen` is only used to name the pieces doing the covering.
+    public static func text(for explanation: ChessLogic.TerminalExplanation?, fen: String) -> String? {
+        guard let explanation else { return nil }
+        let placement = BoardGeometry.placement(fromFEN: fen)
+        let side = explanation.side == .white ? "White" : "Black"
+
+        switch explanation.reason {
+        case .stalemate:
+            return "Stalemate. \(side) has no legal move. "
+                + "The \(side.lowercased()) king on \(explanation.kingSquare.notation) is not in check."
+
+        case .checkmate:
+            var sentence = "Checkmate. The \(side.lowercased()) king on \(explanation.kingSquare.notation)"
+            let checkers = explanation.checkers
+                .map { "the \(pieceName(at: $0, in: placement)) on \($0.notation)" }
+            if !checkers.isEmpty {
+                sentence += " is checked by \(list(checkers))"
+            }
+            if explanation.flightSquares.isEmpty {
+                sentence += " and has no square to step to."
+                return sentence
+            }
+            let parts = explanation.flightSquares.map { flight -> String in
+                switch flight.availability {
+                case .blockedByOwnPiece(let kind):
+                    return "\(flight.square.notation) blocked by \(side)'s own \(name(kind))"
+                case .covered(let by):
+                    guard !by.isEmpty else { return "\(flight.square.notation) covered" }
+                    let who = by.map { "the \(pieceName(at: $0, in: placement)) on \($0.notation)" }
+                    return "\(flight.square.notation) covered by \(list(who))"
+                }
+            }
+            sentence += " and has no escape: \(parts.joined(separator: ", "))."
+            return sentence
+        }
+    }
+
+    private static func pieceName(at square: Square, in placement: [Int: Character]) -> String {
+        let idx = (square.rank.value - 1) * 8 + (square.file.number - 1)
+        guard let ch = placement[idx] else { return "piece" }
+        switch Character(ch.lowercased()) {
+        case "k": return "king"; case "q": return "queen"; case "r": return "rook"
+        case "b": return "bishop"; case "n": return "knight"; case "p": return "pawn"
+        default: return "piece"
+        }
+    }
+
+    private static func name(_ kind: Piece.Kind) -> String {
+        switch kind {
+        case .pawn: return "pawn"; case .knight: return "knight"; case .bishop: return "bishop"
+        case .rook: return "rook"; case .queen: return "queen"; case .king: return "king"
+        }
+    }
+
+    /// "a", "a and b", "a, b and c" -- VoiceOver reads a comma list as a run-on.
+    private static func list(_ items: [String]) -> String {
+        switch items.count {
+        case 0: return ""
+        case 1: return items[0]
+        case 2: return "\(items[0]) and \(items[1])"
+        default: return items.dropLast().joined(separator: ", ") + " and " + items[items.count - 1]
+        }
+    }
+}
+
 /// A pure-presentation chess board.
 public struct ChessBoardView: View {
     public var fen: String
@@ -154,6 +230,12 @@ public struct ChessBoardView: View {
     /// draws a pulsing red glow so it's visually obvious which king is in
     /// trouble, on top of whatever attacker arrows the caller adds.
     public var checkSquare: Square?
+    /// Why the shown position is checkmate/stalemate, when it is one (plan U2).
+    /// Marks each square the king could otherwise flee to with *why* it can't,
+    /// and for stalemate marks the pieces that have no legal move. Defaulted to
+    /// nil, so Review/Puzzles/Lessons/previews render exactly as before. The
+    /// caller computes this once and stores it -- never derive it in a body.
+    public var terminalExplanation: ChessLogic.TerminalExplanation?
     /// Theme-driven colors -- explicit params (not read from the environment)
     /// so this view can render a live editor draft or a mini theme-card
     /// preview, not just the app's active theme. Defaults to the Gambit
@@ -173,6 +255,7 @@ public struct ChessBoardView: View {
         selectedSquare: Square? = nil,
         legalDots: [Square] = [],
         checkSquare: Square? = nil,
+        terminalExplanation: ChessLogic.TerminalExplanation? = nil,
         boardLight: Color = Theme.gambit.boardLightColor,
         boardDark: Color = Theme.gambit.boardDarkColor,
         highlightColor: Color = Theme.gambit.accent2Color,
@@ -183,12 +266,67 @@ public struct ChessBoardView: View {
         self.arrows = arrows; self.lastMove = lastMove
         self.selectedSquare = selectedSquare; self.legalDots = legalDots
         self.checkSquare = checkSquare
+        self.terminalExplanation = terminalExplanation
         self.boardLight = boardLight; self.boardDark = boardDark
         self.highlightColor = highlightColor; self.accentColor = accentColor
         self.onTapSquare = onTapSquare
     }
 
     @State private var kingPulse = false
+
+    /// How one square is marked in the teaching visualization. Each case pairs a
+    /// tint with a SHAPE cue -- a distinct glyph and border style -- so the
+    /// distinction survives colorblindness and low-contrast viewing (plan R3).
+    private enum TeachingMark {
+        /// A flight square the mated side's own piece is standing on.
+        case blockedByOwn
+        /// A flight square an enemy piece covers.
+        case covered
+        /// A stalemated piece: it exists, it just has nowhere legal to go.
+        case stuck
+
+        var tint: Color {
+            switch self {
+            case .blockedByOwn: return .orange
+            case .covered: return .red
+            case .stuck: return .gray
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .blockedByOwn: return "circle.slash"
+            case .covered: return "xmark"
+            case .stuck: return "nosign"
+            }
+        }
+        /// Solid / dashed / dotted -- readable with no color at all.
+        var dash: [CGFloat] {
+            switch self {
+            case .blockedByOwn: return [4, 3]
+            case .covered: return []
+            case .stuck: return [1, 3]
+            }
+        }
+    }
+
+    /// Square → mark, derived from the stored explanation. Small (≤8 flight
+    /// squares, ≤16 stalemated pieces) and rebuilt per body eval, which is
+    /// cheap -- the expensive part (the explanation itself) is computed once by
+    /// the view model and merely handed to us.
+    private var teachingMarks: [Square: TeachingMark] {
+        guard let explanation = terminalExplanation else { return [:] }
+        var marks: [Square: TeachingMark] = [:]
+        for flight in explanation.flightSquares {
+            switch flight.availability {
+            case .blockedByOwnPiece: marks[flight.square] = .blockedByOwn
+            case .covered: marks[flight.square] = .covered
+            }
+        }
+        for piece in explanation.stuckPieces where marks[piece] == nil {
+            marks[piece] = .stuck
+        }
+        return marks
+    }
 
     private var light: Color { boardLight }
     private var dark: Color { boardDark }
@@ -221,6 +359,7 @@ public struct ChessBoardView: View {
             let sq = side / 8
             let placement = BoardGeometry.placement(fromFEN: fen)
             let whiteBottom = orientation.whiteAtBottom
+            let marks = teachingMarks
 
             ZStack(alignment: .topLeading) {
                 ForEach(0..<64, id: \.self) { display in
@@ -255,6 +394,9 @@ public struct ChessBoardView: View {
                             if !isSlidingTarget {
                                 BoardPiece(ch: ch, size: sq * 0.88, blackRim: highlightColor)
                             }
+                        }
+                        if let mark = cellSquare.flatMap({ marks[$0] }) {
+                            teachingOverlay(mark, sq: sq)
                         }
                         if isDot {
                             Circle()
@@ -294,6 +436,12 @@ public struct ChessBoardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .aspectRatio(1, contentMode: .fit)
+        // The teaching visualization, spoken (plan R10). Individual squares
+        // carry no labels, so this container summary is the whole explanation
+        // for a VoiceOver user. Only present when there IS an explanation, so
+        // an ordinary board's accessibility is unchanged.
+        .modifier(TeachingSummaryLabel(
+            summary: TerminalExplanationSummary.text(for: terminalExplanation, fen: fen)))
         // Start a slide whenever a genuinely new last move arrives. Animation timing
         // is verified manually on device (untestable in unit tests).
         .onChange(of: lastMoveKey) { _, newKey in
@@ -323,6 +471,26 @@ public struct ChessBoardView: View {
         .onChange(of: checkSquare) { _, newValue in
             updateCheckPulse(active: newValue != nil)
         }
+    }
+
+    /// Tint + glyph + border for one marked square. The glyph sits top-trailing,
+    /// the one corner no coordinate label ever uses.
+    @ViewBuilder
+    private func teachingOverlay(_ mark: TeachingMark, sq: CGFloat) -> some View {
+        ZStack {
+            Rectangle().fill(mark.tint.opacity(0.28))
+            Rectangle()
+                .strokeBorder(
+                    mark.tint.opacity(0.95),
+                    style: StrokeStyle(lineWidth: max(sq * 0.045, 1.5), dash: mark.dash))
+            Image(systemName: mark.symbol)
+                .font(.system(size: sq * 0.26, weight: .heavy))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.7), radius: 1)
+                .padding(sq * 0.06)
+                .frame(width: sq, height: sq, alignment: .topTrailing)
+        }
+        .allowsHitTesting(false)
     }
 
     private func updateCheckPulse(active: Bool) {
@@ -366,6 +534,23 @@ public struct ChessBoardView: View {
         let letter = Square.File.allCases[file - 1].rawValue
         guard let sq = BoardGeometry.square("\(letter)\(rank)") else { return false }
         return sq == lm.from || sq == lm.to
+    }
+}
+
+/// Applies the mate/stalemate summary as the board's own accessibility label,
+/// and ONLY then -- with no explanation the board keeps its ordinary
+/// (unlabelled, tap-through) accessibility exactly as before.
+private struct TeachingSummaryLabel: ViewModifier {
+    let summary: String?
+
+    func body(content: Content) -> some View {
+        if let summary, !summary.isEmpty {
+            content
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(summary)
+        } else {
+            content
+        }
     }
 }
 

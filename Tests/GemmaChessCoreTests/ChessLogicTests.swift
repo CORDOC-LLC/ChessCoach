@@ -110,4 +110,141 @@ struct ChessLogicTests {
         #expect(info.king == Square("e8"))
         #expect(info.attackers == [Square("e1")])
     }
+
+    // MARK: terminalExplanation
+
+    @Test("Back-rank mate: own pawns block the forward steps, the rook covers the rank")
+    func terminalExplanationBackRankMate() throws {
+        // Black king g8 behind its own f7/g7/h7 pawns; white rook a8 mates along rank 8.
+        let fen = "R5k1/5ppp/8/8/8/8/8/6K1 b - - 0 1"
+        #expect(ChessLogic.status(forFEN: fen) == .checkmate)
+
+        let e = try #require(ChessLogic.terminalExplanation(forFEN: fen))
+        #expect(e.reason == .checkmate)
+        #expect(e.side == .black)
+        #expect(e.kingSquare == Square("g8"))
+        #expect(e.checkers == [Square("a8")])
+        #expect(e.stuckPieces.isEmpty)
+
+        // Forward steps: blocked by the mated side's own pawns.
+        for name in ["f7", "g7", "h7"] {
+            let flight = try #require(e.flightSquares.first { $0.square == Square(name) })
+            #expect(flight.availability == .blockedByOwnPiece(.pawn))
+        }
+        // Along the rank: covered by the mating rook.
+        let f8 = try #require(e.flightSquares.first { $0.square == Square("f8") })
+        #expect(f8.availability == .covered(by: [Square("a8")]))
+        #expect(e.flightSquares.count == 5)  // f7 g7 h7 f8 h8
+    }
+
+    @Test("X-ray: the square directly behind the king along the checker's line is unavailable")
+    func terminalExplanationXRay() throws {
+        // Black king e4 checked by the queen on e1. e5 is directly behind the king
+        // along the checking file: `attackers(of:on:)` reports it as UNattacked,
+        // because the king itself blocks the queen's ray. It is still not an escape.
+        let fen = "8/8/8/7N/2P1k1P1/1N6/8/K3QB1B b - - 0 1"
+        #expect(ChessLogic.status(forFEN: fen) == .checkmate)
+
+        // Precondition: the naive query really is blind here.
+        let position = try #require(Position(fen: fen))
+        #expect(BoardAttacks.attackers(of: .white, on: Square("e5"), in: position).isEmpty)
+
+        let e = try #require(ChessLogic.terminalExplanation(forFEN: fen))
+        #expect(e.kingSquare == Square("e4"))
+        let e5 = try #require(e.flightSquares.first { $0.square == Square("e5") })
+        // Reported unavailable, and attributed to the x-raying checker.
+        #expect(e5.availability == .covered(by: [Square("e1")]))
+        // Every step of the king is accounted for; none is a real escape.
+        #expect(e.flightSquares.count == 8)
+    }
+
+    @Test("Smothered mate: every step is blocked by the mated side's own pieces")
+    func terminalExplanationSmotheredMate() throws {
+        let fen = "6rk/5Npp/8/8/8/8/8/6K1 b - - 0 1"
+        #expect(ChessLogic.status(forFEN: fen) == .checkmate)
+
+        let e = try #require(ChessLogic.terminalExplanation(forFEN: fen))
+        #expect(e.kingSquare == Square("h8"))
+        #expect(e.checkers == [Square("f7")])
+        #expect(e.flightSquares.count == 3)
+        for flight in e.flightSquares {
+            switch flight.availability {
+            case .blockedByOwnPiece: break
+            case .covered: Issue.record("\(flight.square.notation) should be own-blocked")
+            }
+        }
+        let g8 = try #require(e.flightSquares.first { $0.square == Square("g8") })
+        #expect(g8.availability == .blockedByOwnPiece(.rook))
+    }
+
+    @Test("A flight square covered by two enemy pieces names both")
+    func terminalExplanationNamesEveryCoverer() throws {
+        // Same back-rank mate, plus a bishop on b4 that also covers f8.
+        let fen = "R5k1/5ppp/8/8/1B6/8/8/6K1 b - - 0 1"
+        #expect(ChessLogic.status(forFEN: fen) == .checkmate)
+
+        let e = try #require(ChessLogic.terminalExplanation(forFEN: fen))
+        let f8 = try #require(e.flightSquares.first { $0.square == Square("f8") })
+        guard case let .covered(by: coverers) = f8.availability else {
+            Issue.record("f8 should be enemy-covered")
+            return
+        }
+        #expect(Set(coverers) == Set([Square("a8"), Square("b4")]))
+    }
+
+    @Test("Stalemate returns the no-legal-move shape, with no king-trap geometry")
+    func terminalExplanationStalemate() throws {
+        let fen = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"
+        #expect(ChessLogic.status(forFEN: fen) == .stalemate)
+
+        let e = try #require(ChessLogic.terminalExplanation(forFEN: fen))
+        #expect(e.reason == .stalemate)
+        #expect(e.side == .black)
+        #expect(e.kingSquare == Square("h8"))
+        #expect(e.checkers.isEmpty)          // the king is NOT reported as checked
+        #expect(e.flightSquares.isEmpty)     // no king-trap geometry
+        #expect(e.stuckPieces == [Square("h8")])
+    }
+
+    @Test("Non-terminal positions and bad FENs return nil")
+    func terminalExplanationReturnsNilWhenNotApplicable() {
+        #expect(ChessLogic.terminalExplanation(forFEN: Self.standard) == nil)
+        // Plain check, not mate.
+        #expect(ChessLogic.terminalExplanation(forFEN: "4k3/8/8/8/8/8/8/4R2K b - - 0 1") == nil)
+        #expect(ChessLogic.terminalExplanation(forFEN: "not a fen") == nil)
+        #expect(ChessLogic.terminalExplanation(forFEN: "") == nil)
+    }
+
+    // MARK: TerminalExplanationSummary (plan U2 / R10)
+
+    @Test("Back-rank mate summarizes into a sentence naming blocked and covered squares")
+    func summaryBackRankMate() throws {
+        let fen = "R5k1/5ppp/8/8/8/8/8/6K1 b - - 0 1"
+        let e = try #require(ChessLogic.terminalExplanation(forFEN: fen))
+        let text = try #require(TerminalExplanationSummary.text(for: e, fen: fen))
+
+        #expect(text.hasPrefix("Checkmate."))
+        #expect(text.contains("black king on g8"))
+        #expect(text.contains("checked by the rook on a8"))
+        #expect(text.contains("f7 blocked by Black's own pawn"))
+        #expect(text.contains("f8 covered by the rook on a8"))
+        #expect(text.hasSuffix("."))
+    }
+
+    @Test("Stalemate gets its own phrasing and never claims check")
+    func summaryStalemate() throws {
+        let fen = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"
+        let e = try #require(ChessLogic.terminalExplanation(forFEN: fen))
+        let text = try #require(TerminalExplanationSummary.text(for: e, fen: fen))
+
+        #expect(text.hasPrefix("Stalemate."))
+        #expect(text.contains("Black has no legal move"))
+        #expect(text.contains("not in check"))
+        #expect(!text.contains("no escape"))
+    }
+
+    @Test("No explanation summarizes to nil")
+    func summaryNilExplanation() {
+        #expect(TerminalExplanationSummary.text(for: nil, fen: "8/8/8/8/8/8/8/8 w - - 0 1") == nil)
+    }
 }
