@@ -14,9 +14,9 @@ public struct PuzzleRushShareCard: View {
     public let wrongAttempts: Int
     public let durationSeconds: Int
 
-    /// The size this card is designed to be rendered at. `ShareCardRenderer`
-    /// callers should render at this size for the intended layout.
-    public static let cardSize = CGSize(width: 360, height: 480)
+    /// The size this card renders at. Now owned by `ShareCardChrome` so all
+    /// three share cards stay one shape; kept as an alias for call sites.
+    public static let cardSize = ShareCard.size
 
     @Environment(ThemeStore.self) private var themeStore
     private var theme: Theme { themeStore.effective }
@@ -28,29 +28,11 @@ public struct PuzzleRushShareCard: View {
     }
 
     public var body: some View {
-        ZStack {
-            theme.bgColor
-            theme.backgroundGradient
+        ShareCardChrome {
             VStack(spacing: 18) {
                 Spacer(minLength: 0)
                 emblem
-                VStack(spacing: 4) {
-                    Text("ChessCoach")
-                        .font(theme.type.displayFont(size: 30))
-                        .foregroundStyle(theme.textColor)
-                        .tracking(theme.type.letterSpacing)
-                        .textCase(theme.type.uppercased ? .uppercase : nil)
-                    Text(theme.name)
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(2.5)
-                        .textCase(.uppercase)
-                        .foregroundStyle(theme.accent2Color)
-                }
-
                 VStack(spacing: 10) {
-                    Image(systemName: "timer")
-                        .font(.system(size: 34, weight: .semibold))
-                        .foregroundStyle(theme.accent2Color)
                     Text("Puzzle Rush")
                         .font(.title2.weight(.bold))
                         .foregroundStyle(theme.textColor)
@@ -70,12 +52,9 @@ public struct PuzzleRushShareCard: View {
                 .background(theme.cardBackgroundColor)
                 .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-
                 Spacer(minLength: 0)
             }
-            .padding(28)
         }
-        .frame(width: Self.cardSize.width, height: Self.cardSize.height)
     }
 
     private var emblem: some View {

@@ -116,6 +116,18 @@ public final class PlayViewModel {
     /// debrief doesn't start and the review prompt can't fire until this is
     /// true. Set by `dismissGameOverResult()`; reset wherever `gameOver` is.
     public private(set) var gameOverDismissed = false
+    /// Set only by `resign()`. The share summary derives its headline from the
+    /// TYPED outcome plus this flag, never by matching `resultText`'s English
+    /// sentences -- that breaks on a copy edit, on localization, and on saves
+    /// persisted before a wording change.
+    public private(set) var didResign = false
+    /// Accuracies of the player's PRIOR Play games, for the share card's
+    /// personal-best line. Populated off the main actor when the game ends
+    /// (see `loadPriorAccuracies`), because `HistoryStore.loadRecords` is
+    /// synchronous JSONL disk I/O and reading it inline blocks the main actor
+    /// exactly where the game-over banner animates in -- the same failure
+    /// `HomeView` hit with its weakness teaser.
+    public internal(set) var priorAccuracies: [Double] = []
     /// The lifetime tally with `pendingOutcome` folded in, unpersisted.
     ///
     /// The game-over banner shows this rather than `stats`: with recording
@@ -323,6 +335,68 @@ public final class PlayViewModel {
     /// Captured material for the shown position (live or viewing).
     public var capturedMaterial: CapturedMaterial { CapturedMaterial.from(fen: displayFEN) }
 
+    /// Everything the game-over banner and the exported share card render.
+    ///
+    /// Computed fresh every read, never cached: `moveRecords` is appended
+    /// inside the async analysis task, so a resignation or mate landing while
+    /// the previous move is still being graded would otherwise freeze a stale
+    /// count into the card while history later records the full set.
+    ///
+    /// Sources the board from `fen`, NOT `displayFEN` -- `displayFEN` follows
+    /// history browsing, so a player who scrubbed back before the banner
+    /// appeared would get a card of whatever position they happened to be
+    /// looking at.
+    public var shareSummary: GameShareSummary {
+        GameShareSummary.make(
+            moveRecords: moveRecords,
+            finalFEN: fen,
+            playerIsWhite: playerIsWhite,
+            lastMove: lastMove.map { GameShareSummary.Move(from: $0.from, to: $0.to) },
+            terminalExplanation: mateExplanation,
+            openingName: opening?.name,
+            outcome: outcome ?? .draw,
+            isResignation: didResign,
+            stats: projectedStats,
+            priorAccuracies: priorAccuracies
+        )
+    }
+
+    /// Prior Play-mode accuracies for the personal-best comparison.
+    ///
+    /// Filtered to `platform == "play"`: `loadRecords()` also returns imported
+    /// Chess.com/Lichess games, which were analyzed at different depths against
+    /// different opponents, so including them would make "your most accurate
+    /// game yet" either unreachable or false.
+    ///
+    /// Excludes the current game BY IDENTITY rather than trusting that
+    /// `finalizeOutcome()` hasn't run yet. That deferral is not invariant --
+    /// it also fires from `.onDisappear` and from `newGame()` -- so a player
+    /// who backgrounds the app and returns while the banner is still up would
+    /// otherwise have this game compared against itself and never see the line.
+    /// This game's identity in `HistoryStore` terms, so the personal-best
+    /// comparison can exclude it whether or not it has been recorded yet.
+    var currentHistoryGameID: String { HistoryStore.gameID(currentSavedGameSnapshot()) }
+
+    /// Kicks the prior-accuracy read onto a background task. Idempotent per
+    /// game -- safe to call from every game-over path.
+    func loadPriorAccuraciesInBackground() {
+        let currentID = currentHistoryGameID
+        let baseDir = historyBaseDir
+        Task.detached(priority: .utility) {
+            let accs = PlayViewModel.priorPlayAccuracies(excludingGameID: currentID, baseDir: baseDir)
+            await MainActor.run { self.priorAccuracies = accs }
+        }
+    }
+
+    nonisolated static func priorPlayAccuracies(
+        excludingGameID currentID: String?, baseDir: URL? = nil
+    ) -> [Double] {
+        let store = baseDir.map { HistoryStore(baseDir: $0) } ?? HistoryStore()
+        return store.loadRecords()
+            .filter { $0.platform == "play" && $0.gameID != currentID }
+            .map(\.accuracy)
+    }
+
     /// The move highlighted on the shown board: the viewed node's outgoing move when
     /// browsing, else the live last move.
     public var displayLastMove: (from: Square, to: Square)? {
@@ -478,6 +552,8 @@ public final class PlayViewModel {
         pendingOutcome = nil   // already consumed by finalizeOutcome() above
         clearGameOverExplanation()
         gameOverDismissed = false
+        didResign = false
+        priorAccuracies = []
         resultText = nil
         coachNotes = []
         winWhite = 50
@@ -525,6 +601,8 @@ public final class PlayViewModel {
         guard !gameOver else { return }
         gameOver = true
         hint = nil   // no next move to suggest; hint mode stops auto-requesting
+        didResign = true
+        loadPriorAccuraciesInBackground()
         resultText = "You resigned."
         status = resultText!
         // The debrief waits for the player to dismiss the result (plan R5).
@@ -665,6 +743,8 @@ public final class PlayViewModel {
         pendingOutcome = nil
         clearGameOverExplanation()
         gameOverDismissed = false
+        didResign = false
+        priorAccuracies = []
         resultText = nil
         gameSummary = nil
         isSummarizing = false
@@ -1045,6 +1125,7 @@ public final class PlayViewModel {
         switch ChessLogic.status(forFEN: fen) {
         case .checkmate:
             gameOver = true
+            loadPriorAccuraciesInBackground()
             hint = nil   // no next move to suggest; hint mode stops auto-requesting
             let stmWhite = ChessLogic.sideToMove(forFEN: fen) == .white
             let matedIsUser = (stmWhite == playerIsWhite)   // side to move is the mated one
@@ -1057,6 +1138,7 @@ public final class PlayViewModel {
             return true
         case .stalemate:
             gameOver = true
+            loadPriorAccuraciesInBackground()
             hint = nil   // no next move to suggest; hint mode stops auto-requesting
             resultText = "Stalemate — it's a draw."
             status = resultText!

@@ -129,12 +129,10 @@ public struct PlayView: View {
             // teaching moment the coach card has nothing to show anyway --
             // the debrief deliberately hasn't started. Dismissing hands the
             // slot back and the debrief streams into the coach card as usual.
-            if showGameOverBanner, let outcome = vm.outcome {
-                GameOverBanner(
-                    resultText: vm.resultText ?? "Game over", outcome: outcome,
-                    stats: vm.projectedStats, openingName: vm.opening?.name,
-                    compact: true
-                ) {
+            // The outcome guard stays even though the summary no longer needs
+            // it unwrapped: no outcome means no finished game to report.
+            if showGameOverBanner, vm.outcome != nil {
+                GameOverBanner(summary: vm.shareSummary, compact: true) {
                     dismissGameOverBanner()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -692,10 +690,7 @@ public struct PlayView: View {
 /// studying the final position (and its mate explanation) while it's up, and
 /// dismisses only via its explicit button.
 struct GameOverBanner: View {
-    let resultText: String
-    let outcome: PlayOutcome
-    let stats: PlayStats
-    var openingName: String?
+    let summary: GameShareSummary
     /// Tighter type and spacing for the inline placement, where the card shares
     /// a non-scrolling column with the board on the smallest supported screen.
     var compact: Bool = false
@@ -710,38 +705,63 @@ struct GameOverBanner: View {
 
     var body: some View {
         VStack(spacing: compact ? 6 : 10) {
-            Image(systemName: icon)
-                .font(.system(size: compact ? 26 : 40, weight: .semibold))
-                .foregroundStyle(tint)
-                .scaleEffect(appeared ? 1 : 0.4)
-                .opacity(appeared ? 1 : 0)
-            Text(title)
+            // ONE headline. The old card said "Game over" and then
+            // "Checkmate -- you lose." directly beneath it: the same fact twice,
+            // in two type sizes. Collapsing them is what pays for the accuracy
+            // and quality rows below without the card growing.
+            Text(summary.resultHeadline)
                 .font(compact ? .headline : .title3.weight(.bold))
                 .foregroundStyle(theme.textColor)
-            Text(resultText)
-                .font(compact ? .caption : .subheadline)
-                .foregroundStyle(theme.textColor.opacity(0.75))
-                .multilineTextAlignment(.center)
-            Text("\(stats.wins)W · \(stats.losses)L · \(stats.draws)D")
-                .font(.caption.weight(.semibold).monospacedDigit())
-                .foregroundStyle(theme.textColor.opacity(0.55))
-                .padding(.top, compact ? 0 : 4)
+                .scaleEffect(appeared ? 1 : 0.8)
+                .opacity(appeared ? 1 : 0)
+
+            if let earned = summary.earnedHeadline {
+                Text(earned)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.accent2Color)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+
+            // Accuracy never appears as a bare number, and never at all when
+            // nothing was graded -- a game that ended before analysis returned
+            // would otherwise show a meaningless 100%.
+            if summary.hasGradedMoves {
+                HStack(spacing: 5) {
+                    Text("\(Int(summary.accuracy.rounded()))%")
+                        .font(.subheadline.weight(.bold)).monospacedDigit()
+                        .foregroundStyle(theme.textColor)
+                    Text(summary.band.label)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(theme.accent2Color)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Accuracy \(Int(summary.accuracy.rounded())) percent, \(summary.band.label)")
+
+                qualityStrip
+            }
+
+            recordPill
+
             HStack(spacing: 10) {
                 #if os(iOS)
-                Button {
-                    shareGame()
-                } label: {
+                // Equal weight with Continue now that the artifact is worth
+                // sharing. The old bordered-green-on-dark Share was barely
+                // legible next to a filled button.
+                Button { shareGame() } label: {
                     Label("Share", systemImage: "square.and.arrow.up")
                         .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
-                .tint(theme.accentColor)
+                .buttonStyle(.borderedProminent)
+                .tint(theme.textColor.opacity(0.16))
+                .foregroundStyle(theme.textColor)
                 #endif
-                // Explicit dismissal: the board stays live underneath, so
-                // tap-anywhere would end the teaching moment by accident.
                 Button(action: onDismiss) {
                     Text("Continue")
                         .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(theme.accentColor)
@@ -749,10 +769,12 @@ struct GameOverBanner: View {
             }
             .padding(.top, compact ? 2 : 6)
         }
-        .padding(compact ? 14 : 28)
+        .padding(compact ? 14 : 24)
         .frame(maxWidth: compact ? .infinity : 300)
         .gemmaGlass(cornerRadius: compact ? 18 : 24)
-        .shadow(color: tint.opacity(0.35), radius: compact ? 12 : 24)
+        // No tinted glow. A red halo on a loss reads as an alarm, and the
+        // result is already stated in words.
+        .shadow(color: .black.opacity(0.35), radius: compact ? 10 : 18)
         .onAppear {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.05)) {
                 appeared = true
@@ -760,9 +782,48 @@ struct GameOverBanner: View {
         }
         #if os(iOS)
         .sheet(item: $shareImage) { box in
-            ActivityShareSheet(items: [box.image])
+            // The URL rides along so link-capable targets render a tappable
+            // link beside the image -- an image alone gives a viewer no way to
+            // find the app.
+            ActivityShareSheet(items: [box.image, ShareCard.destinationURL as Any].compactMap { $0 })
         }
         #endif
+    }
+
+    /// Counts carry text labels, not colour alone.
+    private var qualityStrip: some View {
+        HStack(spacing: 8) {
+            ForEach(summary.qualityCounts, id: \.classification) { item in
+                HStack(spacing: 3) {
+                    Circle()
+                        .fill(MoveVerdict.color(for: item.classification, theme: theme))
+                        .frame(width: 5, height: 5)
+                    Text("\(item.count)")
+                        .font(.caption2.weight(.bold)).monospacedDigit()
+                        .foregroundStyle(theme.textColor.opacity(0.9))
+                    Text(item.label)
+                        .font(.caption2)
+                        .foregroundStyle(theme.textColor.opacity(0.6))
+                }
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(summary.qualityAccessibilityLabel)
+    }
+
+    /// Retained at the user's explicit request, but housed in a contained pill
+    /// and led by wins so it reads as a record rather than a list of failures.
+    private var recordPill: some View {
+        let s = summary.stats
+        return Text("\(s.wins)W · \(s.losses)L · \(s.draws)D")
+            .font(.caption2.weight(.semibold).monospacedDigit())
+            .foregroundStyle(theme.textColor.opacity(0.6))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(theme.textColor.opacity(0.08)))
+            .accessibilityLabel("\(s.wins) wins, \(s.losses) losses, \(s.draws) draws")
     }
 
     #if os(iOS)
@@ -770,36 +831,13 @@ struct GameOverBanner: View {
     /// share sheet. If rendering fails for any reason, this is a safe
     /// no-op -- never presents a broken/empty share sheet.
     private func shareGame() {
-        let card = GameResultShareCard(resultText: resultText, outcome: outcome, openingName: openingName)
-            .environment(themeStore)
+        let card = GameResultShareCard(summary: summary).environment(themeStore)
         guard let image = ShareCardRenderer.render(card, size: GameResultShareCard.cardSize) else {
             return
         }
         shareImage = ShareImageBox(image: image)
     }
     #endif
-
-    private var icon: String {
-        switch outcome {
-        case .win: return "crown.fill"
-        case .loss: return "flag.fill"
-        case .draw: return "equal.circle.fill"
-        }
-    }
-    private var title: String {
-        switch outcome {
-        case .win: return "You won!"
-        case .loss: return "Game over"
-        case .draw: return "Draw"
-        }
-    }
-    private var tint: Color {
-        switch outcome {
-        case .win: return themeStore.effective.accent2Color
-        case .loss: return .red
-        case .draw: return theme.textColor.opacity(0.8)
-        }
-    }
 }
 
 #if os(iOS)
