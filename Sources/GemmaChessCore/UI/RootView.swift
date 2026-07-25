@@ -366,11 +366,16 @@ struct HomeView: View {
     @State private var showSettings = false
     @State private var emblemBreath = false
     @State private var weaknessReportTeaser: String?
-    /// The current announcement, once fetched -- nil before the fetch
-    /// resolves (no skeleton/placeholder shown meanwhile) and after dismiss.
-    /// Shown at most once per process lifetime: re-entering Home mid-session
-    /// doesn't re-fetch or re-show it (plan 2026-07-24-001, U3).
-    @State private var announcement: Announcement?
+    @State private var showAnnouncements = false
+    /// Whether the mailbox has anything unread -- drives the toolbar badge.
+    ///
+    /// DELIBERATELY cached in `@State` and recomputed only at the points named
+    /// in `refreshUnread()`'s callers, never read from the store inside `body`:
+    /// `AnnouncementStore.hasUnread()` reads `UserDefaults` and JSON-decodes
+    /// the whole cache, and this app has already shipped a launch hang caused
+    /// by persisted-state reads inside a root view's body (see
+    /// `GemmaRootView`'s `showTabBarWithBoard` comment).
+    @State private var hasUnreadAnnouncements = false
     @State private var announcementFetchTask: Task<Void, Never>?
     /// "Scan a board" needs the managed coach (ChessCoach Pro) — a photo has
     /// to go over the network to be read, unlike everything else in the app.
@@ -392,17 +397,32 @@ struct HomeView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
+        // Fixed overlay, outside the ScrollView's layout flow -- a badge
+        // appearing here when a fetch resolves moves nothing on the page.
+        // (The previous announcement banner lived in `actions` and shoved the
+        // primary buttons down every time it arrived; plan 2026-07-25-001.)
         .overlay(alignment: .topTrailing) {
-            settingsButton
-                .padding(.top, 12)
-                .padding(.trailing, 16)
+            HStack(spacing: 10) {
+                announcementsButton
+                settingsButton
+            }
+            .padding(.top, 12)
+            .padding(.trailing, 16)
         }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .navigationDestination(isPresented: $showBeginners) { BeginnersView() }
+        .navigationDestination(isPresented: $showAnnouncements) { AnnouncementsView() }
         .navigationDestination(isPresented: $showSettings) {
             SettingsView(onSelectSavedGame: onSelectSavedGame)
+        }
+        // `.navigationDestination(isPresented:)` gives the source view no
+        // return callback, and the store is a plain enum over UserDefaults
+        // with no observation -- so the false transition here is the explicit
+        // "came back from the mailbox" trigger that re-reads the badge.
+        .onChange(of: showAnnouncements) { _, shown in
+            if !shown { refreshUnread() }
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 5).repeatForever(autoreverses: true)) {
@@ -417,29 +437,35 @@ struct HomeView: View {
                     CoachingProfileBuilder.buildProfile(playerID: "me", store: HistoryStore()))
                 await MainActor.run { weaknessReportTeaser = teaser }
             }
-            // Occasional announcement (plan 2026-07-24-001, U3) -- only fetched
-            // once per HomeView lifetime (guarded below), and cancelled if the
-            // view disappears before the network call resolves. Fails soft:
-            // AnnouncementClient never throws, so no error handling needed here.
-            guard announcementFetchTask == nil, announcement == nil else { return }
+            // Badge state first, from what's already on disk, so returning to
+            // Home reflects reality immediately rather than waiting on network.
+            refreshUnread()
+            // Then refresh from the server. No once-per-lifetime guard: the
+            // badge lives in the fixed overlay, so a late-arriving result
+            // moves nothing, and re-fetching means a newly-posted announcement
+            // badges without needing an app relaunch. Fails soft --
+            // AnnouncementClient never throws, and the icon has no loading or
+            // error affordance: a failed or in-flight fetch just leaves the
+            // badge at its last-known value.
+            announcementFetchTask?.cancel()
             announcementFetchTask = Task {
                 guard let fetched = await AnnouncementClient.fetchCurrent() else { return }
                 guard !Task.isCancelled else { return }
                 AnnouncementStore.recordSeen(fetched)
-                let dismissedIDs = AnnouncementStore.dismissedIDs()
-                if AnnouncementStore.shouldShow(fetched, dismissedIDs: dismissedIDs) {
-                    announcement = fetched
-                }
+                refreshUnread()
             }
         }
         .onDisappear {
-            // Cancel and clear so a genuinely-interrupted fetch (view torn
-            // down before the network call resolved) can retry next time
-            // Home appears -- only a *completed* fetch counts toward "once
-            // per process lifetime" (the `announcement == nil` guard above).
             announcementFetchTask?.cancel()
             announcementFetchTask = nil
         }
+    }
+
+    /// Re-reads the mailbox's unread state into `@State`. Called on appear,
+    /// after a fetch records a new announcement, and when the mailbox is
+    /// dismissed -- never from `body` (see `hasUnreadAnnouncements`).
+    private func refreshUnread() {
+        hasUnreadAnnouncements = AnnouncementStore.hasUnread()
     }
 
     private var settingsButton: some View {
@@ -451,6 +477,35 @@ struct HomeView: View {
         }
         .background(Circle().fill(theme.surfaceColor.opacity(0.8)))
         .buttonStyle(PressableStyle())
+        .accessibilityLabel("Settings")
+    }
+
+    /// The mailbox. Always present so its position never shifts, badged only
+    /// when something is unread. The badge is a dot, not a count: the gateway
+    /// serves one active announcement at a time, so a number would only ever
+    /// read 0 or 1.
+    private var announcementsButton: some View {
+        Button { showAnnouncements = true } label: {
+            Image(systemName: "envelope.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.textColor.opacity(0.8))
+                .frame(width: 34, height: 34)
+                // The dot sits inside the button's label, so it never becomes
+                // its own tap target -- the whole 34pt circle stays the target.
+                .overlay(alignment: .topTrailing) {
+                    if hasUnreadAnnouncements {
+                        Circle()
+                            .fill(theme.accent2Color)
+                            .frame(width: 9, height: 9)
+                            .overlay(Circle().stroke(theme.surfaceColor, lineWidth: 1.5))
+                            .offset(x: -3, y: 3)
+                    }
+                }
+        }
+        .background(Circle().fill(theme.surfaceColor.opacity(0.8)))
+        .buttonStyle(PressableStyle())
+        // The dot conveys nothing to VoiceOver on its own (R9).
+        .accessibilityLabel(hasUnreadAnnouncements ? "Announcements, unread" : "Announcements")
     }
 
     private var header: some View {
@@ -522,14 +577,6 @@ struct HomeView: View {
 
     private var actions: some View {
         VStack(spacing: 12) {
-            // Announcement first: it's occasional and time-sensitive (a promo,
-            // a launch), so it goes above the fold rather than below the
-            // permanent cards, where it was easy to miss entirely.
-            if let announcement {
-                announcementCard(announcement)
-                    .padding(.bottom, 4)
-            }
-
             if inProgressGameID != nil {
                 Button(action: onResume) {
                     Label("Resume game", systemImage: "arrow.clockwise")
@@ -649,61 +696,6 @@ struct HomeView: View {
             .padding(14)
         }
         .buttonStyle(PressableStyle())
-        .background(theme.cardBackgroundColor)
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    /// A themed nudge card for the occasional announcement (plan
-    /// 2026-07-24-001, U3) -- a promo code, launch announcement, etc. The
-    /// title/body region and the dismiss control (✕) are SIBLING tap
-    /// targets, not nested Buttons: nesting a Button inside another
-    /// Button's content produces undefined/conflicting tap behavior in
-    /// SwiftUI, which is exactly the bug this structure avoids.
-    private func announcementCard(_ announcement: Announcement) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button {
-                #if os(iOS)
-                if let link = announcement.link, let url = URL(string: link) {
-                    UIApplication.shared.open(url)
-                }
-                #endif
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "megaphone.fill")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(theme.accent2Color)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(announcement.title)
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(theme.textColor)
-                        Text(announcement.body)
-                            .font(.caption).foregroundStyle(theme.textColor.opacity(0.6))
-                    }
-                    if announcement.link != nil {
-                        Spacer(minLength: 8)
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(theme.textColor.opacity(0.3))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .disabled(announcement.link == nil)
-
-            Button {
-                AnnouncementStore.dismiss(id: announcement.id)
-                self.announcement = nil
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(theme.textColor.opacity(0.5))
-                    .frame(width: 22, height: 22)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss announcement")
-        }
-        .padding(14)
         .background(theme.cardBackgroundColor)
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))

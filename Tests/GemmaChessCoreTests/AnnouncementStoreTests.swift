@@ -18,46 +18,84 @@ struct AnnouncementStoreTests {
         Announcement(id: id, title: "Title", body: "Body", link: "https://example.com", expiresAt: expiresAt)
     }
 
-    @Test("shouldShow is true for an unexpired, undismissed announcement")
-    func shouldShowTrueByDefault() {
+    @Test("a freshly-seen announcement is unread")
+    func unreadByDefault() {
         let a = makeAnnouncement()
-        #expect(AnnouncementStore.shouldShow(a, dismissedIDs: []))
+        #expect(AnnouncementStore.isUnread(a, readIDs: []))
     }
 
-    @Test("shouldShow is false once dismissed")
-    func shouldShowFalseWhenDismissed() {
-        let a = makeAnnouncement()
-        #expect(!AnnouncementStore.shouldShow(a, dismissedIDs: [a.id]))
+    @Test("marking read makes it not unread, leaving others alone")
+    func markReadAffectsOnlyThatID() {
+        let defaults = freshDefaults()
+        let a = makeAnnouncement(id: "promo-1")
+        let b = makeAnnouncement(id: "promo-2")
+        AnnouncementStore.markRead(id: a.id, defaults: defaults)
+
+        let read = AnnouncementStore.readIDs(defaults: defaults)
+        #expect(read == ["promo-1"])
+        #expect(!AnnouncementStore.isUnread(a, readIDs: read))
+        #expect(AnnouncementStore.isUnread(b, readIDs: read))
     }
 
-    @Test("shouldShow is true when expiresAt is nil (never expires)")
-    func shouldShowTrueWhenNoExpiry() {
+    @Test("an announcement with no expiry stays unread indefinitely")
+    func unreadWhenNoExpiry() {
         let a = makeAnnouncement(expiresAt: nil)
-        #expect(AnnouncementStore.shouldShow(a, dismissedIDs: [], now: Date(timeIntervalSince1970: 10_000_000)))
+        #expect(AnnouncementStore.isUnread(a, readIDs: [], now: Date(timeIntervalSince1970: 10_000_000)))
     }
 
-    @Test("shouldShow is false once expired")
-    func shouldShowFalseWhenExpired() {
+    @Test("an expired announcement does not count as unread, but is still listed")
+    func expiredIsNotUnreadButStillCached() {
+        let defaults = freshDefaults()
         let now = Date()
         let a = makeAnnouncement(expiresAt: now.addingTimeInterval(-60))
-        #expect(!AnnouncementStore.shouldShow(a, dismissedIDs: [], now: now))
+        #expect(!AnnouncementStore.isUnread(a, readIDs: [], now: now))
+
+        AnnouncementStore.recordSeen(a, defaults: defaults)
+        #expect(AnnouncementStore.recentlySeen(defaults: defaults).contains(a))
     }
 
-    @Test("dismiss adds the id to dismissedIDs, and only that id")
-    func dismissAddsID() {
+    @Test("IDs written under the old dismissed-ID key read as already-read (carry-over)")
+    func oldDismissedIDsCarryOverAsRead() throws {
         let defaults = freshDefaults()
-        AnnouncementStore.dismiss(id: "promo-1", defaults: defaults)
-        #expect(AnnouncementStore.dismissedIDs(defaults: defaults) == ["promo-1"])
-        AnnouncementStore.dismiss(id: "promo-2", defaults: defaults)
-        #expect(AnnouncementStore.dismissedIDs(defaults: defaults) == ["promo-1", "promo-2"])
+        // Simulate a device that dismissed this announcement under the prior
+        // shipped banner behavior -- same key, written directly.
+        let legacy: Set<String> = ["already-handled"]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: "announcements.dismissedIDs")
+
+        let a = makeAnnouncement(id: "already-handled")
+        let read = AnnouncementStore.readIDs(defaults: defaults)
+        #expect(read.contains("already-handled"))
+        #expect(!AnnouncementStore.isUnread(a, readIDs: read))
     }
 
-    @Test("recordSeen adds to the cache even for an announcement that would fail shouldShow")
-    func recordSeenIndependentOfDismissState() {
+    @Test("hasUnread reflects the cache, and clears once everything is read")
+    func hasUnreadTracksTheCache() {
         let defaults = freshDefaults()
-        let a = makeAnnouncement(id: "dismissed-one")
-        AnnouncementStore.dismiss(id: a.id, defaults: defaults)
-        #expect(!AnnouncementStore.shouldShow(a, dismissedIDs: AnnouncementStore.dismissedIDs(defaults: defaults)))
+        #expect(!AnnouncementStore.hasUnread(defaults: defaults))
+
+        let a = makeAnnouncement(id: "promo-1")
+        AnnouncementStore.recordSeen(a, defaults: defaults)
+        #expect(AnnouncementStore.hasUnread(defaults: defaults))
+
+        AnnouncementStore.markRead(id: a.id, defaults: defaults)
+        #expect(!AnnouncementStore.hasUnread(defaults: defaults))
+    }
+
+    @Test("an expired-but-unread announcement does not badge")
+    func expiredDoesNotBadge() {
+        let defaults = freshDefaults()
+        let now = Date()
+        AnnouncementStore.recordSeen(makeAnnouncement(id: "old", expiresAt: now.addingTimeInterval(-60)),
+                                     defaults: defaults)
+        #expect(!AnnouncementStore.hasUnread(now: now, defaults: defaults))
+    }
+
+    @Test("recordSeen adds to the cache even for an already-read announcement")
+    func recordSeenIndependentOfReadState() {
+        let defaults = freshDefaults()
+        let a = makeAnnouncement(id: "read-one")
+        AnnouncementStore.markRead(id: a.id, defaults: defaults)
+        #expect(!AnnouncementStore.isUnread(a, readIDs: AnnouncementStore.readIDs(defaults: defaults)))
 
         AnnouncementStore.recordSeen(a, defaults: defaults)
         #expect(AnnouncementStore.recentlySeen(defaults: defaults).contains(a))
@@ -76,23 +114,73 @@ struct AnnouncementStoreTests {
         #expect(seen.first?.id == "promo-\(AnnouncementStore.recentlySeenCap)")
     }
 
-    @Test("reset clears both dismissed IDs and the recently-seen cache")
+    @Test("reset clears both read IDs and the recently-seen cache")
     func resetClearsEverything() {
         let defaults = freshDefaults()
-        AnnouncementStore.dismiss(id: "promo-1", defaults: defaults)
+        AnnouncementStore.markRead(id: "promo-1", defaults: defaults)
         AnnouncementStore.recordSeen(makeAnnouncement(), defaults: defaults)
         AnnouncementStore.reset(defaults: defaults)
-        #expect(AnnouncementStore.dismissedIDs(defaults: defaults).isEmpty)
+        #expect(AnnouncementStore.readIDs(defaults: defaults).isEmpty)
         #expect(AnnouncementStore.recentlySeen(defaults: defaults).isEmpty)
     }
 
-    @Test("dismissedIDs/recentlySeen decode as empty from corrupt or missing data, never crash")
+    @Test("readIDs/recentlySeen decode as empty from corrupt or missing data, never crash")
     func corruptDataDecodesEmpty() {
         let defaults = freshDefaults()
         defaults.set(Data("not json".utf8), forKey: "announcements.dismissedIDs")
         defaults.set(Data("not json".utf8), forKey: "announcements.recentlySeen")
-        #expect(AnnouncementStore.dismissedIDs(defaults: defaults).isEmpty)
+        #expect(AnnouncementStore.readIDs(defaults: defaults).isEmpty)
         #expect(AnnouncementStore.recentlySeen(defaults: defaults).isEmpty)
+        #expect(!AnnouncementStore.hasUnread(defaults: defaults))
+    }
+
+    // MARK: Mailbox row behavior (plan U3)
+    //
+    // The list's tap handler marks exactly one ID read and opens a link only
+    // for live announcements. Asserted through the store rather than the view,
+    // which is why `AnnouncementsView` takes an injectable `defaults:`.
+
+    @Test("tapping a row marks only that announcement read")
+    func tapMarksOnlyThatAnnouncement() {
+        let defaults = freshDefaults()
+        let a = makeAnnouncement(id: "promo-1")
+        let b = makeAnnouncement(id: "promo-2")
+        AnnouncementStore.recordSeen(a, defaults: defaults)
+        AnnouncementStore.recordSeen(b, defaults: defaults)
+
+        AnnouncementStore.markRead(id: a.id, defaults: defaults)
+
+        let read = AnnouncementStore.readIDs(defaults: defaults)
+        #expect(read == ["promo-1"])
+        #expect(AnnouncementStore.hasUnread(defaults: defaults))  // b is still unread
+
+        AnnouncementStore.markRead(id: b.id, defaults: defaults)
+        #expect(!AnnouncementStore.hasUnread(defaults: defaults))
+    }
+
+    @Test("an expired announcement can still be marked read, though it never badged")
+    func expiredStillMarkable() {
+        let defaults = freshDefaults()
+        let now = Date()
+        let a = makeAnnouncement(id: "old", expiresAt: now.addingTimeInterval(-60))
+        AnnouncementStore.recordSeen(a, defaults: defaults)
+        #expect(!AnnouncementStore.hasUnread(now: now, defaults: defaults))
+
+        AnnouncementStore.markRead(id: a.id, defaults: defaults)
+        #expect(AnnouncementStore.readIDs(defaults: defaults).contains("old"))
+        // Still listed -- read state never removes it from the mailbox (R7).
+        #expect(AnnouncementStore.recentlySeen(defaults: defaults).contains(a))
+    }
+
+    @Test("a link-less announcement can be marked read (it would be inert otherwise)")
+    func linklessStillMarkable() {
+        let defaults = freshDefaults()
+        let a = Announcement(id: "no-link", title: "T", body: "B", link: nil, expiresAt: nil)
+        AnnouncementStore.recordSeen(a, defaults: defaults)
+        #expect(AnnouncementStore.hasUnread(defaults: defaults))
+
+        AnnouncementStore.markRead(id: a.id, defaults: defaults)
+        #expect(!AnnouncementStore.hasUnread(defaults: defaults))
     }
 }
 
