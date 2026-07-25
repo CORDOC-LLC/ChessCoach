@@ -97,7 +97,12 @@ public struct WeaknessReportView: View {
         } else if let narrative = vm.narrative {
             card {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(narrative).font(.body).foregroundStyle(theme.textColor)
+                    // `.asCoachMarkdown`, same as every other coach-authored
+                    // surface (Play's coach card, the end-of-game debrief):
+                    // the gateway's personas emit light Markdown (**bold**,
+                    // `- ` bullets), which plain `Text` renders as literal
+                    // asterisks and dashes.
+                    Text(narrative.asCoachMarkdown).font(.body).foregroundStyle(theme.textColor)
                     if let themeID = vm.suggestedThemeID {
                         deepLinkRow(themeID: themeID)
                     }

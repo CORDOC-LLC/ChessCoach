@@ -522,6 +522,14 @@ struct HomeView: View {
 
     private var actions: some View {
         VStack(spacing: 12) {
+            // Announcement first: it's occasional and time-sensitive (a promo,
+            // a launch), so it goes above the fold rather than below the
+            // permanent cards, where it was easy to miss entirely.
+            if let announcement {
+                announcementCard(announcement)
+                    .padding(.bottom, 4)
+            }
+
             if inProgressGameID != nil {
                 Button(action: onResume) {
                     Label("Resume game", systemImage: "arrow.clockwise")
@@ -555,27 +563,22 @@ struct HomeView: View {
                 secondaryActionCard(icon: "square.and.arrow.down", title: "Import", action: onGameImport)
             }
 
-            // "New to chess?" is the one secondary action worth a permanent,
-            // full-width row on Home.
-            beginnersCard
-                .padding(.top, 6)
-
             // Weakness Report teaser (plan U7/R2) -- only appears once there's
             // real local data to show (never an empty/broken card for a
-            // brand-new player).
+            // brand-new player). Above "New to chess?" because it's personal,
+            // earned, and changes over time, where the beginners link is a
+            // static evergreen row -- the personalized card is what deserves
+            // the space right under the primary actions.
             if let motif = weaknessReportTeaser {
                 weaknessReportCard(motif)
                     .padding(.top, 6)
             }
 
-            // Occasional announcement (plan 2026-07-24-001, U3) -- own themed
-            // card, separate from the teaser/beginners cards above so its
-            // dismiss control and link-opening tap target stay independent
-            // (never nested inside one wrapping Button).
-            if let announcement {
-                announcementCard(announcement)
-                    .padding(.top, 6)
-            }
+            // "New to chess?" is the one secondary action worth a permanent,
+            // full-width row on Home -- but it's evergreen, so it sits below
+            // anything personalized or time-sensitive.
+            beginnersCard
+                .padding(.top, 6)
         }
         .padding(.horizontal, 32)
         .padding(.bottom, 48)
