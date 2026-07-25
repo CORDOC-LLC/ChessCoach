@@ -389,7 +389,13 @@ struct HomeView: View {
         ScrollView {
             VStack(spacing: 0) {
                 header
-                    .padding(.top, 64)
+                    // Kept clear of the fixed mailbox/gear overlay (top 12,
+                    // 34pt tall), which is trailing-aligned while the header
+                    // is centered -- so they share vertical band without
+                    // colliding. Trimmed from 64 to help Home fit on one
+                    // screen; the scroll was the standing complaint, not a
+                    // shortage of air at the top.
+                    .padding(.top, 40)
                 actions
                     .padding(.top, 28)
             }
@@ -639,7 +645,11 @@ struct HomeView: View {
             .padding(.top, 6)
         }
         .padding(.horizontal, 32)
-        .padding(.bottom, 48)
+        // Only 16, because `GlobalTabBar` is a SIBLING in `GemmaRootView`'s
+        // VStack rather than an overlay -- content is never underneath it, so
+        // this is pure breathing room, not clearance. The tab bar contributes
+        // its own 10pt top padding and border on top of this.
+        .padding(.bottom, 16)
     }
 
     /// A compact, icon-over-label card for a secondary action -- half the

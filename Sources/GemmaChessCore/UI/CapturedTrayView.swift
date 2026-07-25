@@ -77,8 +77,9 @@ struct CapturedTrayView: View {
         flashTask = Task { @MainActor in
             withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) { flashIndex = index }
             // Long enough to actually register after a fast engine reply,
-            // short enough not to linger into the next move.
-            try? await Task.sleep(for: .milliseconds(900))
+            // short enough not to linger into the next move. Tuned on device:
+            // 900ms read as slightly too quick to catch.
+            try? await Task.sleep(for: .milliseconds(1500))
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.35)) { flashIndex = nil }
         }
