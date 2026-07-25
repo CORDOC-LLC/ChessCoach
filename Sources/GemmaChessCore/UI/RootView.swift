@@ -610,22 +610,33 @@ struct HomeView: View {
                 secondaryActionCard(icon: "square.and.arrow.down", title: "Import", action: onGameImport)
             }
 
-            // Weakness Report teaser (plan U7/R2) -- only appears once there's
-            // real local data to show (never an empty/broken card for a
-            // brand-new player). Above "New to chess?" because it's personal,
-            // earned, and changes over time, where the beginners link is a
-            // static evergreen row -- the personalized card is what deserves
-            // the space right under the primary actions.
-            if let motif = weaknessReportTeaser {
-                weaknessReportCard(motif)
-                    .padding(.top, 6)
+            // ONE next-step card, never two. Both of these answer "what should
+            // I do now?", and showing both stacked them into a scroll on Home
+            // for no added value. They're also naturally exclusive in time:
+            // the teaser only exists once `topTeaserMotif` has enough local
+            // history to name a recurring miss, which is exactly the point at
+            // which "New to chess?" has stopped being the right next step.
+            //
+            // So the personalized card wins whenever it has something to say,
+            // and the evergreen beginners row is the fallback for a player the
+            // coach can't characterize yet. Nothing is lost by dropping the
+            // beginners row for experienced players -- Settings keeps a
+            // permanent "New to chess?" link (see `SettingsView`).
+            //
+            // This slot is the LAST thing in `actions`, so the async teaser
+            // swapping in over the beginners row changes only the page's total
+            // height, never the position of anything above it. That's why a
+            // reserved fixed height isn't needed here (contrast the old
+            // announcement banner, which sat above the primary CTA and shoved
+            // it down on arrival).
+            Group {
+                if let motif = weaknessReportTeaser {
+                    weaknessReportCard(motif)
+                } else {
+                    beginnersCard
+                }
             }
-
-            // "New to chess?" is the one secondary action worth a permanent,
-            // full-width row on Home -- but it's evergreen, so it sits below
-            // anything personalized or time-sensitive.
-            beginnersCard
-                .padding(.top, 6)
+            .padding(.top, 6)
         }
         .padding(.horizontal, 32)
         .padding(.bottom, 48)
