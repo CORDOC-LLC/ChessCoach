@@ -104,6 +104,18 @@ public final class PlayViewModel {
     /// stats or history -- neither `PlayStatsStore` nor `HistoryStore` has a
     /// rollback API, so *not writing yet* is the only safe design (plan U3).
     public private(set) var pendingOutcome: PlayOutcome?
+    /// Why the finished game is a mate/stalemate -- the board's teaching
+    /// visualization (plan U2). Computed ONCE in `updateGameOverExplanation()`
+    /// when `gameOver` is set, never derived in a view body: it costs up to
+    /// eight `fen(afterMove:)` + `isCheck` round trips, far too heavy to re-run
+    /// on every body evaluation while the banner animates and the king pulses.
+    public private(set) var mateExplanation: ChessLogic.TerminalExplanation?
+    /// Whether the player has dismissed the game-over result yet.
+    ///
+    /// Nothing auto-advances during the teaching moment (plan R5): the coach
+    /// debrief doesn't start and the review prompt can't fire until this is
+    /// true. Set by `dismissGameOverResult()`; reset wherever `gameOver` is.
+    public private(set) var gameOverDismissed = false
     /// The lifetime tally with `pendingOutcome` folded in, unpersisted.
     ///
     /// The game-over banner shows this rather than `stats`: with recording
@@ -465,6 +477,7 @@ public final class PlayViewModel {
         gameOver = false
         pendingOutcome = nil   // already consumed by finalizeOutcome() above
         clearGameOverExplanation()
+        gameOverDismissed = false
         resultText = nil
         coachNotes = []
         winWhite = 50
@@ -514,9 +527,20 @@ public final class PlayViewModel {
         hint = nil   // no next move to suggest; hint mode stops auto-requesting
         resultText = "You resigned."
         status = resultText!
-        startGameSummary()
+        // The debrief waits for the player to dismiss the result (plan R5).
         pendingOutcome = outcome
         persistCheckpoint()
+    }
+
+    /// The player dismissed the game-over result. This -- not the ending itself
+    /// -- is what releases everything that would otherwise talk over the
+    /// teaching moment: the coach debrief starts here, and `finalizeOutcome()`
+    /// only runs the review-prompt check once this has happened (plan R5).
+    /// Idempotent, so a double tap can't start two debriefs.
+    public func dismissGameOverResult() {
+        guard gameOver, !gameOverDismissed else { return }
+        gameOverDismissed = true
+        startGameSummary()
     }
 
     // MARK: Tap-to-move
@@ -640,6 +664,7 @@ public final class PlayViewModel {
         // rollback -- just drop the pending result and its explanation (R8).
         pendingOutcome = nil
         clearGameOverExplanation()
+        gameOverDismissed = false
         resultText = nil
         gameSummary = nil
         isSummarizing = false
@@ -848,6 +873,9 @@ public final class PlayViewModel {
         // load(_:)" invariant from the Weakness Report plan.
         pendingOutcome = nil
         clearGameOverExplanation()
+        // A resumed finished game isn't a live teaching moment -- there's no
+        // banner to dismiss, so nothing should be gated behind one.
+        gameOverDismissed = saved.isGameOver
         resultText = saved.resultText
         opening = saved.openingName.map { Openings.Opening(eco: saved.openingECO ?? "", name: $0) }
         moveNotes = saved.moveNotes
@@ -1022,7 +1050,7 @@ public final class PlayViewModel {
             let matedIsUser = (stmWhite == playerIsWhite)   // side to move is the mated one
             resultText = matedIsUser ? "Checkmate — you lose." : "Checkmate — you win! 🎉"
             status = resultText!
-            startGameSummary()
+            // The debrief waits for the player to dismiss the result (plan R5).
             pendingOutcome = outcome
             updateGameOverExplanation()
             persistCheckpoint()
@@ -1032,7 +1060,7 @@ public final class PlayViewModel {
             hint = nil   // no next move to suggest; hint mode stops auto-requesting
             resultText = "Stalemate — it's a draw."
             status = resultText!
-            startGameSummary()
+            // The debrief waits for the player to dismiss the result (plan R5).
             pendingOutcome = outcome
             updateGameOverExplanation()
             persistCheckpoint()
@@ -1068,7 +1096,10 @@ public final class PlayViewModel {
         if let record = history.buildGameRecord(from: currentSavedGameSnapshot(), identity: PlayerIdentity()) {
             history.appendRecord(record)
         }
-        checkReviewPrompt()
+        // Never present a rating sheet during the teaching moment (plan R5):
+        // the tally and history are recorded unconditionally above, but the
+        // prompt waits until the player has dismissed the result.
+        if gameOverDismissed { checkReviewPrompt() }
     }
 
     /// Computes and stores the "why is this mate/stalemate" explanation the
@@ -1077,19 +1108,18 @@ public final class PlayViewModel {
     /// `fen(afterMove:)` + `isCheck` round trips, far too heavy to re-run on
     /// every body evaluation while the banner animates.
     ///
-    /// TODO(U2): store `ChessLogic`'s mate/stalemate explanation (added by U1)
-    /// in a property here, and pass it to `ChessBoardView` from `PlayView`. The
-    /// lifecycle is already wired: set here, cleared in
-    /// `clearGameOverExplanation()` everywhere `gameOver` is cleared.
+    /// The lifecycle is wired at every call site: set here whenever `gameOver`
+    /// becomes true, cleared in `clearGameOverExplanation()` everywhere
+    /// `gameOver` is cleared.
     private func updateGameOverExplanation() {
-        // TODO(U2): mateExplanation = ChessLogic.<U1 function>(forFEN: fen)
+        mateExplanation = ChessLogic.terminalExplanation(forFEN: fen)
     }
 
     /// Clears the stored explanation. Called wherever `gameOver` is cleared, so
     /// a stale tint can never outlive the mate it describes -- undo clears it,
     /// and a second mate after undo-and-replay recomputes it fresh.
     private func clearGameOverExplanation() {
-        // TODO(U2): mateExplanation = nil
+        mateExplanation = nil
     }
 
     /// Checked after every finished game -- one of the two engagement events

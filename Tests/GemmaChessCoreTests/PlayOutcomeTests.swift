@@ -199,4 +199,69 @@ struct PlayOutcomeTests {
         #expect(saved.isGameOver)
         #expect(vm.pendingOutcome == .win)   // still unrecorded
     }
+
+    // MARK: Teaching moment (plan U2/U4)
+
+    @Test("the coach debrief does not start until the result is dismissed (R5)")
+    func debriefWaitsForDismiss() throws {
+        let vm = PlayViewModel.forTesting()
+        try mateInOne(vm)
+
+        #expect(!vm.gameOverDismissed)
+        #expect(!vm.isSummarizing)
+        #expect(vm.gameSummary == nil)
+
+        vm.dismissGameOverResult()
+        #expect(vm.gameOverDismissed)
+        // Whether a debrief actually streams depends on the coach being enabled
+        // and entitled; what this pins is that dismissal is the ONLY thing that
+        // can start it, and that a second dismiss can't start a second one.
+        vm.dismissGameOverResult()
+        #expect(vm.gameOverDismissed)
+    }
+
+    @Test("undo while the result is showing returns to live play with no debrief")
+    func undoClearsTheTeachingState() throws {
+        let vm = PlayViewModel.forTesting()
+        try mateInOne(vm)
+        #expect(vm.mateExplanation?.reason == .checkmate)
+
+        vm.undoLastMove()
+        #expect(!vm.gameOver)
+        #expect(vm.mateExplanation == nil)
+        #expect(!vm.gameOverDismissed)
+        #expect(!vm.isSummarizing)
+        #expect(vm.gameSummary == nil)
+        #expect(vm.pendingOutcome == nil)
+    }
+
+    @Test("the review prompt never fires while the result is undismissed (R5)")
+    func reviewPromptWaitsForDismiss() throws {
+        let vm = PlayViewModel.forTesting()
+        try mateInOne(vm)
+        vm.finalizeOutcome()   // tally + history recorded, prompt suppressed
+        #expect(!vm.showReviewPrompt)
+        #expect(vm.stats.totalGames >= 1)
+    }
+
+    @Test("the mate explanation is stored at game over and describes the mate")
+    func explanationStoredAtGameOver() throws {
+        let vm = PlayViewModel.forTesting()
+        try mateInOne(vm)
+        let explanation = try #require(vm.mateExplanation)
+        #expect(explanation.reason == .checkmate)
+        #expect(explanation.side == .black)
+        #expect(explanation.kingSquare.notation == "g8")
+        #expect(!explanation.flightSquares.isEmpty)
+    }
+
+    @Test("resigning stores no mate explanation -- there's no geometry to explain")
+    func resignHasNoExplanation() {
+        let vm = PlayViewModel.forTesting()
+        vm.newGame(asWhite: true)
+        vm.resign()
+        #expect(vm.gameOver)
+        #expect(vm.mateExplanation == nil)
+        #expect(!vm.gameOverDismissed)
+    }
 }

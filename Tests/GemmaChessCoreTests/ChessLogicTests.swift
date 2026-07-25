@@ -214,4 +214,37 @@ struct ChessLogicTests {
         #expect(ChessLogic.terminalExplanation(forFEN: "not a fen") == nil)
         #expect(ChessLogic.terminalExplanation(forFEN: "") == nil)
     }
+
+    // MARK: TerminalExplanationSummary (plan U2 / R10)
+
+    @Test("Back-rank mate summarizes into a sentence naming blocked and covered squares")
+    func summaryBackRankMate() throws {
+        let fen = "R5k1/5ppp/8/8/8/8/8/6K1 b - - 0 1"
+        let e = try #require(ChessLogic.terminalExplanation(forFEN: fen))
+        let text = try #require(TerminalExplanationSummary.text(for: e, fen: fen))
+
+        #expect(text.hasPrefix("Checkmate."))
+        #expect(text.contains("black king on g8"))
+        #expect(text.contains("checked by the rook on a8"))
+        #expect(text.contains("f7 blocked by Black's own pawn"))
+        #expect(text.contains("f8 covered by the rook on a8"))
+        #expect(text.hasSuffix("."))
+    }
+
+    @Test("Stalemate gets its own phrasing and never claims check")
+    func summaryStalemate() throws {
+        let fen = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"
+        let e = try #require(ChessLogic.terminalExplanation(forFEN: fen))
+        let text = try #require(TerminalExplanationSummary.text(for: e, fen: fen))
+
+        #expect(text.hasPrefix("Stalemate."))
+        #expect(text.contains("Black has no legal move"))
+        #expect(text.contains("not in check"))
+        #expect(!text.contains("no escape"))
+    }
+
+    @Test("No explanation summarizes to nil")
+    func summaryNilExplanation() {
+        #expect(TerminalExplanationSummary.text(for: nil, fen: "8/8/8/8/8/8/8/8 w - - 0 1") == nil)
+    }
 }
