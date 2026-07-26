@@ -148,7 +148,27 @@ Paste the three back into this conversation. I'll:
 3. Build the 1290 × 2796 artboards — device frame, background, headline per shot.
 4. Export, and upload via `asc_upload_screenshots` once you approve the set.
 
-**Note:** version 1.0 is still in DEVELOPER_REJECTED in App Store Connect, so
-screenshots (and the keyword/description work from earlier) won't reach the
-live listing until a version is submitted and approved. Worth resolving that
-before or alongside this.
+## Status — 2026-07-26
+
+**1.0.0 is submitted for Apple review.** The keyword/description work and this
+screenshot set go live with approval.
+
+Seven composed 6.5" artboards are exported to
+`screenshots/raw/iPhone 6.5" for App Store/`, covering Moves and Review, Coach
+Explanation, Best Move Hints, Move Review, Lessons, Puzzles, and Openings.
+
+### Worth fixing on the next screenshot update
+
+Screenshots can be replaced without submitting a new binary, so none of this
+blocks the review:
+
+- **"SOS" in the status bar** on several captures — the device had no carrier
+  signal. Reads as a broken phone to a careful viewer.
+- **Screen-recording indicator** (orange pill around the clock) on the Lessons,
+  Puzzles, and Openings captures.
+- Both are avoided by capturing with a normal signal and using the screenshot
+  button rather than screen recording.
+- **Theme note:** the app is themed and these captures use a light theme. Any
+  future additions must use the SAME theme or the set reads as two apps. The
+  dark captures in `screenshots/raw/*.png` are Gambit Room and do NOT match
+  this set — they were produced for a 6.9" set that was never adopted.
