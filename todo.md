@@ -88,10 +88,31 @@ the three I can't produce.
 
 ---
 
-## ME: the rest
+## ME: the rest — ✅ CAPTURED
 
-Listed so you can veto or re-rank the story before I capture. Ranked in the
-order I'd put them in the listing.
+Seven captures live in `screenshots/raw/`, all exactly **1290 × 2796**, all with
+a clean 9:41 status bar and full battery. Captured in an iPhone 16 Plus
+simulator, driven by a temporary launch-argument hook (since `simctl` has no
+tap command and `idb` isn't installed). **The hook has been fully reverted —
+`git diff` against source is empty.**
+
+| File | Screen | Notes |
+|---|---|---|
+| `01-home.png` | Home | |
+| `04-live-hint.png` | Live hint | Ng5 best-move arrow + alt, rationale line, eval bar. Move list and coach card hidden so the shot says one thing. |
+| `05-move-rating.png` | Instant move rating | "Ng5 · Best" verdict chip, engine's top 3 with evals, opening identified |
+| `06-puzzles.png` | Puzzles | Shows "Free — Lichess CC0", 200 puzzles/theme, rating bands |
+| `07-lessons.png` | Lessons | |
+| `08-openings.png` | Opening Trainer | Real ECO list with line counts |
+| `09-game-over-card.png` | Game over | Scholar's mate + the mating-net teaching overlay + the redesigned card |
+
+Still missing, and honestly optional:
+
+- **Onboarding free-tier slide** ("No ads. No daily caps.") — reachable only by
+  tapping through onboarding, which the launch-arg hook can't do. Grab it on
+  your device if you want it: delete and reinstall, then swipe to the slide.
+
+Original plan, for reference:
 
 | # | Screen | Draft headline | Why it's here |
 |---|---|---|---|
