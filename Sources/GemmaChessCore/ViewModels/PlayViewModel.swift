@@ -17,6 +17,18 @@ public struct MoveVerdict: Equatable, Sendable {
         self.isBest = isBest; self.betterMoveSAN = betterMoveSAN
     }
 
+    /// What the chip should actually say.
+    ///
+    /// "Best" is reserved for moves that WERE the engine's top choice. A move
+    /// can also earn the `best` classification by being near-equivalent (see
+    /// `Evaluation.bestEps`), and labelling that "Best" while the same chip
+    /// prints "best Re1" beside it reads as a contradiction -- which is exactly
+    /// what a player reported. Near-equivalent moves say "Solid" instead.
+    public var displayLabel: String {
+        if classification.lowercased() == "best", !isBest { return "Solid" }
+        return classification.capitalized
+    }
+
     /// Colour for a classification: best/good → theme accent, inaccuracy →
     /// theme highlight, mistake/blunder → fixed system colors (not theme-tied
     /// -- these read as warnings regardless of the active palette).

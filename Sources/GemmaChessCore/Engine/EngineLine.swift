@@ -138,8 +138,11 @@ public enum EngineLine {
         }
 
         let isBest = best.pvUCI.first == moveUCI
+        // Both readings are mover-relative, so this is what the move gave up
+        // against the engine's pick. Negative means it came out ahead.
+        let cpLoss = best.signedCp - Double(afterEvalCp)
         let classification = Evaluation.classify(
-            winBefore: winBefore, winAfter: winAfter, isBest: isBest
+            winBefore: winBefore, winAfter: winAfter, isBest: isBest, cpLoss: cpLoss
         ).rawValue
 
         report.move = EngineLineReport.MoveReport(

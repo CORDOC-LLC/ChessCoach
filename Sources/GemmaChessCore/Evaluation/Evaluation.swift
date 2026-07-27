@@ -40,6 +40,16 @@ public enum Evaluation {
     /// A move within this win% of the engine's best is considered "best".
     public static let bestEps = 2.0
 
+    /// Centipawn ceiling on that same "as good as best" allowance.
+    ///
+    /// `bestEps` alone is not enough, because win% saturates in decided
+    /// positions. At -6.50 a move that throws away a further HALF PAWN costs
+    /// only ~1.3 win%, so it slips under `bestEps` and grades "best" even though
+    /// it is plainly worse. Requiring the centipawn loss to also be small keeps
+    /// the allowance meaning "genuinely equivalent" instead of "the game was
+    /// already lost so nothing matters".
+    public static let bestCpLoss = 50.0
+
     public static let defaultThresholds: Thresholds = (inaccuracyDrop, mistakeDrop, blunderDrop)
 
     /// Per-mode multiplier applied on top of the Elo-scaled cutoffs. Blitz is the
@@ -76,11 +86,18 @@ public enum Evaluation {
 
     /// Classify a move by the drop in the mover's win% (winBefore - winAfter).
     /// Set `isBest` when the move played equals the engine's top choice.
+    ///
+    /// `cpLoss` is the centipawn the move gave up against the engine's best,
+    /// from the MOVER's perspective (negative means it gained). Optional so
+    /// callers without a centipawn reading keep the old behaviour, but pass it
+    /// whenever it is available: without it, a move can be graded "best" purely
+    /// because the position was already decided (see `bestCpLoss`).
     public static func classify(
         winBefore: Double,
         winAfter: Double,
         isBest: Bool = false,
-        thresholds: Thresholds? = nil
+        thresholds: Thresholds? = nil,
+        cpLoss: Double? = nil
     ) -> Classification {
         let (inacc, mist, blund) = thresholds ?? defaultThresholds
         // The engine's own top choice is always "best": you literally could not have
@@ -92,7 +109,9 @@ public enum Evaluation {
         if drop >= blund { return .blunder }
         if drop >= mist { return .mistake }
         if drop >= inacc { return .inaccuracy }
-        if drop <= bestEps { return .best }
+        // "As good as the best move" needs to hold on BOTH scales. A tiny win%
+        // drop is meaningless on its own once the eval is lopsided.
+        if drop <= bestEps, (cpLoss ?? 0) <= bestCpLoss { return .best }
         return .good
     }
 
