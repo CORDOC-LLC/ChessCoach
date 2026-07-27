@@ -124,6 +124,11 @@ public enum MoveCommentTemplates {
             if let better { return "A little imprecise — \(better) was more accurate." }
             return "A little imprecise — a sharper move was available."
         case "best":
+            // `better` is non-nil only when the played move was NOT the
+            // engine's pick (the caller passes nil when it was). Claiming
+            // "top choice" in that case contradicts the better-move hint shown
+            // right beside it.
+            if let better { return "Just as good as \(better), the engine's pick." }
             return "The engine's top choice — well played."
         case "good":
             return "A good, solid move."

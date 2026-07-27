@@ -150,8 +150,11 @@ public enum GameAnalyzer {
 
             let bestUCI = evalAt.bestPvUCI.first ?? step.moveUCI
             let isBest = step.moveUCI == bestUCI
+            // Same centipawn guard the live Play grading uses, so the Review
+            // screen can't call a move "best" that Play (correctly) does not.
             let classification = Evaluation.classify(
-                winBefore: winBefore, winAfter: winAfter, isBest: isBest, thresholds: thresholds
+                winBefore: winBefore, winAfter: winAfter, isBest: isBest,
+                thresholds: thresholds, cpLoss: cpBefore - cpAfter
             ).rawValue
 
             let bestLineSAN = ChessLogic.pvToSAN(evalAt.bestPvUCI, fromFEN: step.fenBefore)

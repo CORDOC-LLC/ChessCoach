@@ -658,7 +658,7 @@ public struct PlayView: View {
     private func verdictChip(_ v: MoveVerdict) -> some View {
         let color = MoveVerdict.color(for: v.classification, theme: theme)
         return HStack(spacing: 5) {
-            Text("\(v.moveSAN) · \(v.classification.capitalized)")
+            Text("\(v.moveSAN) · \(v.displayLabel)")
                 .font(.caption.weight(.bold))
             if let better = v.betterMoveSAN, !v.isBest {
                 Text("best \(better)")
