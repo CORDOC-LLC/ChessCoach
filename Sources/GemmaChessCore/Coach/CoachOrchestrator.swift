@@ -74,6 +74,7 @@ public final class CoachOrchestrator: Sendable {
         moveFacts: CoachLineInfo? = nil,
         profileFacts: String? = nil,
         speedContext: String? = nil,
+        skillLevel: Int? = nil,
         kind: CoachRequestKind = .chat,
         sessionID: String? = nil,
         depth: Int = GCConfig.defaultDepth
@@ -83,7 +84,8 @@ public final class CoachOrchestrator: Sendable {
         let facts = try await buildChatFacts(
             question: question, fen: fen, groundingFen: groundingFen, lastMove: lastMove, moveFen: moveFen, playerSide: playerSide,
             openingFacts: openingFacts, currentFacts: currentFacts, moveFacts: moveFacts,
-            profileFacts: profileFacts, speedContext: speedContext, depth: depth
+            profileFacts: profileFacts, speedContext: speedContext,
+            skillLevel: skillLevel, depth: depth
         )
         return try await coach.generate(kind: kind, facts: facts, sessionID: sessionID)
     }
@@ -103,6 +105,7 @@ public final class CoachOrchestrator: Sendable {
         moveFacts: CoachLineInfo? = nil,
         profileFacts: String? = nil,
         speedContext: String? = nil,
+        skillLevel: Int? = nil,
         kind: CoachRequestKind = .chat,
         sessionID: String? = nil,
         depth: Int = GCConfig.defaultDepth
@@ -112,7 +115,8 @@ public final class CoachOrchestrator: Sendable {
         let facts = try await buildChatFacts(
             question: question, fen: fen, groundingFen: groundingFen, lastMove: lastMove, moveFen: moveFen, playerSide: playerSide,
             openingFacts: openingFacts, currentFacts: currentFacts, moveFacts: moveFacts,
-            profileFacts: profileFacts, speedContext: speedContext, depth: depth
+            profileFacts: profileFacts, speedContext: speedContext,
+            skillLevel: skillLevel, depth: depth
         )
         return coach.stream(kind: kind, facts: facts, sessionID: sessionID)
     }
@@ -133,7 +137,7 @@ public final class CoachOrchestrator: Sendable {
         question: String, fen: String?, groundingFen: String? = nil, lastMove: String?, moveFen: String?,
         playerSide: CoachSide?, openingFacts: String?,
         currentFacts: CoachLineInfo?, moveFacts: CoachLineInfo?,
-        profileFacts: String?, speedContext: String?, depth: Int
+        profileFacts: String?, speedContext: String?, skillLevel: Int? = nil, depth: Int
     ) async throws -> ChatFacts {
         let moveAtCurrent = (lastMove != nil) && (moveFen == nil || moveFen == fen)
 
@@ -156,7 +160,7 @@ public final class CoachOrchestrator: Sendable {
         return ChatFacts(
             question: question, fen: fen ?? groundingFen, lastMove: lastMove, moveFen: moveFen,
             playerSide: playerSide, openingName: openingFacts, openingEco: nil,
-            profileFacts: profileFacts, speedContext: speedContext,
+            profileFacts: profileFacts, speedContext: speedContext, skillLevel: skillLevel,
             current: current, move: move, depth: depth
         )
     }
@@ -208,6 +212,9 @@ private struct ChatFacts: Encodable, Sendable {
     var openingEco: String?
     var profileFacts: String?
     var speedContext: String?
+    /// Engine strength (1-20) the user chose -- the gateway calibrates the
+    /// coaching vocabulary to it. Optional: nil simply omits the calibration.
+    var skillLevel: Int?
     var current: CoachLineInfo?
     var move: CoachLineInfo?
     var depth: Int

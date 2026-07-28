@@ -1066,6 +1066,7 @@ public final class PlayViewModel {
                 playerSide: playerIsWhite ? .white : .black,
                 openingFacts: openingFacts,
                 moveFacts: moveReport?.coachInfo,
+                skillLevel: skill,
                 kind: .moveNote, depth: GCConfig.liveDepth)
             for try await partial in stream {
                 if let gen, gen != moveGen { return }   // retried/new game mid-stream
@@ -1111,6 +1112,7 @@ public final class PlayViewModel {
                 question: q, fen: position,
                 playerSide: playerIsWhite ? .white : .black,
                 openingFacts: openingFacts,
+                skillLevel: skill,
                 depth: GCConfig.liveDepth)
             for try await partial in stream where chat.indices.contains(idx) {
                 chat[idx].text = partial
