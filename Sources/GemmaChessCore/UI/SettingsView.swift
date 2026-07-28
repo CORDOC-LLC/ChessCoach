@@ -89,6 +89,19 @@ public struct SettingsView: View {
                 Toggle(isOn: $settings.showCoach) {
                     Label("Coach", systemImage: "bubble.left.fill")
                 }
+                if settings.showCoach {
+                    // Named for what the player GETS, not for the plumbing.
+                    // "Stockfish" and "API" mean nothing to a beginner, and
+                    // "AI coach" would contradict this app's own positioning
+                    // against guessing chatbots.
+                    Picker(selection: $settings.coachExplanations) {
+                        Text("Instant").tag(false)
+                        Text("Explained").tag(true)
+                    } label: {
+                        Label("Coaching style", systemImage: "text.bubble")
+                    }
+                    .pickerStyle(.segmented)
+                }
                 NavigationLink {
                     CoachSettingsView()
                 } label: {
@@ -97,8 +110,21 @@ public struct SettingsView: View {
             } header: {
                 Text("Coach")
             } footer: {
-                Text("The coach's written explanation, chat, and end-of-game debrief are the only "
-                    + "things that use ChessCoach Pro. Everything else runs on-device.")
+                if settings.showCoach && !settings.coachExplanations {
+                    // Framed as what you gain. Switching a feature off should
+                    // not read as breaking the app, and these are real wins.
+                    Text("**Instant.** Move ratings and the best move, straight away. "
+                        + "Works offline, nothing about your game leaves your device, "
+                        + "and it uses none of your plan.")
+                } else if settings.showCoach {
+                    Text("**Explained.** Adds written coaching you can ask questions about, "
+                        + "and the end-of-game debrief. Needs internet, and it's the only "
+                        + "part of the app that uses ChessCoach Pro. "
+                        + "Switch to Instant to keep the ratings and stay entirely on-device.")
+                } else {
+                    Text("The coach's written explanation, chat, and end-of-game debrief are the only "
+                        + "things that use ChessCoach Pro. Everything else runs on-device.")
+                }
             }
 
             if stats.totalGames > 0 {

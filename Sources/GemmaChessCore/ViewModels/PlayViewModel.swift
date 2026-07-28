@@ -316,6 +316,22 @@ public final class PlayViewModel {
         return coachDisplayEnabled
     }
 
+    /// Coaching style, mirrored in from `PlayDisplaySettings.coachExplanations`
+    /// by the view. `false` is the "Instant" style: the coach card keeps its
+    /// engine verdicts, and every network call is skipped.
+    public var explanationsEnabled: Bool = true
+
+    /// THE single gate for every coach network call: the per-move note, the
+    /// end-of-game debrief, and chat.
+    ///
+    /// Deliberately one predicate rather than the same three conditions
+    /// repeated at each call site. A player who picks Instant is promised that
+    /// nothing leaves the device, so a new call site that forgets one of these
+    /// conditions would silently break that promise. Gate on this, always.
+    public var coachProseEnabled: Bool {
+        coachEnabled && isProEntitled && explanationsEnabled
+    }
+
     /// The channel used for the client-side entitlement predicate below —
     /// `.current` in production, overridable so tests can exercise the
     /// App Store gating branch deterministically (mirrors
@@ -794,7 +810,7 @@ public final class PlayViewModel {
     private func startGameSummary() {
         // `isProEntitled`: free App Store users never fire the (Pro-gated)
         // debrief call at all -- the engine content stands on its own.
-        guard coachEnabled, isProEntitled, !moveRecords.isEmpty,
+        guard coachProseEnabled, !moveRecords.isEmpty,
               gameSummary == nil, !isSummarizing else { return }
         let input = CoachPlayGameInput(
             result: resultText ?? "The game is over.",
@@ -1027,7 +1043,7 @@ public final class PlayViewModel {
         // user would just get a 403 per move, so don't fire the request at all
         // (the verdict chip + template comment are their coaching). Dev and
         // TestFlight channels don't gate (`requiresProEntitlement == false`).
-        guard coachEnabled, isProEntitled, moveReport?.move != nil else { return }
+        guard coachProseEnabled, moveReport?.move != nil else { return }
         let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
         // The engine's grade (the same one shown on the chip) is authoritative --
         // `moveReport.coachInfo` carries it (classification, win% swing, the
@@ -1083,7 +1099,7 @@ public final class PlayViewModel {
     /// answer streams into the transcript. Grounded in engine facts and your colour.
     public func ask(_ question: String) async {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty, coachEnabled, !isAsking else { return }
+        guard !q.isEmpty, coachProseEnabled, !isAsking else { return }
         chat.append((role: "user", text: q))
         chat.append((role: "coach", text: ""))       // placeholder to stream into
         let idx = chat.count - 1

@@ -27,6 +27,7 @@ public final class PlayDisplaySettings {
         static let showCoach    = "play.showCoach"
         static let defaultEngineSkill = "play.defaultEngineSkill"
         static let humanLikeEnabled = "play.humanLikeEnabled"
+        static let coachExplanations = "play.coachExplanations"
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -39,6 +40,7 @@ public final class PlayDisplaySettings {
             Key.showCoach: true,
             Key.defaultEngineSkill: 6,
             Key.humanLikeEnabled: false,
+            Key.coachExplanations: true,
         ])
         // Seed the observation tracking so @Observable emits on change.
         _showCaptured = defaults.bool(forKey: Key.showCaptured)
@@ -47,10 +49,22 @@ public final class PlayDisplaySettings {
         _showCoach    = defaults.bool(forKey: Key.showCoach)
         _defaultEngineSkill = defaults.integer(forKey: Key.defaultEngineSkill)
         _humanLikeEnabled = defaults.bool(forKey: Key.humanLikeEnabled)
+        _coachExplanations = defaults.bool(forKey: Key.coachExplanations)
     }
 
     public var showCaptured: Bool {
         didSet { defaults.set(showCaptured, forKey: Key.showCaptured) }
+    }
+    /// Coaching style: `true` = Explained (written coaching over the network),
+    /// `false` = Instant (engine verdicts only).
+    ///
+    /// This is a HARD network switch, not a display preference. With it off,
+    /// the per-move note, the end-of-game debrief, and chat all skip their
+    /// requests entirely -- nothing about the game leaves the device. That is
+    /// the whole point of offering it, so any new coach network call must be
+    /// gated on `PlayViewModel.coachProseEnabled` rather than checked ad hoc.
+    public var coachExplanations: Bool {
+        didSet { defaults.set(coachExplanations, forKey: Key.coachExplanations) }
     }
     public var showMoveList: Bool {
         didSet { defaults.set(showMoveList, forKey: Key.showMoveList) }

@@ -151,6 +151,9 @@ public struct PlayView: View {
         .onChange(of: settings.showCoach, initial: true) { _, showCoach in
             vm.coachDisplayEnabled = showCoach
         }
+        .onChange(of: settings.coachExplanations, initial: true) { _, explained in
+            vm.explanationsEnabled = explained
+        }
         // Only on a LIVE transition into game-over -- reopening an
         // already-finished game (My Games) shouldn't replay this.
         .onChange(of: vm.gameOver) { _, isOver in
@@ -535,7 +538,7 @@ public struct PlayView: View {
                     }
                     .buttonStyle(PressableStyle())
                     .accessibilityLabel("Free plan — see ChessCoach Pro")
-                } else if vm.coachEnabled {
+                } else if vm.coachProseEnabled {
                     Button { openChat() } label: {
                         Label("Ask", systemImage: "bubble.left.and.bubble.right.fill")
                             .font(.caption2.weight(.semibold))
