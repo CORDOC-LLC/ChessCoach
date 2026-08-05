@@ -11,7 +11,7 @@ export const meta = {
 }
 
 const REPO = 'CORDOC-LLC/ChessCoach'
-const REPO_PATH = '/Users/USERNAME/Documents/Projects/GemmaChess'
+const REPO_PATH = process.env.CHESSCOACH_REPO_PATH || process.cwd()
 
 phase('Triage')
 const triage = await agent(

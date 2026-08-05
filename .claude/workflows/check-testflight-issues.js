@@ -10,9 +10,9 @@ export const meta = {
 
 const REPO = 'CORDOC-LLC/ChessCoach'
 const BUNDLE_ID = 'com.cordoc.gemmachess'
-const API_KEY_ID = 'REDACTED_API_KEY_ID'
-const API_ISSUER_ID = 'REDACTED_API_ISSUER_ID'
-const KEY_PATH = `/Users/USERNAME/.private_keys/AuthKey_${API_KEY_ID}.p8`
+const API_KEY_ID = process.env.API_KEY_ID
+const API_ISSUER_ID = process.env.API_ISSUER_ID
+const KEY_PATH = `$HOME/.private_keys/AuthKey_${API_KEY_ID}.p8`
 
 phase('Fetch')
 const fetched = await agent(

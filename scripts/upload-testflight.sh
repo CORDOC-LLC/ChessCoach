@@ -11,9 +11,9 @@
 #     the upload step fails with "no suitable application records were found"
 #     until it exists.
 #   - API key at ~/.private_keys/AuthKey_<API_KEY_ID>.p8 (App Store Connect ->
-#     Users and Access -> Integrations -> Keys). Reuses the same key as the
-#     other apps under this team (CORDOC LLC, REDACTED_TEAM_ID) unless overridden.
-#   - local.env with DEVELOPMENT_TEAM set (see local.env.example).
+#     Users and Access -> Integrations -> Keys).
+#   - local.env with DEVELOPMENT_TEAM, API_KEY_ID, and API_ISSUER_ID set (see
+#     local.env.example).
 #
 # Build number: timestamp-based (YYYYMMDDHHmmss) -- always unique, no state to
 # track. Version numbers are passed as build-setting overrides on the
@@ -23,8 +23,6 @@
 set -e
 cd "$(dirname "$0")/.."
 
-API_KEY_ID="${API_KEY_ID:-REDACTED_API_KEY_ID}"
-API_ISSUER_ID="${API_ISSUER_ID:-REDACTED_API_ISSUER_ID}"
 API_KEY_PATH="$HOME/.private_keys/AuthKey_${API_KEY_ID}.p8"
 ARCHIVE_PATH="build/GemmaChess.xcarchive"
 EXPORT_PATH="build/Export"
@@ -38,12 +36,17 @@ if [ ! -f "$API_KEY_PATH" ]; then
     exit 1
 fi
 
-# Local signing config (DEVELOPMENT_TEAM) -- same file gen-project.sh uses.
+# Local signing config (DEVELOPMENT_TEAM, API_KEY_ID, API_ISSUER_ID) -- same
+# file gen-project.sh uses.
 if [ -f local.env ]; then
   set -a; source local.env; set +a
 fi
 if [ -z "$DEVELOPMENT_TEAM" ]; then
     echo "ERROR: DEVELOPMENT_TEAM not set. Copy local.env.example to local.env and fill in your Team ID." >&2
+    exit 1
+fi
+if [ -z "$API_KEY_ID" ] || [ -z "$API_ISSUER_ID" ]; then
+    echo "ERROR: API_KEY_ID and/or API_ISSUER_ID not set. Copy local.env.example to local.env and fill them in." >&2
     exit 1
 fi
 
