@@ -172,3 +172,19 @@ blocks the review:
   future additions must use the SAME theme or the set reads as two apps. The
   dark captures in `screenshots/raw/*.png` are Gambit Room and do NOT match
   this set — they were produced for a 6.9" set that was never adopted.
+
+
+## Status — 2026-08-06
+
+**1.0.1 metadata pushed to App Store Connect**, prepared for submission:
+- Description/promotional text set (reconstructed from live 1.0 listing via
+  public page fetch, not a verbatim paste — worth eyeballing in ASC before
+  submitting)
+- What's New added: UI updates across Play/Puzzles/Lessons, improved online
+  coaching (honest "best" framing, skill-calibrated vocabulary, shorter
+  answers), bug fixes
+
+Still needs, in App Store Connect directly (no MCP tool covers these):
+- Select build 20260805194741 (1.0.1) under Build
+- Confirm screenshots carried forward correctly from 1.0
+- Submit for Review
