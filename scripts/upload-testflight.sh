@@ -26,7 +26,7 @@ cd "$(dirname "$0")/.."
 API_KEY_PATH="$HOME/.private_keys/AuthKey_${API_KEY_ID}.p8"
 ARCHIVE_PATH="build/GemmaChess.xcarchive"
 EXPORT_PATH="build/Export"
-MARKETING_VERSION="${MARKETING_VERSION:-1.0.0}"
+MARKETING_VERSION="${MARKETING_VERSION:-1.0.1}"
 BUNDLE_ID="com.cordoc.gemmachess"
 
 # Verify API key exists.
