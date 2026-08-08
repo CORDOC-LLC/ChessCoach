@@ -23,21 +23,14 @@
 set -e
 cd "$(dirname "$0")/.."
 
-API_KEY_PATH="$HOME/.private_keys/AuthKey_${API_KEY_ID}.p8"
 ARCHIVE_PATH="build/GemmaChess.xcarchive"
 EXPORT_PATH="build/Export"
 MARKETING_VERSION="${MARKETING_VERSION:-1.0.1}"
 BUNDLE_ID="com.cordoc.gemmachess"
 
-# Verify API key exists.
-if [ ! -f "$API_KEY_PATH" ]; then
-    echo "ERROR: API key not found at $API_KEY_PATH"
-    echo "Download from App Store Connect > Users and Access > Integrations > Keys"
-    exit 1
-fi
-
 # Local signing config (DEVELOPMENT_TEAM, API_KEY_ID, API_ISSUER_ID) -- same
-# file gen-project.sh uses.
+# file gen-project.sh uses. Must be sourced BEFORE API_KEY_PATH is computed
+# below, since it depends on API_KEY_ID.
 if [ -f local.env ]; then
   set -a; source local.env; set +a
 fi
@@ -47,6 +40,15 @@ if [ -z "$DEVELOPMENT_TEAM" ]; then
 fi
 if [ -z "$API_KEY_ID" ] || [ -z "$API_ISSUER_ID" ]; then
     echo "ERROR: API_KEY_ID and/or API_ISSUER_ID not set. Copy local.env.example to local.env and fill them in." >&2
+    exit 1
+fi
+
+API_KEY_PATH="$HOME/.private_keys/AuthKey_${API_KEY_ID}.p8"
+
+# Verify API key exists.
+if [ ! -f "$API_KEY_PATH" ]; then
+    echo "ERROR: API key not found at $API_KEY_PATH"
+    echo "Download from App Store Connect > Users and Access > Integrations > Keys"
     exit 1
 fi
 

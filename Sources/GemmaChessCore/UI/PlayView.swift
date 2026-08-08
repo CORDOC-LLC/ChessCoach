@@ -112,6 +112,11 @@ public struct PlayView: View {
         VStack(spacing: 8) {
             header
             if showHintTip { hintTipBubble }
+            // With no coach card (or game-over banner) to fill the space below,
+            // a bottom-only Spacer left the board pinned under the header with a
+            // dead void down to the tab bar. Centering it here keeps the header
+            // as a fixed nav bar while the board becomes the screen's anchor.
+            if centerBoardVertically { Spacer(minLength: 0) }
             board
             if settings.showCaptured { capturedRow }
             if vm.hint != nil { hintCard }
@@ -172,6 +177,13 @@ public struct PlayView: View {
         .sheet(isPresented: $showAppearance) { AppearanceView() }
         .sheet(isPresented: $showPaywall) { PaywallView() }
         .sheet(isPresented: $vm.showReviewPrompt) { ReviewPromptView() }
+    }
+
+    /// True when nothing will occupy the trailing slot (coach card / game-over
+    /// banner) below the board, so the board region should be vertically
+    /// centered instead of pinned under the header.
+    private var centerBoardVertically: Bool {
+        !settings.showCoach && !(showGameOverBanner && vm.outcome != nil)
     }
 
     // Eval bar is a leading overlay so its height tracks the board exactly
