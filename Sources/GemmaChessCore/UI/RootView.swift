@@ -215,7 +215,7 @@ public struct GemmaRootView: View {
     /// when this channel requires an entitlement the user doesn't have yet
     /// (see `BuildChannel.requiresProEntitlement`).
     private func openScan() {
-        if BuildChannel.current.requiresProEntitlement, !ProEntitlementStore.shared.isProActive {
+        if !ProEntitlementStore.shared.effectiveIsProActive() {
             showPaywall = true
         } else {
             mode = .scan

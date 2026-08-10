@@ -691,7 +691,7 @@ public struct PlayView: View {
     /// entitlement and the user doesn't have one -- shows the paywall
     /// instead (see `BuildChannel.requiresProEntitlement`).
     private func openChat() {
-        if BuildChannel.current.requiresProEntitlement, !ProEntitlementStore.shared.isProActive {
+        if !ProEntitlementStore.shared.effectiveIsProActive() {
             showPaywall = true
         } else {
             showChat = true

@@ -92,18 +92,21 @@ public struct CoachSettingsView: View {
                 if ManagedCoachStore.loadBackendURL() != nil {
                     NavigationLink("Usage & Cost") { ManagedUsageView() }
                 }
-            } else if channel == .testFlight {
+            } else if channel == .testFlight, proStore.debugProSimulation == .off {
                 // Auto-configured via a baked-in debug token (see
                 // ManagedCoachStore.loadDebugToken()) -- no setup, no fields,
                 // no paywall. Ahead of RevenueCat, this is what makes
-                // TestFlight actually usable for beta testers.
+                // TestFlight actually usable for beta testers. Falls through
+                // to the real subscribe/paywall UI below when a QA debug
+                // simulation (Settings -> "Simulate subscription") is active,
+                // so the free-tier experience is actually testable here too.
                 Text("ChessCoach Pro is on for TestFlight builds -- no setup needed. "
                     + "It runs against the developer's own budget while testing, so keep "
                     + "usage reasonable.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 NavigationLink("Usage & Cost") { ManagedUsageView() }
-            } else if proStore.isProActive {
+            } else if proStore.effectiveIsProActive(for: channel) {
                 Label("ChessCoach Pro is active.", systemImage: "checkmark.seal.fill")
                     .font(.footnote)
                     .foregroundStyle(themeStore.effective.accentColor)
