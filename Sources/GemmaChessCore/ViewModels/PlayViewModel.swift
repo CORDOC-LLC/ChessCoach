@@ -357,7 +357,7 @@ public final class PlayViewModel {
     /// Purely a client-side UI/traffic signal; real enforcement stays
     /// server-side (see `ProEntitlementStore`'s header).
     public var isProEntitled: Bool {
-        !(entitlementChannel.requiresProEntitlement && !ProEntitlementStore.shared.isProActive)
+        ProEntitlementStore.shared.effectiveIsProActive(for: entitlementChannel)
     }
 
     /// True when the user is browsing a past position rather than the live game.

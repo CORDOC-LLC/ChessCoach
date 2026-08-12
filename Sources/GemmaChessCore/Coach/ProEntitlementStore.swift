@@ -42,6 +42,44 @@ public final class ProEntitlementStore {
     public private(set) var isLoadingOfferings = false
     public private(set) var lastError: String?
 
+    /// QA-only override for local/TestFlight builds: local and TestFlight
+    /// otherwise bypass Pro-gating unconditionally (see `BuildChannel`'s
+    /// header), which means the paywall can never actually trigger there --
+    /// there was no way to test the free-tier experience without an App
+    /// Store build. `.free` forces gating on as if this were App Store
+    /// production with no subscription (paywall shows); `.pro` forces the
+    /// entitled experience explicitly; `.off` (default) is today's real
+    /// behavior, unchanged.
+    ///
+    /// Safety: this can never affect a real App Store customer, redundantly --
+    /// (1) the Settings UI that exposes it is hidden outside local/TestFlight
+    /// (`BuildChannel.current != .appStore`), and (2) `effectiveIsProActive(for:)`
+    /// and `requireProOrThrow` both ignore it entirely once `channel == .appStore`,
+    /// regardless of what's persisted. A plain `@Observable` stored property
+    /// (not a UserDefaults-computed one) so SwiftUI actually re-renders when
+    /// a Settings picker changes it; `didSet` mirrors the value into
+    /// `UserDefaults` so the choice survives a relaunch.
+    public enum DebugProSimulation: String, CaseIterable, Sendable {
+        case off, free, pro
+    }
+
+    private static let debugProSimulationKey = "debug.proSimulation"
+
+    public var debugProSimulation: DebugProSimulation = {
+        guard let raw = UserDefaults.standard.string(forKey: ProEntitlementStore.debugProSimulationKey) else {
+            return .off
+        }
+        return DebugProSimulation(rawValue: raw) ?? .off
+    }() {
+        didSet {
+            if debugProSimulation == .off {
+                UserDefaults.standard.removeObject(forKey: Self.debugProSimulationKey)
+            } else {
+                UserDefaults.standard.set(debugProSimulation.rawValue, forKey: Self.debugProSimulationKey)
+            }
+        }
+    }
+
     private init() {}
 
     /// Call once at app launch (iOS only -- see `GemmaChessApp.init()`).
@@ -105,15 +143,33 @@ public final class ProEntitlementStore {
     /// drive both branches deterministically without needing a real
     /// distribution channel.
     public func requireProOrThrow(channel: BuildChannel = .current) throws {
-        try Self.requireProOrThrow(channel: channel, isProActive: isProActive)
+        guard effectiveIsProActive(for: channel) else { throw ProRequiredError() }
     }
 
     /// Pure/static form of the same check, taking `isProActive` explicitly.
     /// `isProActive` is otherwise `private(set)` on the singleton (only ever
     /// changed by a real purchase/restore/refresh) -- this lets tests exercise
-    /// both entitlement states without driving RevenueCat.
+    /// both entitlement states without driving RevenueCat. Deliberately does
+    /// NOT consult `debugProSimulation` -- it's a pure function of its
+    /// arguments, used directly by tests that already drive both inputs.
     public nonisolated static func requireProOrThrow(channel: BuildChannel, isProActive: Bool) throws {
         guard channel.requiresProEntitlement else { return }
         guard isProActive else { throw ProRequiredError() }
+    }
+
+    /// Whether Pro features should actually be unlocked right now, folding
+    /// in the channel bypass (local/TestFlight normally always-Pro), the
+    /// real RevenueCat-driven `isProActive`, and -- when set and the channel
+    /// isn't App Store -- `debugProSimulation`. This is the ONE predicate UI
+    /// call sites should read to decide "show the paywall vs. the Pro
+    /// experience"; `isProActive` itself stays raw/real for the handful of
+    /// call sites (post-purchase/restore dismissal in `PaywallView`) that
+    /// deliberately want the true entitlement regardless of any simulation.
+    public func effectiveIsProActive(for channel: BuildChannel = .current) -> Bool {
+        let sim = debugProSimulation
+        if sim != .off, channel != .appStore {
+            return sim == .pro
+        }
+        return !channel.requiresProEntitlement || isProActive
     }
 }

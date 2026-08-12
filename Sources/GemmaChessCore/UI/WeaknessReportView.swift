@@ -30,7 +30,7 @@ public struct WeaknessReportView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                if ProEntitlementStore.shared.isProActive {
+                if ProEntitlementStore.shared.effectiveIsProActive() {
                     unlockedContent
                 } else {
                     lockedContent

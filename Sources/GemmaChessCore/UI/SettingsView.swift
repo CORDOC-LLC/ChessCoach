@@ -26,6 +26,7 @@ public struct SettingsView: View {
     @State private var showAppearance = false
     @State private var showOnboarding = false
     @State private var showPaywall = false
+    @State private var proStore = ProEntitlementStore.shared
     @State private var clearedGames = false
     @State private var resetPuzzles = false
     @State private var resetOpeningTrainer = false
@@ -208,10 +209,18 @@ public struct SettingsView: View {
 
             if BuildChannel.current != .appStore {
                 Section {
+                    Picker("Simulate subscription", selection: $proStore.debugProSimulation) {
+                        Text("Off (normal)").tag(ProEntitlementStore.DebugProSimulation.off)
+                        Text("Free").tag(ProEntitlementStore.DebugProSimulation.free)
+                        Text("Pro").tag(ProEntitlementStore.DebugProSimulation.pro)
+                    }
                     Button("Preview Paywall") { showPaywall = true }
                 } footer: {
-                    Text("Local/TestFlight only -- lets you check the paywall's look without needing "
-                        + "a real purchase flow.")
+                    Text("Local/TestFlight only. \"Free\" makes Pro-gated features (coach chat, "
+                        + "board scan, weakness report) show the paywall exactly as an App Store "
+                        + "free-tier user would see it, instead of the usual local/TestFlight "
+                        + "bypass. \"Pro\" makes the app behave as an active subscriber. \"Preview "
+                        + "Paywall\" just opens the paywall's look without needing a real purchase.")
                 }
             }
         }
