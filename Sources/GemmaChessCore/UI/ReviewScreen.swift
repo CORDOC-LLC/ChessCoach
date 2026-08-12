@@ -9,10 +9,15 @@ public struct ReviewScreen: View {
     @Bindable var vm: ReviewViewModel
     /// Called when the user wants to leave the review (e.g. analyse another game).
     public var onNewGame: (() -> Void)?
+    /// Called when the user wants to play forward from the position currently
+    /// shown on the board -- `(fen, asWhite)`, where `asWhite` defaults to
+    /// whichever side is to move at that position (the actionable next step).
+    public var onPlayFromHere: ((String, Bool) -> Void)?
 
-    public init(vm: ReviewViewModel, onNewGame: (() -> Void)? = nil) {
+    public init(vm: ReviewViewModel, onNewGame: (() -> Void)? = nil, onPlayFromHere: ((String, Bool) -> Void)? = nil) {
         self.vm = vm
         self.onNewGame = onNewGame
+        self.onPlayFromHere = onPlayFromHere
     }
 
     public var body: some View {
@@ -35,6 +40,14 @@ public struct ReviewScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            if let onPlayFromHere, let fen = vm.currentFEN {
+                ToolbarItem {
+                    Button("Play from here") {
+                        let asWhite = ChessLogic.sideToMove(forFEN: fen) != .black
+                        onPlayFromHere(fen, asWhite)
+                    }
+                }
+            }
             if let onNewGame {
                 ToolbarItem {
                     Button("New game", action: onNewGame)

@@ -236,7 +236,15 @@ public struct GemmaRootView: View {
                 .toolbar { ToolbarItem(placement: .topBarLeadingCompat) { Button("Home") { mode = .home } } }
                 .toolbar { settingsToolbarItem }
         } else {
-            ReviewScreen(vm: review, onNewGame: { review.session = nil })
+            ReviewScreen(
+                vm: review,
+                onNewGame: { review.session = nil },
+                onPlayFromHere: { fen, asWhite in
+                    play.newGame(asWhite: asWhite, startFEN: fen)
+                    playStartedInitially = true
+                    mode = .play
+                }
+            )
                 .toolbar { ToolbarItem(placement: .topBarLeadingCompat) {
                     Button("Home") { review.session = nil; mode = .home }
                 } }
