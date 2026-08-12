@@ -100,6 +100,24 @@ public final class ReviewViewModel {
 
     // MARK: Analysis
 
+    /// Open a "My games" row. When it came from a Play-mode game whose full
+    /// live record is still on disk and complete (`ReviewSessionBuilder.
+    /// canBuild`), this builds the session directly -- zero Stockfish, no
+    /// `isAnalyzing` spinner, since there's nothing to wait for. Otherwise
+    /// (an imported/pasted game, or a Play-mode game whose live capture was
+    /// incomplete) falls back to `analyze(pgn:player:)` exactly as before,
+    /// which itself checks `AnalysisCache` before running a fresh sweep.
+    public func openHistoryRecord(_ record: GameRecord) async {
+        if let savedGameID = record.savedGameID,
+           let savedGame = SavedGameStore.load(id: savedGameID),
+           let session = ReviewSessionBuilder.build(from: savedGame) {
+            errorText = nil
+            apply(session: session)
+            return
+        }
+        await analyze(pgn: record.pgn, player: record.reviewedSide)
+    }
+
     public func analyze(pgn: String, player: String = "auto") async {
         let trimmed = pgn.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { errorText = "Paste a PGN first."; return }

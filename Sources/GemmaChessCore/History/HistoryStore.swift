@@ -108,6 +108,14 @@ public struct GameRecord: Codable, Sendable, Equatable {
     public var counts: Counts
     public var phaseLoss: PhaseLoss
     public var mistakes: [Mistake]
+    /// The originating `SavedGame.id`, when this record came from a Play-mode
+    /// game -- nil for an imported/pasted game, where no `SavedGame` file
+    /// exists. Lets a "My games" list find the full live record
+    /// (`SavedGameStore.load(id:)`) and build its review with
+    /// `ReviewSessionBuilder` (zero re-analysis) instead of re-running
+    /// `GameAnalyzer` on `pgn`. Defaulted so existing call sites that
+    /// construct a `GameRecord` directly keep compiling unchanged.
+    public var savedGameID: UUID? = nil
 }
 
 /// Persistent game history. Port of the storage layer of `server/core/history.py`.
@@ -395,7 +403,8 @@ public struct HistoryStore: Sendable {
                 opening: Self.round1(phaseLoss.opening),
                 middlegame: Self.round1(phaseLoss.middlegame),
                 endgame: Self.round1(phaseLoss.endgame)),
-            mistakes: mistakes)
+            mistakes: mistakes,
+            savedGameID: savedGame.id)
     }
 
     /// "you win"/"you lose"/"You resigned."/anything else -> (PGN-style result,

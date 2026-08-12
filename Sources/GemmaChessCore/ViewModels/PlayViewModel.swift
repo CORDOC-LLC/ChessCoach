@@ -255,6 +255,10 @@ public final class PlayViewModel {
     public var isSummarizing = false
     /// Every graded user move this game — the inputs to the end-of-game summary.
     private(set) var moveRecords: [CoachPromptBuilder.PlayMoveRecord] = []
+    /// Mover-relative win% right after each ply, both colors, parallel to
+    /// `moves` -- see `SavedGame.winAfterMover`'s header for the full
+    /// contract this mirrors.
+    private(set) var winAfterMover: [Double] = []
     /// Bumped by undo/new game so in-flight verdict/note/summary tasks abandon
     /// their writes instead of scribbling on the rewound game.
     private var moveGen = 0
@@ -608,6 +612,7 @@ public final class PlayViewModel {
         gameSummary = nil
         isSummarizing = false
         moveRecords = []
+        winAfterMover = []
         moveGen += 1
         chat = []
         isAsking = false
@@ -730,9 +735,43 @@ public final class PlayViewModel {
                     // (computed by this same analysis, above) -- its first move is
                     // exactly the "best move" UCI `Motifs.tagMotifs` needs later.
                     bestUCI: moveReport?.lineUCI.first, fen: afterFEN))
+                // Mover-relative, matching `winAfterMover`'s contract exactly --
+                // see SavedGame.winAfterMover's header. Guarded by the expected
+                // index, not just gen: an undo could have raced in and already
+                // trimmed `winAfterMover` (and bumped `moveGen`, which the outer
+                // guard above already checked) between this Task starting and
+                // landing here -- appending blindly onto a since-shortened array
+                // would silently misalign every later entry for the rest of the
+                // game. A mismatch here just means this ply's slot never fills;
+                // callers already treat a short array as "incomplete, fall back
+                // to a fresh analysis" (see SavedGame.winAfterMover's header).
+                if winAfterMover.count == userPly {
+                    winAfterMover.append(mv.winAfter)
+                }
             }
+            let replyPly = moves.count
             let replySAN = await engineReply()
             guard gen == moveGen else { return }
+            // The engine's own reply was just played at whatever skill-weighted
+            // strength `engineReply()` used for move SELECTION -- deliberately
+            // not full-strength for low skill levels. Grading it (not choosing
+            // it) needs an honest, full-strength eval, so this is a SEPARATE
+            // analysis of the position it was played from -- best-effort: a
+            // failure here only means this one ply's node falls back to a
+            // fresh analysis at Review time (ReviewSessionBuilder), never
+            // blocks or corrupts the game itself.
+            if replySAN != nil, fenHistory.indices.contains(replyPly), moves.indices.contains(replyPly) {
+                let replyFromFEN = fenHistory[replyPly]
+                let replyUCI = moves[replyPly]
+                if let replyReport = try? await EngineLine.evaluate(
+                    fen: replyFromFEN, move: replyUCI, depth: GCConfig.liveDepth, multipv: 1),
+                   let replyMove = replyReport.move, gen == moveGen,
+                   // Same index guard as the user-move append above -- an undo
+                   // could have raced in while this eval was in flight.
+                   winAfterMover.count == replyPly {
+                    winAfterMover.append(replyMove.winAfter)
+                }
+            }
             await streamCoachNote(fromFEN: fromFEN, uci: uci, moveReport: moveReport,
                                   opponentReplySAN: replySAN, userPly: userPly, gen: gen)
             if gen == moveGen { isCoaching = false; persistCheckpoint() }
@@ -800,6 +839,17 @@ public final class PlayViewModel {
     private func popLastPly(wasUserMove: Bool) {
         guard !moves.isEmpty else { return }
         let poppedIndex = moves.count - 1
+        // Both colors get a winAfterMover entry (unlike moveRecords/moveNotes,
+        // which are user-only) -- checked for ply-alignment BEFORE `moves` is
+        // mutated below, and only trimmed when still aligned. If a live eval
+        // for this exact ply never landed (still in flight, or lost the
+        // moveGen race against this very undo -- see the append-site guards),
+        // `winAfterMover` is already short here; blindly popping its last
+        // entry would remove an EARLIER ply's data instead and misalign every
+        // ply before it for the rest of the game. Leaving it alone in that
+        // case is safe: callers already treat a short array as "incomplete,
+        // fall back to a fresh analysis" (see SavedGame.winAfterMover).
+        if winAfterMover.count == moves.count { winAfterMover.removeLast() }
         moves.removeLast()
         sanMoves.removeLast()
         fenHistory.removeLast()
@@ -939,7 +989,8 @@ public final class PlayViewModel {
             startFEN: fenHistory.first ?? Self.startFEN, moves: moves, sanMoves: sanMoves,
             fenHistory: fenHistory, skill: skill, isGameOver: gameOver, resultText: resultText,
             openingName: opening?.name, openingECO: opening?.eco,
-            moveNotes: moveNotes, gameSummary: gameSummary, moveRecords: moveRecords
+            moveNotes: moveNotes, gameSummary: gameSummary, moveRecords: moveRecords,
+            winAfterMover: winAfterMover
         )
     }
 
@@ -997,6 +1048,7 @@ public final class PlayViewModel {
         lastCoachNote = saved.moves.indices.last.flatMap { saved.moveNotes[$0] }
         gameSummary = saved.gameSummary
         moveRecords = saved.moveRecords
+        winAfterMover = saved.winAfterMover ?? []
         lastVerdict = nil    // not persisted -- the chip is a live-move-only affordance
         lastEngineComment = nil   // likewise
         topMoves = []        // likewise
@@ -1215,20 +1267,21 @@ public final class PlayViewModel {
         let snapshot = currentSavedGameSnapshot()
         if let record = history.buildGameRecord(from: snapshot, identity: PlayerIdentity()) {
             history.appendRecord(record)
-            // Pre-warm Review's disk cache (AnalysisCache) so tapping "Review"
-            // on a game just played doesn't re-run a full Stockfish sweep the
-            // user is staring at a spinner for -- Play mode's own live, per-
-            // move grading (SavedGame.moveRecords) never populates that cache,
-            // only a real GameAnalyzer.analyzeGame pass does, and Review always
-            // runs one on first open regardless (see ReviewViewModel.analyze).
-            // Firing it here, right as the game ends, means it's very likely
-            // already warm by the time the player actually taps Review.
-            // `historyBaseDir == nil` is production only (tests always inject
-            // a scratch dir, see PlayViewModel.forTesting) -- AnalysisCache has
-            // no injectable base dir of its own, so this must stay off in
-            // tests to avoid writing into the developer's real cache directory
-            // and burning real engine time on every test that finishes a game.
-            if historyBaseDir == nil {
+            // Fallback pre-warm of Review's disk cache (AnalysisCache), for the
+            // rare game whose live winAfterMover capture is incomplete (a race
+            // with undo, or an engine hiccup -- see SavedGame.winAfterMover and
+            // the append-site guards in tap(_:)/engineReply's caller). A fully-
+            // captured game skips this entirely: ReviewSessionBuilder builds
+            // Review's data straight from the live record, with no Stockfish
+            // sweep at all, so pre-warming a SECOND analysis nobody will ever
+            // read would just burn battery. `historyBaseDir == nil` is
+            // production only (tests always inject a scratch dir, see
+            // PlayViewModel.forTesting) -- AnalysisCache has no injectable base
+            // dir of its own, so this must stay off in tests to avoid writing
+            // into the developer's real cache directory and burning real
+            // engine time on every test that finishes a game.
+            let winAfterMoverComplete = (snapshot.winAfterMover?.count ?? 0) == snapshot.moves.count
+            if historyBaseDir == nil, !winAfterMoverComplete {
                 let side = snapshot.playerIsWhite ? "white" : "black"
                 let (result, _) = HistoryStore.playResult(
                     text: snapshot.resultText, playerIsWhite: snapshot.playerIsWhite)

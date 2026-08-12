@@ -95,7 +95,7 @@ public struct LoadView: View {
                 Text("Analysed games will appear here.").foregroundStyle(.secondary).font(.footnote)
             }
             ForEach(history, id: \.gameID) { rec in
-                Button { Task { await vm.analyze(pgn: rec.pgn, player: rec.reviewedSide) } } label: {
+                Button { Task { await vm.openHistoryRecord(rec) } } label: {
                     gameRow(white: rec.white, black: rec.black, result: rec.result,
                             sub: [rec.speed, rec.opening, "acc \(Int(rec.accuracy.rounded()))%"]
                                 .compactMap { $0 }.joined(separator: " · "))

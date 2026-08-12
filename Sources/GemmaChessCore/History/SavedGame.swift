@@ -44,13 +44,34 @@ public struct SavedGame: Codable, Sendable, Equatable, Identifiable {
     /// continued and later finishes still gets a full-quality debrief instead
     /// of one grounded only in moves played after the resume.
     public var moveRecords: [CoachPromptBuilder.PlayMoveRecord]
+    /// Mover-relative win% right after each ply, both colors, parallel to
+    /// `moves` -- e.g. `winAfterMover[i]` is White's win% if ply `i` was
+    /// White's move, Black's if it was Black's (see `EngineLineReport.
+    /// MoveReport`'s "back to the mover's perspective" convention, which this
+    /// matches exactly). Captured live for the user's own moves (same
+    /// analysis that populates `moveRecords`) and for the engine's replies (a
+    /// dedicated post-move eval -- the engine's move-SELECTION is skill-
+    /// weighted and intentionally not full-strength, so it needs its own
+    /// honest evaluation to be trustworthy for review).
+    ///
+    /// Lets `ReviewSessionBuilder` construct a full `ReviewSession` (the
+    /// win-graph + played-vs-best timeline `ReviewScreen` shows) straight from
+    /// this record, with zero re-analysis. `Optional`, not a default-`[]`
+    /// array: a saved game from before this field existed decodes with this
+    /// simply `nil` (Swift's synthesized `Decodable` tolerates a missing key
+    /// for an `Optional` property automatically) rather than failing to decode
+    /// at all -- callers that need the full timeline treat anything shorter
+    /// than `moves.count` (including `nil`) as "not available, fall back to a
+    /// fresh analysis."
+    public var winAfterMover: [Double]?
 
     public init(
         id: UUID, startedAt: Date, updatedAt: Date, playerIsWhite: Bool, startFEN: String,
         moves: [String], sanMoves: [String], fenHistory: [String], skill: Int,
         isGameOver: Bool, resultText: String?, openingName: String?, openingECO: String?,
         moveNotes: [Int: String], gameSummary: String?,
-        moveRecords: [CoachPromptBuilder.PlayMoveRecord] = []
+        moveRecords: [CoachPromptBuilder.PlayMoveRecord] = [],
+        winAfterMover: [Double]? = nil
     ) {
         self.id = id; self.startedAt = startedAt; self.updatedAt = updatedAt
         self.playerIsWhite = playerIsWhite; self.startFEN = startFEN
@@ -58,6 +79,7 @@ public struct SavedGame: Codable, Sendable, Equatable, Identifiable {
         self.skill = skill; self.isGameOver = isGameOver; self.resultText = resultText
         self.openingName = openingName; self.openingECO = openingECO
         self.moveNotes = moveNotes; self.gameSummary = gameSummary; self.moveRecords = moveRecords
+        self.winAfterMover = winAfterMover
     }
 
     /// Short label for a games list: "White vs Stockfish (skill 6)" etc.
