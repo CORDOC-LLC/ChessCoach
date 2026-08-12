@@ -219,8 +219,14 @@ public struct PlayView: View {
     // MARK: Board arrows
     //
     // Best-move recommendation graphics are shown ONLY while a hint is active (the
-    // lightbulb). There is no separate always-on best-move arrow — turning the hint
-    // off removes every recommendation arrow from the board.
+    // lightbulb), OR while browsing history on a ply that wasn't the engine's top
+    // choice -- that second case is the move-review path: `verdictChip` already
+    // prints "best <SAN>" as text there, this is its board-drawn counterpart, using
+    // the same `bestUCI` the chip's `betterMoveSAN` comes from (see
+    // `PlayViewModel.verdict(forPly:)`). No separate always-on best-move arrow
+    // outside these two cases -- turning the hint off removes its arrows, and a
+    // best/near-best browsed move draws no green arrow since there's nothing to
+    // suggest instead.
 
     /// Whenever the shown position is in check (including checkmate), the checked
     /// king's square and the piece(s) directly attacking it -- this is what
@@ -235,6 +241,12 @@ public struct PlayView: View {
         if let viewing = vm.viewingPly {
             let playedUCI = vm.moves.indices.contains(viewing) ? vm.moves[viewing] : nil
             if let uci = playedUCI, let a = BoardArrow(uci: uci, color: .gray, thick: false) {
+                arrows.append(a)
+            }
+            // The move-review arrow: what the engine would have played instead,
+            // for a browsed ply that wasn't already the engine's top choice.
+            if let verdict = headerVerdict, !verdict.isBest, let best = verdict.bestUCI,
+               best != playedUCI, let a = BoardArrow(uci: best, color: theme.accentColor, thick: true) {
                 arrows.append(a)
             }
         }

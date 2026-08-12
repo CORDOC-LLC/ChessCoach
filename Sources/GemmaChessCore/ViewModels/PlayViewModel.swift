@@ -12,9 +12,14 @@ public struct MoveVerdict: Equatable, Sendable {
     public var classification: String      // best/good/inaccuracy/mistake/blunder…
     public var isBest: Bool
     public var betterMoveSAN: String?
-    public init(moveSAN: String, classification: String, isBest: Bool, betterMoveSAN: String?) {
+    /// The engine's top move for the position this ply was played from, in
+    /// UCI -- lets the board draw a "what you should've played" arrow
+    /// alongside `betterMoveSAN`'s text. Nil under the same conditions
+    /// `betterMoveSAN` can be nil (analysis never completed for this ply).
+    public var bestUCI: String?
+    public init(moveSAN: String, classification: String, isBest: Bool, betterMoveSAN: String?, bestUCI: String? = nil) {
         self.moveSAN = moveSAN; self.classification = classification
-        self.isBest = isBest; self.betterMoveSAN = betterMoveSAN
+        self.isBest = isBest; self.betterMoveSAN = betterMoveSAN; self.bestUCI = bestUCI
     }
 
     /// What the chip should actually say.
@@ -453,7 +458,8 @@ public final class PlayViewModel {
         guard sanMoves.indices.contains(ply), sanMoves[ply] == record.san else { return nil }
         return MoveVerdict(
             moveSAN: record.san, classification: record.classification,
-            isBest: record.betterSan == nil, betterMoveSAN: record.betterSan)
+            isBest: record.betterSan == nil, betterMoveSAN: record.betterSan,
+            bestUCI: record.bestUCI)
     }
 
     public var userToMove: Bool {
@@ -707,7 +713,8 @@ public final class PlayViewModel {
                 let san = ChessLogic.san(fromUCI: uci, inFEN: fromFEN) ?? uci
                 lastVerdict = MoveVerdict(
                     moveSAN: san, classification: mv.classification,
-                    isBest: mv.isEngineBest, betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN)
+                    isBest: mv.isEngineBest, betterMoveSAN: mv.isEngineBest ? nil : mv.betterMoveSAN,
+                    bestUCI: moveReport?.lineUCI.first)
                 // The free one-line comment, from the same analysis' facts —
                 // available with the chip on both tiers, no network involved.
                 lastEngineComment = MoveCommentTemplates.comment(

@@ -141,6 +141,10 @@ struct UnifiedCoachCardTests {
         let browsed = try #require(vm.verdict(forPly: 0))
         #expect(browsed.moveSAN == "e4")
         #expect(browsed.classification == vm.moveRecords.first?.classification)
+        // The move-review arrow (PlayView.boardArrows) draws from this --
+        // it must survive the record -> verdict rebuild alongside the SAN
+        // text `betterMoveSAN` already carried.
+        #expect(browsed.bestUCI == vm.moveRecords.first?.bestUCI)
         // The engine's reply has no user grade to show.
         #expect(vm.verdict(forPly: 1) == nil)
         // Out of range never crashes.
