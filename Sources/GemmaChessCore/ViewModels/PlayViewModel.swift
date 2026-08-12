@@ -1212,8 +1212,33 @@ public final class PlayViewModel {
         pendingOutcome = nil
         stats = PlayStatsStore.record(pending, defaults: statsDefaults)
         let history = HistoryStore(baseDir: historyBaseDir)
-        if let record = history.buildGameRecord(from: currentSavedGameSnapshot(), identity: PlayerIdentity()) {
+        let snapshot = currentSavedGameSnapshot()
+        if let record = history.buildGameRecord(from: snapshot, identity: PlayerIdentity()) {
             history.appendRecord(record)
+            // Pre-warm Review's disk cache (AnalysisCache) so tapping "Review"
+            // on a game just played doesn't re-run a full Stockfish sweep the
+            // user is staring at a spinner for -- Play mode's own live, per-
+            // move grading (SavedGame.moveRecords) never populates that cache,
+            // only a real GameAnalyzer.analyzeGame pass does, and Review always
+            // runs one on first open regardless (see ReviewViewModel.analyze).
+            // Firing it here, right as the game ends, means it's very likely
+            // already warm by the time the player actually taps Review.
+            // `historyBaseDir == nil` is production only (tests always inject
+            // a scratch dir, see PlayViewModel.forTesting) -- AnalysisCache has
+            // no injectable base dir of its own, so this must stay off in
+            // tests to avoid writing into the developer's real cache directory
+            // and burning real engine time on every test that finishes a game.
+            if historyBaseDir == nil {
+                let side = snapshot.playerIsWhite ? "white" : "black"
+                let (result, _) = HistoryStore.playResult(
+                    text: snapshot.resultText, playerIsWhite: snapshot.playerIsWhite)
+                let pgn = HistoryStore.pgn(from: snapshot, result: result)
+                Task.detached(priority: .background) {
+                    guard let session = try? await GameAnalyzer.analyzeGame(pgn: pgn, player: side)
+                    else { return }
+                    AnalysisCache.store(session)
+                }
+            }
         }
         // Never present a rating sheet during the teaching moment (plan R5):
         // the tally and history are recorded unconditionally above, but the
