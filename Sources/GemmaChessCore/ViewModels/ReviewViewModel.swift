@@ -24,6 +24,15 @@ public final class ReviewViewModel {
     public var personalize: Bool = false
     public var isAsking: Bool = false
     public var isSummarizing: Bool = false
+    /// Set when the user hits the free-tier ply cap and should be offered the
+    /// lifetime unlock. Mirrors `WeaknessReportViewModel.showPaywall`'s shape.
+    public var showReviewUnlockPaywall = false
+
+    /// Free tier reviews the first 6 full moves (12 plies, both colors) of any
+    /// game; positions/moves beyond that need `hasFullReviewAccess`. Node `k`
+    /// carries ply `k + 1` (see `TimelineNode`'s "outgoing move" convention),
+    /// so the last free node is `freeReviewPlyLimit - 1`, not `freeReviewPlyLimit`.
+    public static let freeReviewPlyLimit = 12
 
     private let coach: CoachOrchestrator
     private var coachSessionID: String?
@@ -77,23 +86,53 @@ public final class ReviewViewModel {
         return session?.allMoves.first { $0.ply == ply }
     }
 
-    public var winValues: [Double] { session?.timeline.map { $0.winWhite } ?? [] }
+    /// Whether full-game review is unlocked for this viewer -- Pro OR the
+    /// lifetime purchase. The single predicate `ReviewScreen`/this view model
+    /// gate on; never read `ProEntitlementStore` directly outside this property.
+    public var hasFullReviewAccess: Bool {
+        ProEntitlementStore.shared.effectiveHasFullReviewAccess()
+    }
+
+    /// How many more moves exist beyond the free cap, for the locked-content
+    /// banner's "N more moves analyzed" copy. Zero when unlocked or when the
+    /// game never reaches the cap.
+    public var lockedMoveCount: Int {
+        hasFullReviewAccess ? 0 : max(0, nodeCount - 1 - Self.freeReviewPlyLimit)
+    }
+
+    /// The highest node index navigation may reach right now.
+    private var maxReachableNode: Int {
+        hasFullReviewAccess ? (nodeCount - 1) : min(Self.freeReviewPlyLimit - 1, nodeCount - 1)
+    }
+
+    public var winValues: [Double] {
+        let full = session?.timeline.map { $0.winWhite } ?? []
+        guard !hasFullReviewAccess, full.count > maxReachableNode + 1 else { return full }
+        return Array(full.prefix(maxReachableNode + 1))
+    }
 
     // MARK: Navigation
 
     public func goto(node: Int) {
         guard nodeCount > 0 else { return }
-        currentNode = min(max(node, 0), nodeCount - 1)
+        currentNode = min(max(node, 0), maxReachableNode)
     }
     public func next() { goto(node: currentNode + 1) }
     public func prev() { goto(node: currentNode - 1) }
     public func flip() { orientationIsWhite.toggle() }
 
     /// Jump to a mistake by its index into `session.mistakes` and land on the position
-    /// just before the mistake was played.
+    /// just before the mistake was played. If the mistake is beyond the free-tier cap,
+    /// offer the lifetime unlock instead of navigating.
     public func gotoMistake(index: Int) {
-        guard var s = session, let result = s.gotoMistake(index) else { return }
-        session = s
+        guard let s = session, s.mistakes.indices.contains(index) else { return }
+        let mistake = s.mistakes[index]
+        if !hasFullReviewAccess, mistake.ply > Self.freeReviewPlyLimit {
+            showReviewUnlockPaywall = true
+            return
+        }
+        guard var mutableSession = session, let result = mutableSession.gotoMistake(index) else { return }
+        session = mutableSession
         // The mistake's `ply` is 1-based; the position *before* it is node `ply - 1`.
         goto(node: max(result.review.ply - 1, 0))
     }

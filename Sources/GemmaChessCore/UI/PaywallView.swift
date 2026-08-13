@@ -25,7 +25,11 @@ public struct PaywallView: View {
 
     private var packages: [Package] {
         guard let offering = store.offerings?.current else { return [] }
-        return offering.availablePackages
+        // Exclude the lifetime Full Game Review package -- it's a one-time
+        // purchase with its own dedicated view (ReviewUnlockPaywallView) and
+        // its own legal footer (no auto-renewal disclosure); it must never
+        // appear in this subscription-only plan list.
+        return offering.availablePackages.filter { $0.packageType != .lifetime }
     }
 
     public var body: some View {
@@ -37,7 +41,13 @@ public struct PaywallView: View {
                 VStack(spacing: 24) {
                     header
                     featureList
-                    if store.isLoadingOfferings {
+                    if !ProEntitlementStore.proSaleEnabled {
+                        Text("ChessCoach Pro isn't available for purchase yet -- check back soon.")
+                            .font(.footnote)
+                            .foregroundStyle(theme.mutedTextColor)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 24)
+                    } else if store.isLoadingOfferings {
                         ProgressView().tint(theme.accentColor).padding(.top, 24)
                     } else if packages.isEmpty {
                         Text("Plans aren't available right now. Try again in a moment.")

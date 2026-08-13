@@ -92,4 +92,64 @@ struct ProEntitlementStoreTests {
         #expect(vm.hint?.rationale?.isEmpty == false)
         #expect(vm.lastCoachError == nil)
     }
+
+    // MARK: effectiveHasFullReviewAccess -- the lifetime-review composite predicate
+
+    /// `isProActive`/`hasLifetimeReviewUnlock` are both `false` in a test binary
+    /// (Purchases never configured), so every scenario below drives state purely
+    /// via `debugProSimulation` -- always reset to `.off` afterward since it's
+    /// UserDefaults-backed on the shared singleton and this suite is `.serialized`.
+    @MainActor
+    @Test("lifetime simulation unlocks full review but NOT Pro (the critical R4 asymmetry)")
+    func lifetimeSimulationUnlocksReviewOnlyNotPro() {
+        let store = ProEntitlementStore.shared
+        store.debugProSimulation = .lifetime
+        defer { store.debugProSimulation = .off }
+
+        #expect(store.effectiveHasFullReviewAccess(for: .local) == true)
+        #expect(store.effectiveIsProActive(for: .local) == false)
+    }
+
+    @MainActor
+    @Test("pro simulation unlocks both full review and Pro")
+    func proSimulationUnlocksBoth() {
+        let store = ProEntitlementStore.shared
+        store.debugProSimulation = .pro
+        defer { store.debugProSimulation = .off }
+
+        #expect(store.effectiveHasFullReviewAccess(for: .local) == true)
+        #expect(store.effectiveIsProActive(for: .local) == true)
+    }
+
+    @MainActor
+    @Test("free simulation locks both full review and Pro")
+    func freeSimulationLocksBoth() {
+        let store = ProEntitlementStore.shared
+        store.debugProSimulation = .free
+        defer { store.debugProSimulation = .off }
+
+        #expect(store.effectiveHasFullReviewAccess(for: .local) == false)
+        #expect(store.effectiveIsProActive(for: .local) == false)
+    }
+
+    @MainActor
+    @Test("App Store channel ignores any simulation for the review predicate too")
+    func appStoreIgnoresSimulationForReviewPredicate() {
+        let store = ProEntitlementStore.shared
+        store.debugProSimulation = .lifetime
+        defer { store.debugProSimulation = .off }
+
+        // App Store production: simulation is ignored entirely, falls back to
+        // the real (false, in a test binary) entitlement state.
+        #expect(store.effectiveHasFullReviewAccess(for: .appStore) == false)
+    }
+
+    @MainActor
+    @Test("off simulation on a bypass channel leaves review access open, same as Pro")
+    func offSimulationBypassesOnDevChannels() {
+        let store = ProEntitlementStore.shared
+        #expect(store.debugProSimulation == .off)
+        #expect(store.effectiveHasFullReviewAccess(for: .local) == true)
+        #expect(store.effectiveHasFullReviewAccess(for: .testFlight) == true)
+    }
 }

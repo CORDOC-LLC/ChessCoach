@@ -26,6 +26,7 @@ public struct ReviewScreen: View {
                 accuracyHeader
                 boardRow
                 scrubber
+                lockedBanner
                 if !(vm.session?.timeline.isEmpty ?? true) {
                     WinGraphView(values: vm.winValues, currentIndex: vm.currentNode) { vm.goto(node: $0) }
                 }
@@ -39,6 +40,9 @@ public struct ReviewScreen: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .sheet(isPresented: $vm.showReviewUnlockPaywall) {
+            ReviewUnlockPaywallView()
+        }
         .toolbar {
             if let onPlayFromHere, let fen = vm.currentFEN {
                 ToolbarItem {
@@ -118,6 +122,25 @@ public struct ReviewScreen: View {
         }
     }
 
+    @ViewBuilder private var lockedBanner: some View {
+        if vm.lockedMoveCount > 0 {
+            Button {
+                vm.showReviewUnlockPaywall = true
+            } label: {
+                HStack {
+                    Image(systemName: "lock.fill")
+                    Text("\(vm.lockedMoveCount) more move\(vm.lockedMoveCount == 1 ? "" : "s") analyzed — Unlock full review")
+                        .font(.subheadline.weight(.medium))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                }
+                .padding(12)
+                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     @ViewBuilder private var verdictBox: some View {
         if let v = vm.verdict {
             VStack(alignment: .leading, spacing: 6) {
@@ -150,18 +173,29 @@ public struct ReviewScreen: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Mistakes").font(.headline)
                 ForEach(Array(mistakes.enumerated()), id: \.offset) { index, m in
+                    let locked = !vm.hasFullReviewAccess && m.ply > ReviewViewModel.freeReviewPlyLimit
                     Button { vm.gotoMistake(index: index) } label: {
                         HStack {
                             Text("\(m.moveNumber)\(m.color == "white" ? "." : "...") \(m.moveSAN)")
                                 .font(.subheadline).fontWeight(.medium)
-                            Text(m.classification.capitalized)
-                                .font(.caption).foregroundStyle(color(for: m.classification))
-                            Spacer()
-                            Text("-\(fmt(m.winSwing))%").font(.caption).foregroundStyle(.secondary)
+                            if locked {
+                                Image(systemName: "lock.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text(m.classification.capitalized)
+                                    .font(.caption).foregroundStyle(color(for: m.classification))
+                                Spacer()
+                                Text("-\(fmt(m.winSwing))%").font(.caption).foregroundStyle(.secondary)
+                            }
+                            if locked { Spacer() }
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(locked
+                        ? "Move \(m.moveNumber), locked. Double-tap to unlock full review."
+                        : "\(m.moveNumber)\(m.color == "white" ? "." : "...") \(m.moveSAN), \(m.classification)")
                     Divider()
                 }
             }

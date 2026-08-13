@@ -37,7 +37,30 @@ public final class ProEntitlementStore {
     /// dashboard ("pro") and the products attached to it.
     public static let entitlementID = "pro"
 
+    /// The lifetime Full Game Review unlock's entitlement -- deliberately
+    /// SEPARATE from `entitlementID`, not shared. Pro and the lifetime
+    /// purchase grant different capability sets (Pro includes the LLM coach
+    /// features; the lifetime purchase does not), so sharing one entitlement
+    /// would silently grant lifetime buyers LLM access. Must match the
+    /// entitlement identifier created in the RevenueCat dashboard.
+    public static let lifetimeReviewEntitlementID = "review_lifetime"
+
+    /// Master kill-switch for selling the Pro subscription -- distinct from
+    /// entitlement gating. Set `false` to stop offering NEW Pro purchases
+    /// (e.g. while its LLM coach quality is still being evaluated) without
+    /// touching entitlement logic: existing checks (`effectiveIsProActive`,
+    /// `requireProOrThrow`) are completely unaffected, so a real Pro
+    /// subscriber (there are currently none) would keep working normally.
+    /// Only gates the PURCHASE path -- see `PaywallView`, which shows a
+    /// "not available yet" state instead of the plan picker when this is
+    /// `false`. Flip back to `true` when ready to sell Pro again.
+    public static let proSaleEnabled = false
+
     public private(set) var isProActive = false
+    /// Whether the lifetime Full Game Review unlock is active, from RevenueCat's
+    /// `lifetimeReviewEntitlementID`. Independent of `isProActive` -- a lifetime
+    /// buyer who is NOT a Pro subscriber has `isProActive == false` here.
+    public private(set) var hasLifetimeReviewUnlock = false
     public private(set) var offerings: Offerings?
     public private(set) var isLoadingOfferings = false
     public private(set) var lastError: String?
@@ -60,7 +83,7 @@ public final class ProEntitlementStore {
     /// a Settings picker changes it; `didSet` mirrors the value into
     /// `UserDefaults` so the choice survives a relaunch.
     public enum DebugProSimulation: String, CaseIterable, Sendable {
-        case off, free, pro
+        case off, free, lifetime, pro
     }
 
     private static let debugProSimulationKey = "debug.proSimulation"
@@ -99,6 +122,7 @@ public final class ProEntitlementStore {
         do {
             let info = try await Purchases.shared.customerInfo()
             isProActive = info.entitlements[Self.entitlementID]?.isActive == true
+            hasLifetimeReviewUnlock = info.entitlements[Self.lifetimeReviewEntitlementID]?.isActive == true
             lastError = nil
         } catch {
             lastError = error.localizedDescription
@@ -120,11 +144,13 @@ public final class ProEntitlementStore {
     public func purchase(_ package: Package) async throws {
         let result = try await Purchases.shared.purchase(package: package)
         isProActive = result.customerInfo.entitlements[Self.entitlementID]?.isActive == true
+        hasLifetimeReviewUnlock = result.customerInfo.entitlements[Self.lifetimeReviewEntitlementID]?.isActive == true
     }
 
     public func restore() async throws {
         let info = try await Purchases.shared.restorePurchases()
         isProActive = info.entitlements[Self.entitlementID]?.isActive == true
+        hasLifetimeReviewUnlock = info.entitlements[Self.lifetimeReviewEntitlementID]?.isActive == true
     }
 
     // MARK: Uniform Pro-entitlement gate (U1)
@@ -171,5 +197,26 @@ public final class ProEntitlementStore {
             return sim == .pro
         }
         return !channel.requiresProEntitlement || isProActive
+    }
+
+    /// Whether Review's full-move analysis should be unlocked -- Pro OR the
+    /// lifetime purchase, either one is sufficient (Pro is a strict superset).
+    /// Mirrors `effectiveIsProActive`'s shape exactly, including the
+    /// debug-simulation override and the App Store production safety guarantee.
+    ///
+    /// Accepted risk, documented explicitly: unlike `isProActive` (a UI signal
+    /// backed by chesscoach-gateway's independent server-side entitlement check
+    /// for every LLM call), this predicate has NO server backstop anywhere --
+    /// Review's gating is entirely local/on-device with no network call. A
+    /// client-side bypass (jailbreak, runtime patching) gets full paid Review
+    /// content. Consciously accepted given the lifetime purchase's low price
+    /// and the fact the content is already computed locally and non-confidential
+    /// either way -- do not assume this has the same server-side parity `pro` does.
+    public func effectiveHasFullReviewAccess(for channel: BuildChannel = .current) -> Bool {
+        let sim = debugProSimulation
+        if sim != .off, channel != .appStore {
+            return sim == .pro || sim == .lifetime
+        }
+        return !channel.requiresProEntitlement || isProActive || hasLifetimeReviewUnlock
     }
 }

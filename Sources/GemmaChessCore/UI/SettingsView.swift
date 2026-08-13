@@ -26,6 +26,7 @@ public struct SettingsView: View {
     @State private var showAppearance = false
     @State private var showOnboarding = false
     @State private var showPaywall = false
+    @State private var showReviewUnlockPaywall = false
     @State private var proStore = ProEntitlementStore.shared
     @State private var clearedGames = false
     @State private var resetPuzzles = false
@@ -209,18 +210,21 @@ public struct SettingsView: View {
 
             if BuildChannel.current != .appStore {
                 Section {
-                    Picker("Simulate subscription", selection: $proStore.debugProSimulation) {
+                    Picker("Simulate entitlement", selection: $proStore.debugProSimulation) {
                         Text("Off (normal)").tag(ProEntitlementStore.DebugProSimulation.off)
                         Text("Free").tag(ProEntitlementStore.DebugProSimulation.free)
+                        Text("Lifetime Review").tag(ProEntitlementStore.DebugProSimulation.lifetime)
                         Text("Pro").tag(ProEntitlementStore.DebugProSimulation.pro)
                     }
                     Button("Preview Paywall") { showPaywall = true }
+                    Button("Preview Review Unlock") { showReviewUnlockPaywall = true }
                 } footer: {
                     Text("Local/TestFlight only. \"Free\" makes Pro-gated features (coach chat, "
-                        + "board scan, weakness report) show the paywall exactly as an App Store "
-                        + "free-tier user would see it, instead of the usual local/TestFlight "
-                        + "bypass. \"Pro\" makes the app behave as an active subscriber. \"Preview "
-                        + "Paywall\" just opens the paywall's look without needing a real purchase.")
+                        + "board scan, weakness report, and Review beyond move 6) show the paywall "
+                        + "exactly as an App Store free-tier user would see it, instead of the usual "
+                        + "local/TestFlight bypass. \"Lifetime Review\" unlocks full Review only, not "
+                        + "the coach features. \"Pro\" unlocks everything. The \"Preview\" buttons just "
+                        + "open each paywall's look without needing a real purchase.")
                 }
             }
         }
@@ -282,6 +286,7 @@ public struct SettingsView: View {
         }
         .sheet(isPresented: $showAppearance) { AppearanceView() }
         .sheet(isPresented: $showPaywall) { PaywallView() }
+        .sheet(isPresented: $showReviewUnlockPaywall) { ReviewUnlockPaywallView() }
         #if os(iOS)
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingView(onFinish: { showOnboarding = false })

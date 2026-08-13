@@ -24,6 +24,7 @@ public struct CoachSettingsView: View {
     @Environment(ThemeStore.self) private var themeStore
     @State private var proStore = ProEntitlementStore.shared
     @State private var showPaywall = false
+    @State private var showReviewUnlockPaywall = false
 
     public init(channel: BuildChannel = .current) {
         self.channel = channel
@@ -32,6 +33,7 @@ public struct CoachSettingsView: View {
     public var body: some View {
         Form {
             managedCoachSection
+            reviewUnlockSection
             if channel == .local, !debugToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 modelOverrideSection
             }
@@ -39,6 +41,31 @@ public struct CoachSettingsView: View {
         .navigationTitle("Coach Settings")
         .sheet(isPresented: $showPaywall) {
             PaywallView()
+        }
+        .sheet(isPresented: $showReviewUnlockPaywall) {
+            ReviewUnlockPaywallView()
+        }
+    }
+
+    // MARK: Full Game Review (lifetime, separate from Pro)
+
+    /// The lifetime Review unlock's real purchase entry point -- visible on
+    /// every channel, including App Store production, since it's an actual
+    /// purchasable product (unlike the debug-only affordances in Settings).
+    @ViewBuilder
+    private var reviewUnlockSection: some View {
+        Section("Full Game Review") {
+            if proStore.effectiveHasFullReviewAccess(for: channel) {
+                Label("Full Game Review is unlocked.", systemImage: "checkmark.seal.fill")
+                    .font(.footnote)
+                    .foregroundStyle(themeStore.effective.accentColor)
+            } else {
+                Text("A one-time purchase that unlocks move-by-move analysis for every move, in "
+                    + "every game, forever -- no subscription.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Unlock Full Game Review") { showReviewUnlockPaywall = true }
+            }
         }
     }
 
