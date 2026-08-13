@@ -25,7 +25,7 @@ cd "$(dirname "$0")/.."
 
 ARCHIVE_PATH="build/GemmaChess.xcarchive"
 EXPORT_PATH="build/Export"
-MARKETING_VERSION="${MARKETING_VERSION:-1.0.1}"
+MARKETING_VERSION="${MARKETING_VERSION:-1.0.3}"
 BUNDLE_ID="com.cordoc.gemmachess"
 
 # Local signing config (DEVELOPMENT_TEAM, API_KEY_ID, API_ISSUER_ID) -- same
