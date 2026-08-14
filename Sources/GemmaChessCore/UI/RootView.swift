@@ -42,12 +42,16 @@ public struct GemmaRootView: View {
     @State private var review = ReviewViewModel()
     @State private var play = PlayViewModel()
     @State private var mode: Mode = .home
-    /// Bound explicitly (not left implicit) so `select(_:)` can pop any pushed
-    /// screen -- Settings, My Games, etc. -- back to root when a tab is
-    /// tapped. Without this binding a tab tap only swapped `modeContent`'s
-    /// root underneath whatever was pushed, leaving that screen (e.g.
-    /// Settings) still on screen and making the tab bar look unresponsive.
-    @State private var navPath = NavigationPath()
+    /// Owned here (not locally by whichever screen opens it) so `select(_:)`
+    /// can force it closed when a tab is tapped. Settings is reachable both
+    /// from `settingsToolbarItem` (every non-Home screen) and Home's own gear
+    /// button; both push via `.navigationDestination(isPresented:)`, which
+    /// -- unlike value-based `NavigationLink`/`.navigationDestination(for:)`
+    /// -- isn't tracked by `NavigationStack`'s `path` and can't be popped by
+    /// clearing it. Without this shared flag, a tab tap only swapped
+    /// `modeContent`'s root underneath Settings, leaving it on screen and
+    /// making the tab bar look unresponsive.
+    @State private var showSettings = false
     /// Whether a chessboard is currently on screen inside Puzzles/Lessons/
     /// Opening Trainer's own internal session state -- see `BoardVisibility`
     /// above. Play and Review don't set this; their board-vs-not state is
@@ -99,8 +103,15 @@ public struct GemmaRootView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            NavigationStack(path: $navPath) {
+            NavigationStack {
                 modeContent
+                    .navigationDestination(isPresented: $showSettings) {
+                        SettingsView(onSelectSavedGame: { saved in
+                            play.load(saved)
+                            playStartedInitially = true
+                            mode = .play
+                        })
+                    }
             }
             if showTabBarWithBoard || !isBoardOnScreen {
                 GlobalTabBar(activeTab: HomeTab(mode: mode), onSelect: select(_:))
@@ -156,7 +167,8 @@ public struct GemmaRootView: View {
                 onOpeningTrainer: { mode = .openingTrainer },
                 onGameImport: { mode = .gameImport },
                 onLessons: { mode = .lessons },
-                onWeaknessReport: { mode = .weaknessReport }
+                onWeaknessReport: { mode = .weaknessReport },
+                onSettings: { showSettings = true }
             ))
         case .play:
             AnyView(PlayContainerView(vm: play, onExit: { mode = .home }, startedInitially: playStartedInitially))
@@ -208,12 +220,10 @@ public struct GemmaRootView: View {
     /// Handles a tap on any `GlobalTabBar` item, from any screen -- tapping
     /// the tab matching the screen already on is a no-op (SwiftUI just
     /// re-renders the same case), tapping any other tab navigates there.
-    /// Always clears `navPath` first: without it, tapping a tab while a
-    /// screen was pushed on top of `modeContent` (Settings, My Games) only
-    /// swapped the now-hidden root underneath, leaving the pushed screen on
-    /// screen and making the tab bar look unresponsive.
+    /// Always closes Settings first -- see `showSettings`'s header for why
+    /// a tab tap couldn't dismiss it any other way.
     private func select(_ tab: HomeTab) {
-        navPath = NavigationPath()
+        showSettings = false
         switch tab {
         case .home: mode = .home
         case .lessons: mode = .lessons
@@ -264,18 +274,13 @@ public struct GemmaRootView: View {
     }
 
     /// A trailing gear icon to the app-wide Settings hub -- added to every
-    /// screen's toolbar so it's reachable from anywhere, not just Home.
-    /// `onSelectSavedGame` lets Settings' "My Games" row (see SettingsView.swift)
-    /// resume a game -- Settings pops itself (and the nested My Games push)
-    /// via its own `dismiss()` before this fires, so the mode change below is
-    /// immediately visible instead of hiding under two still-open pushes.
+    /// screen's toolbar so it's reachable from anywhere, not just Home. Sets
+    /// `showSettings` rather than pushing its own `NavigationLink(destination:)`
+    /// so `select(_:)` can close it from the tab bar -- see `showSettings`'s
+    /// header comment.
     private var settingsToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailingCompat) {
-            NavigationLink(destination: SettingsView(onSelectSavedGame: { saved in
-                play.load(saved)
-                playStartedInitially = true
-                mode = .play
-            })) { Image(systemName: "gearshape") }
+            Button { showSettings = true } label: { Image(systemName: "gearshape") }
         }
     }
 }
@@ -380,9 +385,9 @@ struct HomeView: View {
     var onGameImport: () -> Void
     var onLessons: () -> Void
     var onWeaknessReport: () -> Void
+    var onSettings: () -> Void
     @Environment(ThemeStore.self) private var themeStore
     @State private var showBeginners = false
-    @State private var showSettings = false
     @State private var emblemBreath = false
     @State private var weaknessReportTeaser: String?
     @State private var showAnnouncements = false
@@ -439,9 +444,6 @@ struct HomeView: View {
         #endif
         .navigationDestination(isPresented: $showBeginners) { BeginnersView() }
         .navigationDestination(isPresented: $showAnnouncements) { AnnouncementsView() }
-        .navigationDestination(isPresented: $showSettings) {
-            SettingsView(onSelectSavedGame: onSelectSavedGame)
-        }
         // `.navigationDestination(isPresented:)` gives the source view no
         // return callback, and the store is a plain enum over UserDefaults
         // with no observation -- so the false transition here is the explicit
@@ -494,7 +496,7 @@ struct HomeView: View {
     }
 
     private var settingsButton: some View {
-        Button { showSettings = true } label: {
+        Button(action: onSettings) {
             Image(systemName: "gearshape.fill")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(theme.textColor.opacity(0.8))
