@@ -42,6 +42,12 @@ public struct GemmaRootView: View {
     @State private var review = ReviewViewModel()
     @State private var play = PlayViewModel()
     @State private var mode: Mode = .home
+    /// Bound explicitly (not left implicit) so `select(_:)` can pop any pushed
+    /// screen -- Settings, My Games, etc. -- back to root when a tab is
+    /// tapped. Without this binding a tab tap only swapped `modeContent`'s
+    /// root underneath whatever was pushed, leaving that screen (e.g.
+    /// Settings) still on screen and making the tab bar look unresponsive.
+    @State private var navPath = NavigationPath()
     /// Whether a chessboard is currently on screen inside Puzzles/Lessons/
     /// Opening Trainer's own internal session state -- see `BoardVisibility`
     /// above. Play and Review don't set this; their board-vs-not state is
@@ -93,7 +99,7 @@ public struct GemmaRootView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            NavigationStack {
+            NavigationStack(path: $navPath) {
                 modeContent
             }
             if showTabBarWithBoard || !isBoardOnScreen {
@@ -202,7 +208,12 @@ public struct GemmaRootView: View {
     /// Handles a tap on any `GlobalTabBar` item, from any screen -- tapping
     /// the tab matching the screen already on is a no-op (SwiftUI just
     /// re-renders the same case), tapping any other tab navigates there.
+    /// Always clears `navPath` first: without it, tapping a tab while a
+    /// screen was pushed on top of `modeContent` (Settings, My Games) only
+    /// swapped the now-hidden root underneath, leaving the pushed screen on
+    /// screen and making the tab bar look unresponsive.
     private func select(_ tab: HomeTab) {
+        navPath = NavigationPath()
         switch tab {
         case .home: mode = .home
         case .lessons: mode = .lessons
