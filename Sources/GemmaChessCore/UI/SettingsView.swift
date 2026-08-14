@@ -213,7 +213,7 @@ public struct SettingsView: View {
                     Picker("Simulate entitlement", selection: $proStore.debugProSimulation) {
                         Text("Off (normal)").tag(ProEntitlementStore.DebugProSimulation.off)
                         Text("Free").tag(ProEntitlementStore.DebugProSimulation.free)
-                        Text("Lifetime Review").tag(ProEntitlementStore.DebugProSimulation.lifetime)
+                        Text("Review Plan").tag(ProEntitlementStore.DebugProSimulation.lifetime)
                         Text("Pro").tag(ProEntitlementStore.DebugProSimulation.pro)
                     }
                     Button("Preview Paywall") { showPaywall = true }
@@ -222,7 +222,7 @@ public struct SettingsView: View {
                     Text("Local/TestFlight only. \"Free\" makes Pro-gated features (coach chat, "
                         + "board scan, weakness report, and Review beyond move 6) show the paywall "
                         + "exactly as an App Store free-tier user would see it, instead of the usual "
-                        + "local/TestFlight bypass. \"Lifetime Review\" unlocks full Review only, not "
+                        + "local/TestFlight bypass. \"Review Plan\" unlocks full Review only, not "
                         + "the coach features. \"Pro\" unlocks everything. The \"Preview\" buttons just "
                         + "open each paywall's look without needing a real purchase.")
                 }

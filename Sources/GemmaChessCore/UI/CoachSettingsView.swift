@@ -47,24 +47,24 @@ public struct CoachSettingsView: View {
         }
     }
 
-    // MARK: Full Game Review (lifetime, separate from Pro)
+    // MARK: Review Plan (one-time purchase, separate from Pro)
 
-    /// The lifetime Review unlock's real purchase entry point -- visible on
-    /// every channel, including App Store production, since it's an actual
+    /// The Review plan's real purchase entry point -- visible on every
+    /// channel, including App Store production, since it's an actual
     /// purchasable product (unlike the debug-only affordances in Settings).
     @ViewBuilder
     private var reviewUnlockSection: some View {
-        Section("Full Game Review") {
+        Section("Review Plan") {
             if proStore.effectiveHasFullReviewAccess(for: channel) {
-                Label("Full Game Review is unlocked.", systemImage: "checkmark.seal.fill")
+                Label("Review Plan is unlocked.", systemImage: "checkmark.seal.fill")
                     .font(.footnote)
                     .foregroundStyle(themeStore.effective.accentColor)
             } else {
-                Text("A one-time purchase that unlocks move-by-move analysis for every move, in "
+                Text("A one-time purchase that unlocks move-by-move analysis beyond move 6, in "
                     + "every game, forever -- no subscription.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                Button("Unlock Full Game Review") { showReviewUnlockPaywall = true }
+                Button("Unlock Review Plan") { showReviewUnlockPaywall = true }
             }
         }
     }

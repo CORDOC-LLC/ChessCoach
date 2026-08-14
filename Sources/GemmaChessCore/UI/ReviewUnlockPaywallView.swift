@@ -1,10 +1,11 @@
 //  ReviewUnlockPaywallView.swift
-//  Native, theme-driven purchase screen for the lifetime Full Game Review
-//  unlock -- a one-time, non-consumable purchase, separate from ChessCoach
-//  Pro (see PaywallView). Deliberately its own view, not an extended
-//  PaywallView: different messaging (one-time vs. subscription), no
-//  auto-renewal legal disclosure, and a different entry point (Review's
-//  locked content / Settings, not the Pro upsell surfaces).
+//  Native, theme-driven purchase screen for the "Review" plan -- a one-time,
+//  non-consumable purchase (mechanically a lifetime unlock) that removes the
+//  free tier's move-6 cap on Review, separate from ChessCoach Pro (see
+//  PaywallView). Deliberately its own view, not an extended PaywallView:
+//  different messaging (one-time vs. subscription), no auto-renewal legal
+//  disclosure, and a different entry point (Review's locked content /
+//  Settings, not the Pro upsell surfaces).
 
 import SwiftUI
 import RevenueCat
@@ -35,6 +36,7 @@ public struct ReviewUnlockPaywallView: View {
                 VStack(spacing: 24) {
                     header
                     featureList
+                    proIncludedNote
                     packageSection
                     if let errorMessage {
                         Text(errorMessage)
@@ -61,10 +63,10 @@ public struct ReviewUnlockPaywallView: View {
             Image(systemName: "chart.line.uptrend.xyaxis")
                 .font(.system(size: 40))
                 .foregroundStyle(theme.accentColor)
-            Text("Full Game Review")
+            Text("Review Plan")
                 .font(.title.weight(.bold))
                 .foregroundStyle(theme.textColor)
-            Text("One-time purchase. Unlock move-by-move analysis for every move, in every game, forever.")
+            Text("One-time purchase. Unlock full move analysis beyond move 6 -- once, yours forever.")
                 .font(.subheadline)
                 .foregroundStyle(theme.mutedTextColor)
                 .multilineTextAlignment(.center)
@@ -75,7 +77,7 @@ public struct ReviewUnlockPaywallView: View {
 
     private var featureList: some View {
         VStack(alignment: .leading, spacing: 10) {
-            featureRow(icon: "checkmark.seal.fill", text: "Full move-by-move classification and best-move suggestions")
+            featureRow(icon: "checkmark.seal.fill", text: "Full move-by-move classification and best-move suggestions, beyond move 6")
             featureRow(icon: "infinity", text: "Every game you've played or ever will -- no subscription")
             featureRow(icon: "creditcard.fill", text: "Pay once, own it forever")
         }
@@ -84,6 +86,19 @@ public struct ReviewUnlockPaywallView: View {
         .background(theme.cardBackgroundColor)
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.cardBorderColor, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// Reassurance for a Pro subscriber who lands here (e.g. via a stale-state
+    /// edge case, not the normal flow -- Pro users don't see the CoachSettingsView
+    /// entry point's purchase button, and ReviewScreen's lock banner never shows
+    /// when they already have full access). Rendered unconditionally, OUTSIDE
+    /// `packageSection`'s tri-state loading/loaded/unavailable ViewBuilder, so it
+    /// never disappears during the loading spinner or the "not available" fallback.
+    private var proIncludedNote: some View {
+        Text("Already a Pro subscriber? You already have full Review access included.")
+            .font(.caption)
+            .foregroundStyle(theme.mutedTextColor)
+            .multilineTextAlignment(.center)
     }
 
     private func featureRow(icon: String, text: String) -> some View {
@@ -104,7 +119,7 @@ public struct ReviewUnlockPaywallView: View {
         } else if let package = lifetimePackage {
             VStack(spacing: 10) {
                 HStack {
-                    Text("Lifetime unlock")
+                    Text("Review Plan")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(theme.textColor)
                     Spacer()
@@ -163,6 +178,10 @@ public struct ReviewUnlockPaywallView: View {
 
     private var legalFooter: some View {
         VStack(spacing: 6) {
+            Text("Your purchase helps us keep building free features for everyone.")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(theme.mutedTextColor)
+                .multilineTextAlignment(.center)
             Text("One-time purchase. No subscription, no renewal. Payment is charged to your Apple ID "
                 + "at confirmation of purchase.")
                 .font(.caption2)

@@ -47,14 +47,15 @@ public final class ProEntitlementStore {
 
     /// Master kill-switch for selling the Pro subscription -- distinct from
     /// entitlement gating. Set `false` to stop offering NEW Pro purchases
-    /// (e.g. while its LLM coach quality is still being evaluated) without
+    /// (e.g. while its LLM coach quality is being evaluated) without
     /// touching entitlement logic: existing checks (`effectiveIsProActive`,
     /// `requireProOrThrow`) are completely unaffected, so a real Pro
-    /// subscriber (there are currently none) would keep working normally.
+    /// subscriber would keep working normally regardless of this flag.
     /// Only gates the PURCHASE path -- see `PaywallView`, which shows a
     /// "not available yet" state instead of the plan picker when this is
-    /// `false`. Flip back to `true` when ready to sell Pro again.
-    public static let proSaleEnabled = false
+    /// `false`. Currently `true` (Pro sale is active); flip back to `false`
+    /// if Pro purchasing needs to pause again.
+    public static let proSaleEnabled = true
 
     public private(set) var isProActive = false
     /// Whether the lifetime Full Game Review unlock is active, from RevenueCat's
