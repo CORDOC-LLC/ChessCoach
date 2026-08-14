@@ -123,13 +123,15 @@ struct ReviewViewModelGatingTests {
         #expect(vm.currentNode == before) // no navigation happened
     }
 
-    @Test("locked -- winValues is capped at the free boundary")
-    func winValuesCappedWhenLocked() {
+    @Test("locked -- winValues still shows the full game (teaser), navigation stays capped")
+    func winValuesFullEvenWhenLocked() {
         let vm = makeVM(access: .free)
         defer { ProEntitlementStore.shared.debugProSimulation = .off }
 
-        // Full timeline has 17 nodes (0...16); locked caps at node 11 -> 12 values.
-        #expect(vm.winValues.count == 12)
+        // The graph itself is never truncated -- only goto/gotoMistake clamp.
+        #expect(vm.winValues.count == vm.nodeCount)
+        vm.goto(node: vm.nodeCount - 1)
+        #expect(vm.currentNode == 11) // still clamped to the free boundary
     }
 
     @Test("unlocked -- winValues includes the full game")

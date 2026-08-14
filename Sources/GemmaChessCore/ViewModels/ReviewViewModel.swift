@@ -105,10 +105,12 @@ public final class ReviewViewModel {
         hasFullReviewAccess ? (nodeCount - 1) : min(Self.freeReviewPlyLimit - 1, nodeCount - 1)
     }
 
+    /// The full-game win% curve, shown even when locked -- a locked viewer
+    /// can see where the game swung but not navigate into it (`goto`/
+    /// `gotoMistake` still clamp to `maxReachableNode`), so the shape of the
+    /// game itself is the hook toward buying the Review plan.
     public var winValues: [Double] {
-        let full = session?.timeline.map { $0.winWhite } ?? []
-        guard !hasFullReviewAccess, full.count > maxReachableNode + 1 else { return full }
-        return Array(full.prefix(maxReachableNode + 1))
+        session?.timeline.map { $0.winWhite } ?? []
     }
 
     // MARK: Navigation
