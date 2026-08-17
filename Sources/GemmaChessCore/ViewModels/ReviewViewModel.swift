@@ -100,6 +100,17 @@ public final class ReviewViewModel {
         hasFullReviewAccess ? 0 : max(0, nodeCount - 1 - Self.freeReviewPlyLimit)
     }
 
+    /// Whether the coach chat/summary (written LLM prose) is unlocked --
+    /// Pro only. Deliberately separate from `hasFullReviewAccess`: the
+    /// Review plan unlocks full move-by-move analysis but never included
+    /// written coaching, same as free. `CoachChatView` gates its
+    /// interactive body on this; `ask`/`summarize` would otherwise still
+    /// fail server-side via `CoachOrchestrator`'s own `requireProOrThrow`,
+    /// but only after showing a live chat UI that looked usable.
+    public var isProEntitled: Bool {
+        ProEntitlementStore.shared.effectiveIsProActive()
+    }
+
     /// The highest node index navigation may reach right now.
     private var maxReachableNode: Int {
         hasFullReviewAccess ? (nodeCount - 1) : min(Self.freeReviewPlyLimit - 1, nodeCount - 1)

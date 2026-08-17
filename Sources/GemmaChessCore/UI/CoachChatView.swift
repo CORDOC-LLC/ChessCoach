@@ -8,6 +8,7 @@ import SwiftUI
 public struct CoachChatView: View {
     @Bindable var vm: ReviewViewModel
     @State private var draft: String = ""
+    @State private var showPaywall = false
 
     public init(vm: ReviewViewModel) { self.vm = vm }
 
@@ -20,11 +21,35 @@ public struct CoachChatView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             case .managed:
-                coachBody
+                // `coachAvailability` only reflects whether a managed backend
+                // is configured/reachable, not whether THIS viewer has Pro --
+                // local/TestFlight bypass entitlement by default, so without
+                // this check the chat/input/summary button rendered fully
+                // interactive for a free or Review-plan viewer, only failing
+                // (with a confusing generic error) once they actually sent a
+                // message -- `CoachOrchestrator`'s own requireProOrThrow gate
+                // fires too late to prevent that.
+                if vm.isProEntitled {
+                    coachBody
+                } else {
+                    proRequiredBody
+                }
             }
         }
         .padding(12)
         .background(Color.gray.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .sheet(isPresented: $showPaywall) { PaywallView() }
+    }
+
+    private var proRequiredBody: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Written coaching -- chat and the full game summary -- is a ChessCoach Pro feature. "
+                + "Not included in the free tier or the Review plan.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Button("Subscribe to ChessCoach Pro") { showPaywall = true }
+                .font(.footnote.weight(.semibold))
+        }
     }
 
     private var header: some View {
