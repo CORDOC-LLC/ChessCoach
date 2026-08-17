@@ -159,6 +159,24 @@ public final class ReviewViewModel {
         await analyze(pgn: record.pgn, player: record.reviewedSide)
     }
 
+    /// "Review Game" straight from Play mode's game-over banner -- takes the
+    /// live `PlayViewModel`'s in-memory snapshot (`snapshotForReview()`), not
+    /// a disk read, so there's no race with `persistCheckpoint()`'s async
+    /// write landing after the game just ended. Same build-or-fall-back shape
+    /// as `openHistoryRecord`.
+    public func openLiveGame(_ savedGame: SavedGame) async {
+        if let session = ReviewSessionBuilder.build(from: savedGame) {
+            errorText = nil
+            apply(session: session)
+            return
+        }
+        let side = savedGame.playerIsWhite ? "white" : "black"
+        let (result, _) = HistoryStore.playResult(
+            text: savedGame.resultText, playerIsWhite: savedGame.playerIsWhite)
+        let pgn = HistoryStore.pgn(from: savedGame, result: result)
+        await analyze(pgn: pgn, player: side)
+    }
+
     public func analyze(pgn: String, player: String = "auto") async {
         let trimmed = pgn.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { errorText = "Paste a PGN first."; return }

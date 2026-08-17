@@ -171,7 +171,19 @@ public struct GemmaRootView: View {
                 onSettings: { showSettings = true }
             ))
         case .play:
-            AnyView(PlayContainerView(vm: play, onExit: { mode = .home }, startedInitially: playStartedInitially))
+            AnyView(PlayContainerView(
+                vm: play, onExit: { mode = .home },
+                onReviewGame: { saved in
+                    // Await session-build before switching mode -- otherwise
+                    // `reviewFlow` briefly shows LoadView (review.session
+                    // still nil) instead of jumping straight to the game.
+                    Task {
+                        await review.openLiveGame(saved)
+                        mode = .review
+                    }
+                },
+                startedInitially: playStartedInitially
+            ))
         case .review:
             AnyView(reviewFlow)
         case .scan:

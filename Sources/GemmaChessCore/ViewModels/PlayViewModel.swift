@@ -979,6 +979,13 @@ public final class PlayViewModel {
         await persistWriteTask?.value
     }
 
+    /// Public passthrough for callers (e.g. "Review Game" on the game-over
+    /// banner) that need the live game's current state without waiting on
+    /// `persistCheckpoint()`'s async disk write -- reading straight from
+    /// memory instead of `SavedGameStore.load(id:)` sidesteps that race
+    /// entirely.
+    public func snapshotForReview() -> SavedGame { currentSavedGameSnapshot() }
+
     /// Snapshot the current game to disk. Called after every state-changing event
     /// (a move, a coach note landing, game over) so a killed app loses at most the
     /// in-flight step, never the whole game. Cheap: a small per-game JSON file, no

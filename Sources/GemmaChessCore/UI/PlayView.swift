@@ -10,6 +10,7 @@ import ChessKit
 public struct PlayContainerView: View {
     @Bindable var vm: PlayViewModel
     var onExit: () -> Void
+    var onReviewGame: (SavedGame) -> Void
     @State private var started: Bool
     @State private var sideIsWhite = true
     @State private var settings = PlayDisplaySettings()
@@ -17,15 +18,18 @@ public struct PlayContainerView: View {
     /// `startedInitially`: skip the setup form and go straight to the live
     /// game -- used when `vm` was just loaded from a `SavedGame` (Resume, or
     /// opening a finished game for replay from Home/My Games).
-    public init(vm: PlayViewModel, onExit: @escaping () -> Void, startedInitially: Bool = false) {
-        self.vm = vm; self.onExit = onExit
+    public init(
+        vm: PlayViewModel, onExit: @escaping () -> Void,
+        onReviewGame: @escaping (SavedGame) -> Void, startedInitially: Bool = false
+    ) {
+        self.vm = vm; self.onExit = onExit; self.onReviewGame = onReviewGame
         self._started = State(initialValue: startedInitially)
     }
 
     public var body: some View {
         Group {
             if started {
-                PlayView(vm: vm, onNewGame: { started = false })
+                PlayView(vm: vm, onNewGame: { started = false }, onReviewGame: onReviewGame)
             } else {
                 setup
             }
@@ -95,6 +99,7 @@ public struct PlayContainerView: View {
 public struct PlayView: View {
     @Bindable var vm: PlayViewModel
     var onNewGame: () -> Void
+    var onReviewGame: (SavedGame) -> Void
     @State private var settings = PlayDisplaySettings()
     @State private var showChat = false
     @State private var showGameOverBanner = false
@@ -104,8 +109,8 @@ public struct PlayView: View {
     @Environment(ThemeStore.self) private var themeStore
     private var theme: Theme { themeStore.effective }
 
-    public init(vm: PlayViewModel, onNewGame: @escaping () -> Void) {
-        self.vm = vm; self.onNewGame = onNewGame
+    public init(vm: PlayViewModel, onNewGame: @escaping () -> Void, onReviewGame: @escaping (SavedGame) -> Void) {
+        self.vm = vm; self.onNewGame = onNewGame; self.onReviewGame = onReviewGame
     }
 
     public var body: some View {
@@ -137,7 +142,9 @@ public struct PlayView: View {
             // The outcome guard stays even though the summary no longer needs
             // it unwrapped: no outcome means no finished game to report.
             if showGameOverBanner, vm.outcome != nil {
-                GameOverBanner(summary: vm.shareSummary, compact: true) {
+                GameOverBanner(summary: vm.shareSummary, compact: true, onReviewGame: {
+                    onReviewGame(vm.snapshotForReview())
+                }) {
                     dismissGameOverBanner()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -721,6 +728,7 @@ struct GameOverBanner: View {
     /// Tighter type and spacing for the inline placement, where the card shares
     /// a non-scrolling column with the board on the smallest supported screen.
     var compact: Bool = false
+    var onReviewGame: () -> Void
     var onDismiss: () -> Void
 
     @Environment(ThemeStore.self) private var themeStore
@@ -785,6 +793,14 @@ struct GameOverBanner: View {
                 .tint(theme.textColor.opacity(0.16))
                 .foregroundStyle(theme.textColor)
                 #endif
+                Button(action: onReviewGame) {
+                    Label("Review", systemImage: "magnifyingglass")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(theme.textColor.opacity(0.16))
+                .foregroundStyle(theme.textColor)
                 Button(action: onDismiss) {
                     Text("Continue")
                         .font(.caption.weight(.semibold))
