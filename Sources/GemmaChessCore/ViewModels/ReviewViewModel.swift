@@ -36,6 +36,13 @@ public final class ReviewViewModel {
 
     private let coach: CoachOrchestrator
     private var coachSessionID: String?
+    /// The originating `SavedGame`'s id, when this session was built straight
+    /// from a live Play-mode record (`ReviewSessionBuilder`'s fast path) --
+    /// lets `summarize()` write a freshly-generated debrief back to disk so
+    /// it's cached for next time too, not just for the rest of this app run.
+    /// Nil for PGN-imported/pasted games (`analyze(pgn:player:)`, which
+    /// always clears it) and for the rare live-capture-incomplete fallback.
+    private var liveSavedGameID: UUID?
 
     public init(coach: CoachOrchestrator = CoachOrchestrator()) {
         self.coach = coach
@@ -164,6 +171,7 @@ public final class ReviewViewModel {
            let savedGame = SavedGameStore.load(id: savedGameID),
            let session = ReviewSessionBuilder.build(from: savedGame) {
             errorText = nil
+            liveSavedGameID = savedGameID
             apply(session: session)
             return
         }
@@ -178,6 +186,7 @@ public final class ReviewViewModel {
     public func openLiveGame(_ savedGame: SavedGame) async {
         if let session = ReviewSessionBuilder.build(from: savedGame) {
             errorText = nil
+            liveSavedGameID = savedGame.id
             apply(session: session)
             return
         }
@@ -197,6 +206,11 @@ public final class ReviewViewModel {
         summaryText = nil
         chat = []
         coachSessionID = nil
+        // A fresh PGN sweep has no backing SavedGame to write a summary back
+        // to -- covers both the direct paste/import entry point and the rare
+        // fallback from openHistoryRecord/openLiveGame when the live capture
+        // was incomplete.
+        liveSavedGameID = nil
         defer { isAnalyzing = false }
 
         if let cached = AnalysisCache.load(pgn: trimmed, player: player) {
@@ -229,6 +243,10 @@ public final class ReviewViewModel {
         currentNode = 0
         orientationIsWhite = (s.player == "white")
         progress = 1
+        // Pre-seed from the already-paid-for summary carried on the session
+        // (see ReviewSessionBuilder) so a Pro viewer sees it immediately
+        // instead of the "Coach summary" button re-requesting it.
+        summaryText = s.coachAiText
     }
 
     // MARK: Coach
@@ -272,6 +290,15 @@ public final class ReviewViewModel {
                 buildCoachGameInput(s),
                 profileFacts: personalize ? profileFacts() : nil)
             summaryText = text
+            session?.coachAiText = text
+            // Write the already-paid-for summary back to the SavedGame it came
+            // from, so a future Review of this same game reuses it instead of
+            // triggering another billed gateway call (see ReviewSessionBuilder,
+            // which reads gameSummary back out on the next build).
+            if let id = liveSavedGameID, var saved = SavedGameStore.load(id: id) {
+                saved.gameSummary = text
+                try? SavedGameStore.save(saved)
+            }
         } catch let error as CoachError {
             errorText = error.message
         } catch {

@@ -169,6 +169,13 @@ public struct ReviewScreen: View {
                 if !v.comment.isEmpty {
                     Text(v.comment).font(.footnote).foregroundStyle(.secondary)
                 }
+                // Reuses the already-paid-for Play-mode coach note (see
+                // ReviewSessionBuilder) instead of re-requesting it -- same
+                // Pro gate CoachChatView applies, since it's the same paid
+                // written-coaching feature, just carried over from Play.
+                if vm.isProEntitled, let note = v.coachNote, !note.isEmpty {
+                    Text(note).font(.footnote)
+                }
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -111,7 +111,14 @@ public enum ReviewSessionBuilder {
                 bestLineUCI: record.bestUCI.map { [$0] } ?? [],
                 bestLineSAN: bestSAN.map { [$0] } ?? [],
                 accuracy: Evaluation.round1(acc), comment: comment,
-                clockAfter: nil, oppClock: nil
+                clockAfter: nil, oppClock: nil,
+                // Carries the already-paid-for Play-mode coach note across
+                // into Review, so a Pro viewer doesn't re-request (and the
+                // gateway doesn't re-bill for) an explanation that already
+                // exists for this exact move. Display-time gating on the
+                // viewer's current Pro entitlement stays in ReviewScreen --
+                // this is just data.
+                coachNote: savedGame.moveNotes[i]
             ))
         }
 
@@ -162,6 +169,10 @@ public enum ReviewSessionBuilder {
             accuracyWhite: Evaluation.round1(Evaluation.aggregateAccuracy(whiteAccs)),
             accuracyBlack: Evaluation.round1(Evaluation.aggregateAccuracy(blackAccs)),
             allMoves: allMoves, mistakes: mistakes, currentIndex: 0,
+            // The already-paid-for end-of-game debrief, carried over so a Pro
+            // viewer reviewing this same game doesn't trigger a second paid
+            // gateway call for a summary that already exists.
+            coachAiText: savedGame.gameSummary,
             timeline: timeline
         )
     }

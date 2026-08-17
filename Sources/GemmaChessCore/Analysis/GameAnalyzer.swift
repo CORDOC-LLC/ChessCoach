@@ -34,16 +34,26 @@ public struct MoveReview: Codable, Sendable, Equatable {
     public var bestLineUCI: [String]
     public var bestLineSAN: [String]
     public var accuracy: Double
-    public var comment: String    // engine-grounded prose explanation (mistakes only)
+    public var comment: String    // engine-grounded prose explanation (mistakes only) -- free, template-based
     public var clockAfter: Double?  // my remaining time after this move (from [%clk]), nil if none
     public var oppClock: Double?    // opponent's remaining at their previous move
+    /// The paid LLM coach's note for this exact move, carried over from
+    /// `SavedGame.moveNotes` when this review was built from a live Play-mode
+    /// game (`ReviewSessionBuilder`) -- nil for PGN-imported/analyzed games,
+    /// which never had a live coach session. Distinct from `comment`: this is
+    /// the Pro-only prose the player already paid to generate once, reused
+    /// here instead of re-requesting it. Display must still gate on the
+    /// viewer's CURRENT Pro entitlement (see `ReviewViewModel.isProEntitled`)
+    /// -- the text being cached on the record doesn't make it free to show.
+    public var coachNote: String?
 
     public init(
         ply: Int, moveNumber: Int, color: String, moveSAN: String, moveUCI: String,
         fenBefore: String, fenAfter: String, evalBefore: Double, evalAfter: Double,
         winBefore: Double, winAfter: Double, winSwing: Double, classification: String,
         bestMoveSAN: String, bestLineUCI: [String], bestLineSAN: [String], accuracy: Double,
-        comment: String = "", clockAfter: Double? = nil, oppClock: Double? = nil
+        comment: String = "", clockAfter: Double? = nil, oppClock: Double? = nil,
+        coachNote: String? = nil
     ) {
         self.ply = ply; self.moveNumber = moveNumber; self.color = color
         self.moveSAN = moveSAN; self.moveUCI = moveUCI
@@ -54,6 +64,7 @@ public struct MoveReview: Codable, Sendable, Equatable {
         self.bestMoveSAN = bestMoveSAN; self.bestLineUCI = bestLineUCI; self.bestLineSAN = bestLineSAN
         self.accuracy = accuracy; self.comment = comment
         self.clockAfter = clockAfter; self.oppClock = oppClock
+        self.coachNote = coachNote
     }
 }
 
