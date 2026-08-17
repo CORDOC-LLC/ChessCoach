@@ -157,11 +157,14 @@ public struct ReviewScreen: View {
                 }
                 // "best" means the played move was AS GOOD AS the engine's top
                 // choice (Evaluation.classify's bestEps/bestCpLoss tolerance),
-                // not necessarily textually identical to it -- showing
-                // "Better: X" underneath a "Best" badge reads as a direct
-                // contradiction, so it's suppressed for that tier specifically.
-                if v.classification != "best", v.bestMoveSAN != v.moveSAN, !v.bestMoveSAN.isEmpty {
-                    Text("Better: \(v.bestMoveSAN)").font(.subheadline)
+                // not necessarily textually identical to it -- "Better: X"
+                // under a "Best" badge read as a direct contradiction, so
+                // that tier gets different wording. Still shown either way:
+                // the win% line above already carries the size of the swing,
+                // and naming the alternative is the whole point of the row.
+                if v.bestMoveSAN != v.moveSAN, !v.bestMoveSAN.isEmpty {
+                    Text(v.classification == "best" ? "Also strong: \(v.bestMoveSAN)" : "Better: \(v.bestMoveSAN)")
+                        .font(.subheadline)
                 }
                 if !v.comment.isEmpty {
                     Text(v.comment).font(.footnote).foregroundStyle(.secondary)

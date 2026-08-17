@@ -53,9 +53,22 @@ public struct WinGraphView: View {
                 }
             }
             .contentShape(Rectangle())
-            .gesture(
+            // `.simultaneousGesture` (not `.gesture`) so the enclosing
+            // ScrollView keeps its own pan recognizer instead of losing it to
+            // this one -- with a plain `.gesture` here, ANY touch starting
+            // inside the graph's full-width band (including a vertical
+            // scroll attempt) got claimed exclusively by this drag, making
+            // the whole Review screen impossible to scroll past the graph.
+            // The translation guard below is what actually keeps a vertical
+            // scroll from moving the current-node marker: it lets a
+            // near-stationary tap or a clearly-horizontal drag scrub, but
+            // ignores motion that's mostly vertical.
+            .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        guard abs(value.translation.height) < 10
+                            || abs(value.translation.width) >= abs(value.translation.height)
+                        else { return }
                         let idx = Int((value.location.x / max(stepX, 0.001)).rounded())
                         onScrub(min(max(idx, 0), values.count - 1))
                     }
