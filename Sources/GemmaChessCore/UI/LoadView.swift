@@ -96,9 +96,18 @@ public struct LoadView: View {
             }
             ForEach(history, id: \.gameID) { rec in
                 Button { Task { await vm.openHistoryRecord(rec) } } label: {
-                    gameRow(white: rec.white, black: rec.black, result: rec.result,
-                            sub: [rec.speed, rec.opening, "acc \(Int(rec.accuracy.rounded()))%"]
-                                .compactMap { $0 }.joined(separator: " · "))
+                    // Play-mode games are always "me vs Stockfish" -- the
+                    // opponent name is never the interesting part, so that
+                    // row leads with when it was played instead. Imported/
+                    // Lichess games keep the White/Black identity, since
+                    // that's real information there.
+                    if rec.platform == "play" {
+                        playGameRow(rec)
+                    } else {
+                        gameRow(white: rec.white, black: rec.black, result: rec.result,
+                                sub: [nonUnknown(rec.speed), rec.opening, "acc \(Int(rec.accuracy.rounded()))%"]
+                                    .compactMap { $0 }.joined(separator: " · "))
+                    }
                 }
                 .buttonStyle(.plain)
             }
@@ -113,6 +122,59 @@ public struct LoadView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
+
+    private func playGameRow(_ rec: GameRecord) -> some View {
+        let subtitle = [
+            resultWord(rec.playerResult),
+            rec.skill.map { "Skill \($0)" },
+            nonUnknown(rec.opening),
+            "acc \(Int(rec.accuracy.rounded()))%",
+        ].compactMap { $0 }.joined(separator: " · ")
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(Self.playedAtLabel(rec.date)).font(.subheadline).fontWeight(.medium)
+            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    /// Filters out the placeholder "unknown" a Play-mode game's PGN-style
+    /// fields ("speed"/"opening") can carry -- meaningless UI noise the user
+    /// otherwise sees verbatim as the string "unknown".
+    private func nonUnknown(_ value: String?) -> String? {
+        (value?.isEmpty == false && value != "unknown") ? value : nil
+    }
+
+    private func resultWord(_ playerResult: String?) -> String? {
+        switch playerResult {
+        case "win": return "Win"
+        case "loss": return "Loss"
+        case "draw": return "Draw"
+        default: return nil
+        }
+    }
+
+    /// "Aug 18, 7:38 PM" from `GameRecord.date` (an ISO8601 date+time string
+    /// for a Play-mode game -- see `HistoryStore.iso`). Falls back to a plain
+    /// label rather than a raw ISO string or nothing when the date is
+    /// missing/unparseable (an older saved game from before this field
+    /// existed).
+    private static func playedAtLabel(_ iso: String?) -> String {
+        guard let iso, let date = Self.isoParser.date(from: iso) else { return "Game" }
+        return Self.playedAtFormatter.string(from: date)
+    }
+
+    private static let isoParser: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private static let playedAtFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d, h:mm a"
+        return f
+    }()
 
     private var analyzingOverlay: some View {
         ZStack {

@@ -56,6 +56,20 @@ struct SavedGameToGameRecordTests {
         #expect(record.counts.inaccuracy == 0)
     }
 
+    @Test("skill and date carry over from the SavedGame, for the 'My games' row")
+    func skillAndDateCarryOver() throws {
+        let records = [
+            CoachPromptBuilder.PlayMoveRecord(
+                moveNumber: 1, san: "a3", classification: "best",
+                winBefore: 50, winAfter: 50, betterSan: nil, bestUCI: nil),
+        ]
+        let game = savedGame(plyCount: 10, moveRecords: records)
+        let record = try #require(HistoryStore().buildGameRecord(from: game, identity: PlayerIdentity()))
+        #expect(record.skill == 6)
+        #expect(record.date != nil)
+        #expect(record.platform == "play")
+    }
+
     @Test("a game under the 10-ply floor is excluded entirely")
     func underFloorExcluded() {
         let game = savedGame(plyCount: 8, moveRecords: [])

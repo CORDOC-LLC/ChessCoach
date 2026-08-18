@@ -98,6 +98,13 @@ public struct GameRecord: Codable, Sendable, Equatable {
     public var speed: String
     public var playerElo: Int?
     public var opponentElo: Int?
+    /// The Stockfish "Skill Level" (0-20) the opponent was set to, for a
+    /// Play-mode game -- nil for an imported/pasted game, where there's no
+    /// engine opponent to speak of. Lets "My games" show something more
+    /// useful than a repeated "me vs Stockfish" for every row (every Play
+    /// game IS "me vs Stockfish" -- the only thing that varies is which
+    /// game, when, and how strong the opponent was).
+    public var skill: Int? = nil
     public var gameURL: String?
     public var pgn: String
     public var sweepDepth: Int?
@@ -380,7 +387,7 @@ public struct HistoryStore: Sendable {
             playerID: playerID,
             platform: "play",
             playerName: playerName,
-            date: nil,
+            date: Self.iso(savedGame.startedAt),
             white: white,
             black: black,
             result: result,
@@ -391,6 +398,7 @@ public struct HistoryStore: Sendable {
             speed: Speed.unknown.rawValue,
             playerElo: nil,
             opponentElo: nil,
+            skill: savedGame.skill,
             gameURL: nil,
             pgn: Self.pgn(from: savedGame, result: result),
             sweepDepth: nil,
@@ -557,10 +565,12 @@ public struct HistoryStore: Sendable {
         return String(hex.prefix(16))
     }
 
-    static func nowISO() -> String {
+    static func nowISO() -> String { iso(Date()) }
+
+    static func iso(_ date: Date) -> String {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
-        return f.string(from: Date())
+        return f.string(from: date)
     }
 
     static func intOrNil(_ raw: String?) -> Int? {
