@@ -435,11 +435,45 @@ public struct HistoryStore: Sendable {
         var body = ""
         for (i, san) in savedGame.sanMoves.enumerated() {
             if i % 2 == 0 { body += "\(i / 2 + 1). " }
-            body += "\(san) "
+            let uci = savedGame.moves.indices.contains(i) ? savedGame.moves[i] : nil
+            let fenBefore = savedGame.fenHistory.indices.contains(i) ? savedGame.fenHistory[i] : nil
+            body += "\(reliableSAN(san, uci: uci, fenBefore: fenBefore)) "
         }
         body += result
         lines.append(body)
         return lines.joined(separator: "\n")
+    }
+
+    /// Guards against a stored `sanMoves` entry that's actually a raw-UCI
+    /// fallback (`PlayViewModel.makeUserMove`'s `ChessLogic.san(...) ?? uci`
+    /// last resort, taken whenever SAN generation fails for that one ply).
+    /// A bare UCI token like `"g1f3"` embedded in PGN move text isn't valid
+    /// SAN -- ChessKit's `Game(pgn:)` parser rejects the WHOLE game over it,
+    /// not just that ply, turning one bad ply into "Couldn't analyze" for a
+    /// game that's otherwise perfectly reviewable. Re-derives SAN from the
+    /// authoritative (uci, fenBefore) pair when the stored string doesn't
+    /// look like SAN; only falls through to the raw token if regeneration
+    /// also fails, since embedding something is still better than dropping
+    /// the ply and desyncing every move after it.
+    private static func reliableSAN(_ stored: String, uci: String?, fenBefore: String?) -> String {
+        guard looksLikeRawUCI(stored) else { return stored }
+        if let uci, let fenBefore, let regenerated = ChessLogic.san(fromUCI: uci, inFEN: fenBefore) {
+            return regenerated
+        }
+        return stored
+    }
+
+    /// Whether `token` has the shape of a raw UCI/LAN move (`"e2e4"`,
+    /// `"e7e8q"`) rather than SAN. SAN never matches: piece moves start with
+    /// an uppercase piece letter, pawn captures put `x` where a UCI token has
+    /// a rank digit, and promotions put `=` there instead.
+    private static func looksLikeRawUCI(_ token: String) -> Bool {
+        let chars = Array(token)
+        guard chars.count == 4 || chars.count == 5 else { return false }
+        func isFile(_ c: Character) -> Bool { c >= "a" && c <= "h" }
+        func isRank(_ c: Character) -> Bool { c >= "1" && c <= "8" }
+        guard isFile(chars[0]), isRank(chars[1]), isFile(chars[2]), isRank(chars[3]) else { return false }
+        return chars.count == 4 || "qrbn".contains(chars[4])
     }
 
     static func gameID(_ savedGame: SavedGame) -> String {

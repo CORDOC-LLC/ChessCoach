@@ -4,6 +4,7 @@
 
 import Foundation
 import Testing
+import ChessKit
 @testable import GemmaChessCore
 
 @Suite("HistoryStore", .serialized)
@@ -63,6 +64,41 @@ struct HistoryStoreTests {
             #expect(store.listPlayers() == ["me"])
             #expect(store.loadRecords(playerID: "me").count == 2)
         }
+    }
+
+    /// Regression: `PlayViewModel.makeUserMove` falls back to a raw UCI token
+    /// (`ChessLogic.san(...) ?? uci`) whenever SAN generation fails for one
+    /// ply. A bare UCI token like `"g1f3"` embedded in PGN move text isn't
+    /// valid SAN -- ChessKit's `Game(pgn:)` used to reject the WHOLE
+    /// reconstructed game over it (see `ReviewSessionBuilder`'s fallback,
+    /// `ReviewViewModel.openLiveGame`/`openHistoryRecord`), surfacing a
+    /// confusing "Couldn't analyze -- could not parse a game from the
+    /// provided PGN" for an otherwise perfectly reviewable game. `pgn(from
+    /// savedGame:result:)` now re-derives SAN from `(uci, fenBefore)` for any
+    /// stored entry that looks like a raw UCI token, so the reconstruction
+    /// stays parseable.
+    @Test("pgn(from:result:) repairs a raw-UCI fallback entry in sanMoves")
+    func pgnRepairsRawUCIFallback() throws {
+        let saved = SavedGame(
+            id: UUID(), startedAt: Date(), updatedAt: Date(), playerIsWhite: true,
+            startFEN: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            moves: ["e2e4", "b8c6", "g1f3"],
+            sanMoves: ["e4", "Nc6", "g1f3"],  // simulates a SAN-generation miss for ply 2
+            fenHistory: [
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+                "r1bqkbnr/pppppppp/2n5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2",
+            ],
+            skill: 1, isGameOver: true, resultText: "You resigned.",
+            openingName: nil, openingECO: nil,
+            moveNotes: [:], gameSummary: nil, moveRecords: [], winAfterMover: nil)
+
+        let (result, _) = HistoryStore.playResult(text: saved.resultText, playerIsWhite: saved.playerIsWhite)
+        let pgn = HistoryStore.pgn(from: saved, result: result)
+
+        #expect(pgn.contains("Nf3"))       // repaired from the raw "g1f3" token
+        #expect(!pgn.contains("g1f3"))
+        #expect((try? ChessKit.Game(pgn: pgn)) != nil)   // the whole reconstruction now parses
     }
 
     @Test("resolveIdentity keys an unmapped handle by its own lowercased name")
