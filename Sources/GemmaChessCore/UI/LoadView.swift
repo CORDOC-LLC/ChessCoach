@@ -104,7 +104,15 @@ public struct LoadView: View {
                     if rec.platform == "play" {
                         playGameRow(rec)
                     } else {
-                        gameRow(white: rec.white, black: rec.black, result: rec.result,
+                        // "0-1"/"1-0" is a raw PGN result code -- meaningless
+                        // at a glance for anyone who isn't parsing which
+                        // color they were. `playerResult` is already
+                        // computed from the reviewed side's perspective, so
+                        // "Win"/"Loss"/"Draw" reads directly; only a record
+                        // with no resolvable result (e.g. an ongoing/`*`
+                        // PGN) falls back to the raw code.
+                        gameRow(white: rec.white, black: rec.black,
+                                result: resultWord(rec.playerResult) ?? rec.result,
                                 sub: [nonUnknown(rec.speed), rec.opening, "acc \(Int(rec.accuracy.rounded()))%"]
                                     .compactMap { $0 }.joined(separator: " · "))
                     }
