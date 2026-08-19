@@ -184,6 +184,10 @@ public struct PlayView: View {
         .sheet(isPresented: $showAppearance) { AppearanceView() }
         .sheet(isPresented: $showPaywall) { PaywallView() }
         .sheet(isPresented: $vm.showReviewPrompt) { ReviewPromptView() }
+        // Mac menu bar (Cmd+N / Cmd+Z) -- see MacCommands.swift. No-ops on
+        // iOS since GemmaChessApp there never posts these.
+        .onReceive(NotificationCenter.default.publisher(for: .ccMacNewGame)) { _ in onNewGame() }
+        .onReceive(NotificationCenter.default.publisher(for: .ccMacUndo)) { _ in vm.undoLastMove() }
     }
 
     /// True when nothing will occupy the trailing slot (coach card / game-over

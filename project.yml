@@ -52,7 +52,12 @@ targets:
         product: GemmaChessCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.cordoc.gemmachess.mac
+        # Matches the iOS app's bundle ID exactly (not a .mac suffix) so this
+        # target can be added as a second platform on the SAME App Store
+        # Connect app record, enabling Universal Purchase: a Pro subscriber
+        # on iOS gets the entitlement on Mac automatically, no separate
+        # RevenueCat/StoreKit product set needed (plan: 2026-08-08-001).
+        PRODUCT_BUNDLE_IDENTIFIER: com.cordoc.gemmachess
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: ChessCoach

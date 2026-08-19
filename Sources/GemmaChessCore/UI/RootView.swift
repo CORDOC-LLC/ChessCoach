@@ -96,6 +96,11 @@ public struct GemmaRootView: View {
 
     @State private var showOnboarding = !OnboardingStore.hasCompleted()
     @State private var showPaywall = false
+    /// Opened by the Mac menu bar's Settings command (Cmd+,) -- see
+    /// MacCommands.swift. Settings is otherwise reached via in-navigation
+    /// links (gear icon); this sheet is an additive Mac-only entry point,
+    /// not a replacement.
+    @State private var showSettingsFromCommand = false
 
     fileprivate enum Mode { case home, play, review, scan, puzzles, openingTrainer, gameImport, lessons, weaknessReport }
 
@@ -133,9 +138,13 @@ public struct GemmaRootView: View {
         }
         #endif
         .sheet(isPresented: $showPaywall) { PaywallView().environment(themeStore) }
+        .sheet(isPresented: $showSettingsFromCommand) { SettingsView().environment(themeStore) }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             let value = UserDefaults.standard.bool(forKey: Self.showTabBarWithBoardKey)
             if value != showTabBarWithBoard { showTabBarWithBoard = value }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ccMacShowSettings)) { _ in
+            showSettingsFromCommand = true
         }
     }
 
