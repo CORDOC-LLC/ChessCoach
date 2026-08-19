@@ -80,7 +80,7 @@ public struct ReviewScreen: View {
 
     private func accuracyChip(label: String, value: Double?) -> some View {
         VStack(alignment: .leading) {
-            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text("\(label) accuracy").font(.caption2).foregroundStyle(.secondary)
             Text(value.map { "\(Int($0.rounded()))%" } ?? "—").font(.headline)
         }
     }
