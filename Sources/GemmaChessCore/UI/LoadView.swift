@@ -139,7 +139,12 @@ public struct LoadView: View {
             "acc \(Int(rec.accuracy.rounded()))%",
         ].compactMap { $0 }.joined(separator: " · ")
         return VStack(alignment: .leading, spacing: 2) {
-            Text(Self.playedAtLabel(rec.date)).font(.subheadline).fontWeight(.medium)
+            // `date` (the game's actual start time) is only populated going
+            // forward -- a game recorded before that field existed still has
+            // `analyzedAt` (set when the game was recorded, effectively its
+            // end time), which beats a generic "Game" placeholder repeated
+            // on every legacy row.
+            Text(Self.playedAtLabel(rec.date ?? rec.analyzedAt)).font(.subheadline).fontWeight(.medium)
             Text(subtitle).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
