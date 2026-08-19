@@ -40,9 +40,22 @@ public struct LoadView: View {
 
     private var pgnSection: some View {
         Section("Paste a game (PGN)") {
-            TextEditor(text: $pgn)
-                .frame(minHeight: 120)
-                .font(.system(.footnote, design: .monospaced))
+            ZStack(alignment: .topLeading) {
+                // TextEditor has no built-in placeholder -- without this, an
+                // empty box just looks like blank space, not an input field.
+                if pgn.isEmpty {
+                    Text("Paste PGN moves here, e.g. \"1. e4 e5 2. Nf3 ...\"")
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                        .padding(.leading, 5)
+                        .allowsHitTesting(false)
+                }
+                TextEditor(text: $pgn)
+                    .frame(minHeight: 120)
+                    .font(.system(.footnote, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+            }
             Picker("Review side", selection: $side) {
                 Text("Auto").tag("auto")
                 Text("White").tag("white")
@@ -113,7 +126,7 @@ public struct LoadView: View {
                         // PGN) falls back to the raw code.
                         gameRow(white: rec.white, black: rec.black,
                                 result: resultWord(rec.playerResult) ?? rec.result,
-                                sub: [nonUnknown(rec.speed), rec.opening, "acc \(Int(rec.accuracy.rounded()))%"]
+                                sub: [nonUnknown(rec.speed), rec.opening, accuracyLabel(rec.accuracy)]
                                     .compactMap { $0 }.joined(separator: " · "))
                     }
                 }
@@ -136,7 +149,7 @@ public struct LoadView: View {
             resultWord(rec.playerResult),
             rec.skill.map { "Skill \($0)" },
             nonUnknown(rec.opening),
-            "acc \(Int(rec.accuracy.rounded()))%",
+            accuracyLabel(rec.accuracy),
         ].compactMap { $0 }.joined(separator: " · ")
         return VStack(alignment: .leading, spacing: 2) {
             // `date` (the game's actual start time) is only populated going
@@ -156,6 +169,13 @@ public struct LoadView: View {
     /// otherwise sees verbatim as the string "unknown".
     private func nonUnknown(_ value: String?) -> String? {
         (value?.isEmpty == false && value != "unknown") ? value : nil
+    }
+
+    /// "91% accuracy" -- spelled out rather than the terser "acc 91%", since
+    /// that abbreviation alone doesn't say what's being measured (how
+    /// closely moves matched the engine's best choice, 0-100).
+    private func accuracyLabel(_ accuracy: Double) -> String {
+        "\(Int(accuracy.rounded()))% accuracy"
     }
 
     private func resultWord(_ playerResult: String?) -> String? {
