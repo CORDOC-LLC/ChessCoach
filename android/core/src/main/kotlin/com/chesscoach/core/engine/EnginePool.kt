@@ -20,8 +20,6 @@ import kotlin.random.Random
  */
 class EnginePool(
     private val binaryPath: String,
-    private val nnueBigPath: String? = null,
-    private val nnueSmallPath: String? = null,
     private val engineThreads: Int = 2,
     private val hashMb: Int = 64,
     private val transportFactory: (CoroutineScope) -> UciTransport = { scope -> ProcessUciTransport(binaryPath, scope) },
@@ -206,8 +204,6 @@ class EnginePool(
         t.send("uci")
         waitFor(t, "uciok")
 
-        nnueBigPath?.let { t.send("setoption name EvalFile value $it") }
-        nnueSmallPath?.let { t.send("setoption name EvalFileSmall value $it") }
         t.send("setoption name Threads value $engineThreads")
         t.send("setoption name Hash value $hashMb")
         t.send("setoption name MultiPV value 1")

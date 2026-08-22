@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sampled from the iOS AppIcon's background gradient
+         (Apps/GemmaChessiOS/Assets.xcassets/AppIcon.appiconset/icon_1024.png). -->
+    <color name="ic_launcher_background">#131f1b</color>
+</resources>
