@@ -2,6 +2,7 @@ package com.chesscoach.android
 
 import android.app.Application
 import com.chesscoach.android.data.AssetRepository
+import com.chesscoach.android.data.SavedGameStore
 import com.chesscoach.android.engine.EngineProvider
 
 /** Minimal manual DI container -- no Hilt/Dagger, so there's nothing here that
@@ -12,10 +13,13 @@ class ChessCoachApp : Application() {
         private set
     lateinit var engineProvider: EngineProvider
         private set
+    lateinit var savedGameStore: SavedGameStore
+        private set
 
     override fun onCreate() {
         super.onCreate()
         assetRepository = AssetRepository(this)
         engineProvider = EngineProvider(this)
+        savedGameStore = SavedGameStore(this)
     }
 }

@@ -40,6 +40,9 @@ object Evaluation {
         return accuracies.sum() / accuracies.size
     }
 
+    /** Round to 1 decimal (round-half-to-even), matching Python/Swift's round(x, 1). */
+    fun round1(x: Double): Double = Math.rint(x * 10) / 10
+
     /** Human-readable eval from the side-to-move perspective, e.g. "+1.23",
      *  "-0.45", "#3", "#-3" -- same format as iOS's `EngineLine.evalStr`. */
     fun evalText(cp: Int?, mate: Int?): String {

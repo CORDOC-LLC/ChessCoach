@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity() {
                 ChessCoachNavHost(
                     assetRepository = app.assetRepository,
                     engineProvider = app.engineProvider,
+                    savedGameStore = app.savedGameStore,
                 )
             }
         }

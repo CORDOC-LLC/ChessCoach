@@ -19,6 +19,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.chesscoach.android.data.AssetRepository
+import com.chesscoach.android.data.SavedGameStore
 import com.chesscoach.android.engine.EngineProvider
 import com.chesscoach.android.ui.home.HomeScreen
 import com.chesscoach.android.ui.lessons.LessonDetailScreen
@@ -33,6 +34,8 @@ import com.chesscoach.android.ui.puzzles.PuzzlesScreen
 import com.chesscoach.android.ui.puzzles.PuzzlesViewModel
 import com.chesscoach.android.ui.review.ReviewScreen
 import com.chesscoach.android.ui.review.ReviewViewModel
+import com.chesscoach.android.ui.review.SavedGameReviewScreen
+import com.chesscoach.android.ui.review.SavedGameReviewViewModel
 import com.chesscoach.android.ui.settings.SettingsScreen
 import com.chesscoach.android.ui.theme.ChessCoachTheme
 import com.chesscoach.core.data.LessonCatalog
@@ -41,6 +44,7 @@ private object Routes {
     const val HOME = "home"
     const val PLAY = "play"
     const val REVIEW = "review"
+    const val SAVED_GAME_REVIEW = "savedGameReview/{gameId}"
     const val PUZZLES = "puzzles"
     const val PUZZLE_SOLVE = "puzzleSolve/{theme}"
     const val LESSONS = "lessons"
@@ -52,6 +56,7 @@ private object Routes {
     fun puzzleSolve(theme: String) = "puzzleSolve/$theme"
     fun lessonDetail(id: String) = "lessonDetail/$id"
     fun lessonPractice(id: String) = "lessonPractice/$id"
+    fun savedGameReview(id: String) = "savedGameReview/$id"
 
     /** Routes the tab bar shows on -- everything else (a chessboard screen,
      *  or Settings) hides it, mirroring iOS `GemmaRootView.isBoardOnScreen`. */
@@ -62,6 +67,7 @@ private object Routes {
 fun ChessCoachNavHost(
     assetRepository: AssetRepository,
     engineProvider: EngineProvider,
+    savedGameStore: SavedGameStore,
     navController: NavHostController = rememberNavController(),
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -111,15 +117,26 @@ fun ChessCoachNavHost(
                 }
                 composable(Routes.PLAY) {
                     val vm: PlayViewModel = viewModel(factory = viewModelFactory {
-                        initializer { PlayViewModel(engineProvider, assetRepository) }
+                        initializer { PlayViewModel(engineProvider, assetRepository, savedGameStore) }
                     })
                     PlayScreen(vm, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.REVIEW) {
                     val vm: ReviewViewModel = viewModel(factory = viewModelFactory {
-                        initializer { ReviewViewModel(engineProvider, assetRepository) }
+                        initializer { ReviewViewModel(engineProvider, assetRepository, savedGameStore) }
                     })
-                    ReviewScreen(vm, onBack = { navController.popBackStack() })
+                    ReviewScreen(
+                        vm,
+                        onBack = { navController.popBackStack() },
+                        onOpenSavedGame = { id -> navController.navigate(Routes.savedGameReview(id)) },
+                    )
+                }
+                composable(Routes.SAVED_GAME_REVIEW) { backStackEntry ->
+                    val id = backStackEntry.arguments?.getString("gameId") ?: return@composable
+                    val vm: SavedGameReviewViewModel = viewModel(factory = viewModelFactory {
+                        initializer { SavedGameReviewViewModel(id, savedGameStore) }
+                    })
+                    SavedGameReviewScreen(vm, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.PUZZLES) {
                     val vm: PuzzlesViewModel = viewModel(factory = viewModelFactory {

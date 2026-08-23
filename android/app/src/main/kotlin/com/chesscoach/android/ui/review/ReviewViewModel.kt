@@ -3,9 +3,12 @@ package com.chesscoach.android.ui.review
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.chesscoach.android.data.AssetRepository
+import com.chesscoach.android.data.SavedGameStore
 import com.chesscoach.android.engine.EngineProvider
+import com.chesscoach.core.analysis.ReviewSessionBuilder
 import com.chesscoach.core.chess.Board
 import com.chesscoach.core.chess.Pgn
+import com.chesscoach.core.chess.SavedGame
 import com.chesscoach.core.data.Openings
 import com.chesscoach.core.engine.EnginePool
 import kotlinx.coroutines.Job
@@ -14,8 +17,39 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private const val ANALYSIS_DEPTH = 14
+
+/** Pure, testable formatting for one "My games" row -- port of iOS
+ *  `SavedGameRowFormatter`/`LoadView.playGameRow`. */
+object SavedGameRowFormatter {
+    private val playedAtFormat = SimpleDateFormat("MMM d, h:mm a", Locale.US)
+
+    fun title(game: SavedGame): String =
+        if (game.isGameOver) playedAtFormat.format(Date(game.updatedAt)) else "In progress"
+
+    fun subtitle(game: SavedGame): String {
+        val parts = mutableListOf<String>()
+        val resultWord = when (ReviewSessionBuilder.playerResultWord(game)) {
+            "win" -> "Win"
+            "loss" -> "Loss"
+            "draw" -> "Draw"
+            else -> null
+        }
+        parts.add(resultWord ?: (if (game.isGameOver) "Game over" else "In progress"))
+        parts.add("Skill ${game.skill}")
+        val opening = game.openingName
+        if (!opening.isNullOrEmpty()) parts.add(opening)
+        return parts.joinToString(" · ")
+    }
+
+    /** Whether tapping this row can open the rich win-graph/mistakes review
+     *  (needs a complete `winAfterMover`, same gate as `ReviewSessionBuilder.canBuild`). */
+    fun isReviewable(game: SavedGame): Boolean = ReviewSessionBuilder.canBuild(game)
+}
 
 data class ReviewUiState(
     val pgnInput: String = "",
@@ -27,6 +61,7 @@ data class ReviewUiState(
     val isAnalyzing: Boolean = false,
     val openingName: String? = null,
     val error: String? = null,
+    val savedGames: List<SavedGame> = emptyList(),
 ) {
     val board: Board get() = boards[index]
     val canStepBack: Boolean get() = index > 0
@@ -36,6 +71,7 @@ data class ReviewUiState(
 class ReviewViewModel(
     private val engineProvider: EngineProvider,
     private val assetRepository: AssetRepository,
+    private val savedGameStore: SavedGameStore? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ReviewUiState())
@@ -50,6 +86,23 @@ class ReviewViewModel(
         _state.update { it.copy(engineAvailable = available) }
         if (available) enginePool = engineProvider.createEnginePool()
         viewModelScope.launch { openings = assetRepository.openings() }
+        refreshSavedGames()
+    }
+
+    fun refreshSavedGames() {
+        val store = savedGameStore ?: return
+        viewModelScope.launch {
+            val games = store.loadAll()
+            _state.update { it.copy(savedGames = games) }
+        }
+    }
+
+    fun deleteSavedGame(id: String) {
+        val store = savedGameStore ?: return
+        viewModelScope.launch {
+            store.delete(id)
+            refreshSavedGames()
+        }
     }
 
     fun setPgnInput(text: String) {

@@ -3,6 +3,7 @@ package com.chesscoach.android.ui.play
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.chesscoach.android.data.AssetRepository
+import com.chesscoach.android.data.SavedGameStore
 import com.chesscoach.android.engine.EngineProvider
 import com.chesscoach.core.chess.Board
 import com.chesscoach.core.chess.CapturedMaterial
@@ -15,7 +16,9 @@ import com.chesscoach.core.chess.MoveCommentTemplates
 import com.chesscoach.core.chess.MoveGen
 import com.chesscoach.core.chess.MoveGrade
 import com.chesscoach.core.chess.PieceType
+import com.chesscoach.core.chess.PlayMoveRecord
 import com.chesscoach.core.chess.San
+import com.chesscoach.core.chess.SavedGame
 import com.chesscoach.core.chess.Square
 import com.chesscoach.core.data.Openings
 import com.chesscoach.core.engine.EnginePool
@@ -91,6 +94,7 @@ data class PlayUiState(
 class PlayViewModel(
     private val engineProvider: EngineProvider,
     private val assetRepository: AssetRepository,
+    private val savedGameStore: SavedGameStore? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlayUiState())
@@ -102,6 +106,18 @@ class PlayViewModel(
     private val playerMoveAccuracies = mutableListOf<Double>()
     private val qualityTally = mutableMapOf<MoveGrade, Int>()
     private var moveGen = 0
+
+    // Persistence: enough to rebuild a full ReviewSession later with zero
+    // re-analysis (see core's ReviewSessionBuilder). Keyed by ply index
+    // (not append order) so the player-grading coroutine and the engine-eval
+    // coroutine -- which race each other -- can't corrupt ordering; a ply
+    // that never gets a value (a race/engine hiccup) just makes this game
+    // ungradeable later rather than silently misaligning the array.
+    private var gameId: String = SavedGameStore.newId()
+    private var startedAt: Long = 0L
+    private var startFen: String = Board.starting().fen()
+    private val winAfterMoverByPly = mutableMapOf<Int, Double>()
+    private val moveRecords = mutableListOf<PlayMoveRecord>()
 
     init {
         val available = engineProvider.isEngineAvailable
@@ -117,6 +133,11 @@ class PlayViewModel(
         history.clear()
         playerMoveAccuracies.clear()
         qualityTally.clear()
+        winAfterMoverByPly.clear()
+        moveRecords.clear()
+        gameId = SavedGameStore.newId()
+        startedAt = System.currentTimeMillis()
+        startFen = Board.starting().fen()
         _state.value = PlayUiState(
             playerColor = playerColor,
             skillLevel = skillLevel,
@@ -268,6 +289,7 @@ class PlayViewModel(
         val move = ChessLogic.parseUci(s.board, uci) ?: return
         val san = San.of(s.board, move)
         val newBoard = s.board.applyMove(move)
+        val plyIndex = history.size
 
         history.add(PlaySnapshot(newBoard, s.moveSan + san, move.from to move.to))
         val newStatus = GameStatus.of(newBoard)
@@ -287,11 +309,12 @@ class PlayViewModel(
             )
         }
         updateCheckSquare()
-        gradeLastMove(fenBefore, newBoard.fen(), move, san, gen)
+        checkpoint()
+        gradeLastMove(fenBefore, newBoard.fen(), move, san, gen, plyIndex)
         if (!newStatus.isTerminal) requestEngineMove() else finalizeIfNeeded()
     }
 
-    private fun gradeLastMove(fenBefore: String, fenAfter: String, move: Move, moveSan: String, gen: Int) {
+    private fun gradeLastMove(fenBefore: String, fenAfter: String, move: Move, moveSan: String, gen: Int, plyIndex: Int) {
         val pool = enginePool ?: return
         viewModelScope.launch {
             runCatching {
@@ -303,6 +326,7 @@ class PlayViewModel(
                 val wasBest = playedBestMove?.from == move.from && playedBestMove.to == move.to
                 val grade = MoveGrade.classify(before.best.signedCp(), actualCpForMover, wasBest)
                 val betterSan = if (!wasBest) before.best.pvUci.firstOrNull()?.let { san(boardBefore, it) } else null
+                val bestUci = before.best.pvUci.firstOrNull()
                 val boardAfter = Board.fromFen(fenAfter)!!
                 val comment = MoveCommentTemplates.comment(boardBefore, boardAfter, move, grade, betterSan)
                 val topMoves = before.lines.take(3).mapNotNull { line ->
@@ -314,11 +338,20 @@ class PlayViewModel(
                 val winAfter = Evaluation.winPercent(actualCpForMover)
                 playerMoveAccuracies.add(Evaluation.moveAccuracy(winBefore, winAfter))
                 qualityTally[grade] = (qualityTally[grade] ?: 0) + 1
+                moveRecords.add(
+                    PlayMoveRecord(
+                        moveNumber = plyIndex / 2 + 1, san = moveSan,
+                        classification = grade.name.lowercase(), winBefore = winBefore, winAfter = winAfter,
+                        betterSan = betterSan, bestUci = bestUci, fen = fenAfter,
+                    )
+                )
+                winAfterMoverByPly[plyIndex] = winAfter
                 // White-relative win% for the status readout, from this same
                 // "after" analysis (side to move has flipped to the opponent).
                 val winWhite = winWhiteFromSideToMoveRelative(after.best.signedCp(), boardAfter.sideToMove == Color.WHITE)
                 Triple(grade, betterSan, comment) to (topMoves to (winWhite to after.best))
             }.onSuccess { (gradeInfo, rest) ->
+                checkpoint()
                 if (gen != moveGen) return@onSuccess
                 val (grade, betterSan, comment) = gradeInfo
                 val (topMoves, winInfo) = rest
@@ -362,6 +395,7 @@ class PlayViewModel(
             val move = ChessLogic.parseUci(current.board, uci) ?: return@launch
             val san = San.of(current.board, move)
             val newBoard = current.board.applyMove(move)
+            val plyIndex = history.size
             history.add(PlaySnapshot(newBoard, current.moveSan + san, move.from to move.to))
             val newStatus = GameStatus.of(newBoard)
             _state.update {
@@ -376,10 +410,17 @@ class PlayViewModel(
                 )
             }
             updateCheckSquare()
+            checkpoint()
             // The engine's own reply is skill-weighted for move SELECTION, so
             // grading it needs a separate, honest full-strength eval -- same
             // reasoning as iOS's PlayViewModel (see EnginePool's header).
             runCatching { pool.analyse(newBoard.fen(), ANALYSIS_DEPTH, multipv = 1) }.onSuccess { result ->
+                // Mover-relative (the engine's own perspective) win% right
+                // after its move -- the analysis evaluates from the side now
+                // to move (the player), so flip it. Parallels gradeLastMove's
+                // actualCpForMover for the player's own moves.
+                winAfterMoverByPly[plyIndex] = Evaluation.winPercent(-result.best.signedCp())
+                checkpoint()
                 if (gen != moveGen) return@onSuccess
                 val winWhite = winWhiteFromSideToMoveRelative(result.best.signedCp(), newBoard.sideToMove == Color.WHITE)
                 _state.update { it.copy(winWhite = winWhite, evalText = Evaluation.evalText(result.best.cp, result.best.mate)) }
@@ -395,5 +436,51 @@ class PlayViewModel(
             .sortedBy { it.key.ordinal } // enum declaration order: BEST..BLUNDER
             .map { QualityCount(it.key, it.value) }
         _state.update { it.copy(accuracy = accuracy, qualityCounts = counts) }
+        val store = savedGameStore ?: return
+        viewModelScope.launch {
+            store.save(toSavedGame(isGameOver = true))
+            store.setInProgressGameId(null)
+        }
+    }
+
+    /** Fire-and-forget mid-game checkpoint -- one small JSON write per ply, so
+     *  a killed app can resume from that granularity (mirrors iOS's
+     *  `SavedGameStore.save` call after every ply). */
+    private fun checkpoint() {
+        val store = savedGameStore ?: return
+        if (_state.value.gameOver) return // finalizeIfNeeded owns the terminal write
+        viewModelScope.launch {
+            store.save(toSavedGame(isGameOver = false))
+            store.setInProgressGameId(gameId)
+        }
+    }
+
+    private fun toSavedGame(isGameOver: Boolean): SavedGame {
+        val s = _state.value
+        val fenHistory = listOf(startFen) + history.map { it.board.fen() }
+        val plyCount = s.moveSan.size
+        val winAfterMover = (0 until plyCount).map { winAfterMoverByPly[it] }
+            .takeIf { it.size == plyCount && it.all { v -> v != null } }
+            ?.map { it!! }
+        return SavedGame(
+            id = gameId, startedAt = startedAt, updatedAt = System.currentTimeMillis(),
+            playerIsWhite = s.playerColor == Color.WHITE, startFen = startFen,
+            moves = moveUcis(),
+            sanMoves = s.moveSan, fenHistory = fenHistory, skill = s.skillLevel,
+            isGameOver = isGameOver, resultText = if (isGameOver) s.resultText else null,
+            openingName = s.openingName, openingEco = s.openingEco,
+            moveRecords = moveRecords.toList(), winAfterMover = winAfterMover,
+        )
+    }
+
+    /** UCI move list reconstructed from `history`'s squares (PlaySnapshot only
+     *  keeps the from/to squares, not the raw UCI token). Promotions never
+     *  round-trip through this (the promotion piece letter is lost), which is
+     *  fine here -- `moves` is only used to size/pair `winAfterMover` and to
+     *  rebuild a display PGN, neither of which replays these UCI strings
+     *  through the engine. */
+    private fun moveUcis(): List<String> = history.map { snap ->
+        val to = snap.lastMove
+        if (to == null) "" else to.first.notation + to.second.notation
     }
 }
