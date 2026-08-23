@@ -5,15 +5,21 @@ import androidx.lifecycle.viewModelScope
 import com.chesscoach.android.data.AssetRepository
 import com.chesscoach.android.engine.EngineProvider
 import com.chesscoach.core.chess.Board
+import com.chesscoach.core.chess.CapturedMaterial
 import com.chesscoach.core.chess.ChessLogic
 import com.chesscoach.core.chess.Color
 import com.chesscoach.core.chess.GameStatus
+import com.chesscoach.core.chess.HintRationaleTemplates
+import com.chesscoach.core.chess.Move
+import com.chesscoach.core.chess.MoveCommentTemplates
 import com.chesscoach.core.chess.MoveGen
+import com.chesscoach.core.chess.MoveGrade
 import com.chesscoach.core.chess.PieceType
 import com.chesscoach.core.chess.San
 import com.chesscoach.core.chess.Square
 import com.chesscoach.core.data.Openings
 import com.chesscoach.core.engine.EnginePool
+import com.chesscoach.core.eval.Evaluation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,9 +29,14 @@ import kotlinx.coroutines.flow.update
 private const val ANALYSIS_DEPTH = 14
 private const val PLAY_DEPTH = 12
 
-data class HintInfo(val bestSan: String, val altSan: String?)
+data class HintInfo(val bestSan: String, val altSan: String?, val rationale: String, val bestUci: String, val altUci: String?)
+
+data class TopMoveLine(val san: String, val evalText: String)
 
 data class PlaySnapshot(val board: Board, val moveSan: List<String>, val lastMove: Pair<Square, Square>?)
+
+/** Quality-count entry for the game-over banner's strip ("3 Best", "1 Blunder", ...). */
+data class QualityCount(val grade: MoveGrade, val count: Int)
 
 data class PlayUiState(
     val board: Board = Board.starting(),
@@ -37,14 +48,44 @@ data class PlayUiState(
     val playerColor: Color = Color.WHITE,
     val engineAvailable: Boolean = false,
     val isEngineThinking: Boolean = false,
+    val isGrading: Boolean = false,
     val skillLevel: Int = 10,
     val lastGrade: MoveGrade? = null,
+    val lastGradeSan: String? = null,
+    val lastBetterSan: String? = null,
+    val lastEngineComment: String? = null,
+    val topMoves: List<TopMoveLine> = emptyList(),
     val openingName: String? = null,
+    val openingEco: String? = null,
     val pendingPromotion: Pair<Square, Square>? = null,
+    val hintMode: Boolean = false,
     val hint: HintInfo? = null,
+    val winWhite: Double = 50.0,
+    val evalText: String = "+0.00",
+    val capturedMaterial: CapturedMaterial = CapturedMaterial(emptyList(), emptyList(), 0),
+    val checkSquare: Square? = null,
+    val resigned: Boolean = false,
+    val accuracy: Double? = null,
+    val qualityCounts: List<QualityCount> = emptyList(),
+    val gameOverDismissed: Boolean = false,
     val error: String? = null,
 ) {
-    val isPlayerTurn: Boolean get() = board.sideToMove == playerColor && !status.isTerminal
+    val isPlayerTurn: Boolean get() = board.sideToMove == playerColor && !status.isTerminal && !resigned
+    val canUndo: Boolean get() = moveSan.isNotEmpty() && !isEngineThinking
+    val gameOver: Boolean get() = status.isTerminal || resigned
+
+    /** Result text matching iOS's PlayViewModel.status/resultText phrasing. */
+    val resultText: String?
+        get() = when {
+            resigned -> "You resigned."
+            status == GameStatus.CHECKMATE -> {
+                val loserToMove = board.sideToMove
+                val playerLost = loserToMove == playerColor
+                if (playerLost) "Checkmate — you lose." else "Checkmate — you win! 🎉"
+            }
+            status == GameStatus.STALEMATE -> "Stalemate — it's a draw."
+            else -> null
+        }
 }
 
 class PlayViewModel(
@@ -58,6 +99,9 @@ class PlayViewModel(
     private var enginePool: EnginePool? = null
     private var openings: Openings? = null
     private val history = mutableListOf<PlaySnapshot>()
+    private val playerMoveAccuracies = mutableListOf<Double>()
+    private val qualityTally = mutableMapOf<MoveGrade, Int>()
+    private var moveGen = 0
 
     init {
         val available = engineProvider.isEngineAvailable
@@ -69,12 +113,16 @@ class PlayViewModel(
     }
 
     fun newGame(playerColor: Color, skillLevel: Int) {
+        moveGen++
         history.clear()
+        playerMoveAccuracies.clear()
+        qualityTally.clear()
         _state.value = PlayUiState(
             playerColor = playerColor,
             skillLevel = skillLevel,
             engineAvailable = _state.value.engineAvailable,
         )
+        updateCheckSquare()
         if (playerColor == Color.BLACK) requestEngineMove()
     }
 
@@ -114,28 +162,44 @@ class PlayViewModel(
         _state.update { it.copy(pendingPromotion = null) }
     }
 
+    /** Toggles hint MODE: while on, the hint stays up and refreshes for every
+     *  new position on the player's turn -- mirrors iOS's lightbulb. */
+    fun toggleHintMode() {
+        val turningOn = !_state.value.hintMode
+        _state.update { it.copy(hintMode = turningOn, hint = if (turningOn) it.hint else null) }
+        if (turningOn) requestHint()
+    }
+
+    fun clearHint() {
+        _state.update { it.copy(hintMode = false, hint = null) }
+    }
+
     fun requestHint() {
         val pool = enginePool ?: return
         val s = _state.value
         if (!s.isPlayerTurn) return
+        val gen = moveGen
         viewModelScope.launch {
             val fen = s.board.fen()
             runCatching { pool.analyse(fen, ANALYSIS_DEPTH, multipv = 2) }.onSuccess { result ->
-                val best = result.lines.getOrNull(0)?.pvUci?.firstOrNull()?.let { ChessLogic.sanFromUci(it, fen) }
-                val alt = result.lines.getOrNull(1)?.pvUci?.firstOrNull()?.let { ChessLogic.sanFromUci(it, fen) }
-                if (best != null) _state.update { it.copy(hint = HintInfo(best, alt)) }
+                if (gen != moveGen) return@onSuccess
+                val bestUci = result.lines.getOrNull(0)?.pvUci?.firstOrNull() ?: return@onSuccess
+                val best = san(s.board, bestUci)
+                val altUci = result.lines.getOrNull(1)?.pvUci?.firstOrNull()
+                val alt = altUci?.let { san(s.board, it) }
+                val bestMove = ChessLogic.parseUci(s.board, bestUci)
+                val rationale = bestMove?.let { HintRationaleTemplates.rationale(s.board, it) }
+                    ?: "A solid move that improves the position."
+                if (best != null) _state.update { it.copy(hint = HintInfo(best, alt, rationale, bestUci, altUci)) }
             }
         }
-    }
-
-    fun clearHint() {
-        _state.update { it.copy(hint = null) }
     }
 
     /** Undo the most recent player/engine move pair (or the lone player move, if
      *  the engine hasn't replied yet). */
     fun retakeLastMove() {
         if (history.isEmpty()) return
+        moveGen++
         val s = _state.value
         // sideToMove == playerColor means the engine already replied (turn is back
         // to the player) -- undo that reply plus the player's move. Otherwise only
@@ -153,9 +217,27 @@ class PlayViewModel(
                 selected = null,
                 legalTargets = emptySet(),
                 lastGrade = null,
+                lastGradeSan = null,
+                lastBetterSan = null,
+                lastEngineComment = null,
+                topMoves = emptyList(),
                 hint = null,
+                resigned = false,
+                capturedMaterial = CapturedMaterial.from(board),
             )
         }
+        updateCheckSquare()
+        if (s.hintMode) requestHint()
+    }
+
+    fun resign() {
+        if (_state.value.gameOver) return
+        _state.update { it.copy(resigned = true, hint = null, hintMode = false) }
+        finalizeIfNeeded()
+    }
+
+    fun dismissGameOverBanner() {
+        _state.update { it.copy(gameOverDismissed = true) }
     }
 
     override fun onCleared() {
@@ -165,7 +247,22 @@ class PlayViewModel(
 
     // MARK: private
 
+    private fun san(board: Board, uci: String): String? = ChessLogic.sanFromUci(uci, board.fen())
+
+    private fun updateCheckSquare() {
+        val s = _state.value
+        val inCheck = MoveGen.isInCheck(s.board, s.board.sideToMove)
+        _state.update { it.copy(checkSquare = if (inCheck) s.board.kingSquare(s.board.sideToMove) else null) }
+    }
+
+    private fun winWhiteFromSideToMoveRelative(cp: Double, sideToMoveIsWhite: Boolean): Double {
+        val winForMover = Evaluation.winPercent(cp)
+        return if (sideToMoveIsWhite) winForMover else 100.0 - winForMover
+    }
+
     private fun applyPlayerMove(uci: String) {
+        moveGen++
+        val gen = moveGen
         val s = _state.value
         val fenBefore = s.board.fen()
         val move = ChessLogic.parseUci(s.board, uci) ?: return
@@ -183,32 +280,71 @@ class PlayViewModel(
                 lastMove = move.from to move.to,
                 status = newStatus,
                 hint = null,
+                isGrading = it.engineAvailable,
+                capturedMaterial = CapturedMaterial.from(newBoard),
                 openingName = openings?.match(newBoard.fen())?.name ?: it.openingName,
+                openingEco = openings?.match(newBoard.fen())?.eco ?: it.openingEco,
             )
         }
-        gradeLastMove(fenBefore, newBoard.fen())
-        if (!newStatus.isTerminal) requestEngineMove()
+        updateCheckSquare()
+        gradeLastMove(fenBefore, newBoard.fen(), move, san, gen)
+        if (!newStatus.isTerminal) requestEngineMove() else finalizeIfNeeded()
     }
 
-    private fun gradeLastMove(fenBefore: String, fenAfter: String) {
+    private fun gradeLastMove(fenBefore: String, fenAfter: String, move: Move, moveSan: String, gen: Int) {
         val pool = enginePool ?: return
         viewModelScope.launch {
             runCatching {
-                val before = pool.analyse(fenBefore, ANALYSIS_DEPTH, multipv = 1)
-                val playedBestMove = ChessLogic.parseUci(Board.fromFen(fenBefore)!!, before.best.pvUci.first())
+                val boardBefore = Board.fromFen(fenBefore)!!
+                val before = pool.analyse(fenBefore, ANALYSIS_DEPTH, multipv = 3)
+                val playedBestMove = ChessLogic.parseUci(boardBefore, before.best.pvUci.first())
                 val after = pool.analyse(fenAfter, ANALYSIS_DEPTH, multipv = 1)
                 val actualCpForMover = -after.best.signedCp()
-                val wasBest = _state.value.lastMove?.let { (from, to) ->
-                    playedBestMove?.from == from && playedBestMove.to == to
-                } ?: false
-                MoveGrade.classify(before.best.signedCp(), actualCpForMover, wasBest)
-            }.onSuccess { grade -> _state.update { it.copy(lastGrade = grade) } }
+                val wasBest = playedBestMove?.from == move.from && playedBestMove.to == move.to
+                val grade = MoveGrade.classify(before.best.signedCp(), actualCpForMover, wasBest)
+                val betterSan = if (!wasBest) before.best.pvUci.firstOrNull()?.let { san(boardBefore, it) } else null
+                val boardAfter = Board.fromFen(fenAfter)!!
+                val comment = MoveCommentTemplates.comment(boardBefore, boardAfter, move, grade, betterSan)
+                val topMoves = before.lines.take(3).mapNotNull { line ->
+                    val pv = line.pvUci.firstOrNull() ?: return@mapNotNull null
+                    san(boardBefore, pv)?.let { TopMoveLine(it, Evaluation.evalText(line.cp, line.mate)) }
+                }
+                // The mover-relative win% drop for this ply's accuracy contribution.
+                val winBefore = Evaluation.winPercent(before.best.signedCp())
+                val winAfter = Evaluation.winPercent(actualCpForMover)
+                playerMoveAccuracies.add(Evaluation.moveAccuracy(winBefore, winAfter))
+                qualityTally[grade] = (qualityTally[grade] ?: 0) + 1
+                // White-relative win% for the status readout, from this same
+                // "after" analysis (side to move has flipped to the opponent).
+                val winWhite = winWhiteFromSideToMoveRelative(after.best.signedCp(), boardAfter.sideToMove == Color.WHITE)
+                Triple(grade, betterSan, comment) to (topMoves to (winWhite to after.best))
+            }.onSuccess { (gradeInfo, rest) ->
+                if (gen != moveGen) return@onSuccess
+                val (grade, betterSan, comment) = gradeInfo
+                val (topMoves, winInfo) = rest
+                val (winWhite, bestLine) = winInfo
+                _state.update {
+                    it.copy(
+                        lastGrade = grade,
+                        lastGradeSan = moveSan,
+                        lastBetterSan = betterSan,
+                        lastEngineComment = comment,
+                        topMoves = topMoves,
+                        isGrading = false,
+                        winWhite = winWhite,
+                        evalText = Evaluation.evalText(bestLine.cp, bestLine.mate),
+                    )
+                }
+            }.onFailure {
+                if (gen == moveGen) _state.update { s -> s.copy(isGrading = false) }
+            }
         }
     }
 
     private fun requestEngineMove() {
         val pool = enginePool ?: return
         val s = _state.value
+        val gen = moveGen
         _state.update { it.copy(isEngineThinking = true) }
         viewModelScope.launch {
             val fen = s.board.fen()
@@ -218,6 +354,7 @@ class PlayViewModel(
                 else pool.playMove(fen, PLAY_DEPTH, skill)
             }.getOrNull()
 
+            if (gen != moveGen) return@launch
             _state.update { it.copy(isEngineThinking = false) }
             if (uci == null) return@launch
 
@@ -226,15 +363,37 @@ class PlayViewModel(
             val san = San.of(current.board, move)
             val newBoard = current.board.applyMove(move)
             history.add(PlaySnapshot(newBoard, current.moveSan + san, move.from to move.to))
+            val newStatus = GameStatus.of(newBoard)
             _state.update {
                 it.copy(
                     board = newBoard,
                     moveSan = it.moveSan + san,
                     lastMove = move.from to move.to,
-                    status = GameStatus.of(newBoard),
+                    status = newStatus,
+                    capturedMaterial = CapturedMaterial.from(newBoard),
                     openingName = openings?.match(newBoard.fen())?.name ?: it.openingName,
+                    openingEco = openings?.match(newBoard.fen())?.eco ?: it.openingEco,
                 )
             }
+            updateCheckSquare()
+            // The engine's own reply is skill-weighted for move SELECTION, so
+            // grading it needs a separate, honest full-strength eval -- same
+            // reasoning as iOS's PlayViewModel (see EnginePool's header).
+            runCatching { pool.analyse(newBoard.fen(), ANALYSIS_DEPTH, multipv = 1) }.onSuccess { result ->
+                if (gen != moveGen) return@onSuccess
+                val winWhite = winWhiteFromSideToMoveRelative(result.best.signedCp(), newBoard.sideToMove == Color.WHITE)
+                _state.update { it.copy(winWhite = winWhite, evalText = Evaluation.evalText(result.best.cp, result.best.mate)) }
+            }
+            if (newStatus.isTerminal) finalizeIfNeeded()
+            else if (_state.value.hintMode) requestHint()
         }
+    }
+
+    private fun finalizeIfNeeded() {
+        val accuracy = Evaluation.aggregateAccuracy(playerMoveAccuracies)
+        val counts = qualityTally.entries
+            .sortedBy { it.key.ordinal } // enum declaration order: BEST..BLUNDER
+            .map { QualityCount(it.key, it.value) }
+        _state.update { it.copy(accuracy = accuracy, qualityCounts = counts) }
     }
 }

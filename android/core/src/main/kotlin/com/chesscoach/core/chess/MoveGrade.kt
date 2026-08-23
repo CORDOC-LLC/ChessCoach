@@ -1,4 +1,4 @@
-package com.chesscoach.android.ui.play
+package com.chesscoach.core.chess
 
 /** Engine-only move quality tiers, derived purely from centipawn loss (no LLM
  *  prose -- this build offers the review/engine tier, not the coach). Thresholds

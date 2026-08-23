@@ -92,7 +92,9 @@ fun HomeScreen(
                 color = ChessCoachTheme.text,
                 fontFamily = ChessCoachTheme.displayFontFamily,
                 fontWeight = ChessCoachTheme.displayFontWeight,
-                fontSize = 44.sp,
+                fontSize = 40.sp,
+                maxLines = 1,
+                softWrap = false,
             )
             Spacer(Modifier.height(6.dp))
             Text(

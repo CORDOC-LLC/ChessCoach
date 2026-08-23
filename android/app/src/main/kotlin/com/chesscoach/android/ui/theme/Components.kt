@@ -80,6 +80,27 @@ fun ThemedScreen(
     }
 }
 
+/** Approximates iOS's `.gemmaGlass()` -- a frosted, translucent floating
+ *  panel (the `.ultraThinMaterial` fallback iOS itself uses below iOS 26):
+ *  lighter and more neutral than [ThemedCard]'s theme-tinted surface, with a
+ *  faint white hairline stroke instead of an accent-tinted border. For
+ *  floating/navigation chrome (header bar, hint card, move list, analysis
+ *  card) -- never for board/list content, matching the iOS rule this mirrors. */
+@Composable
+fun ThemedGlassCard(
+    modifier: Modifier = Modifier,
+    cornerRadius: Int = ChessCoachTheme.Radius.card,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(cornerRadius.dp)
+    Column(
+        modifier = modifier
+            .background(ChessCoachTheme.surface.copy(alpha = 0.55f), shape)
+            .border(0.5.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f), shape),
+        content = content,
+    )
+}
+
 /** A themed list/content card -- `theme.cardBackgroundColor` fill,
  *  `theme.cardBorderColor` 1dp stroke, `Radius.card` (16dp) corners. Direct
  *  match for the repeated `.background(theme.cardBackgroundColor)
