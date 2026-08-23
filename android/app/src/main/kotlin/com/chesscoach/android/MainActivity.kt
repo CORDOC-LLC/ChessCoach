@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
                     assetRepository = app.assetRepository,
                     engineProvider = app.engineProvider,
                     savedGameStore = app.savedGameStore,
+                    reviewEntitlementStore = app.reviewEntitlementStore,
                 )
             }
         }

@@ -60,6 +60,7 @@ dependencies {
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("com.revenuecat.purchases:purchases:10.18.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

@@ -24,6 +24,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.chesscoach.android.billing.ReviewEntitlementStore
 import com.chesscoach.android.data.AssetRepository
 import com.chesscoach.android.data.SavedGameStore
 import com.chesscoach.android.engine.EngineProvider
@@ -32,6 +33,7 @@ import com.chesscoach.android.ui.lessons.LessonDetailScreen
 import com.chesscoach.android.ui.lessons.LessonsScreen
 import com.chesscoach.android.ui.openings.OpeningsScreen
 import com.chesscoach.android.ui.openings.OpeningsViewModel
+import com.chesscoach.android.ui.paywall.ReviewUnlockPaywallScreen
 import com.chesscoach.android.ui.play.PlayScreen
 import com.chesscoach.android.ui.play.PlayViewModel
 import com.chesscoach.android.ui.puzzles.PuzzleSolveScreen
@@ -58,6 +60,7 @@ private object Routes {
     const val LESSON_PRACTICE = "lessonPractice/{lessonId}"
     const val OPENINGS = "openings"
     const val SETTINGS = "settings"
+    const val PAYWALL = "paywall"
 
     fun play(resumeId: String? = null) = if (resumeId != null) "play?resumeId=$resumeId" else "play"
     fun puzzleSolve(theme: String) = "puzzleSolve/$theme"
@@ -75,6 +78,7 @@ fun ChessCoachNavHost(
     assetRepository: AssetRepository,
     engineProvider: EngineProvider,
     savedGameStore: SavedGameStore,
+    reviewEntitlementStore: ReviewEntitlementStore,
     navController: NavHostController = rememberNavController(),
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -200,7 +204,15 @@ fun ChessCoachNavHost(
                     OpeningsScreen(vm)
                 }
                 composable(Routes.SETTINGS) {
-                    SettingsScreen(assetRepository, onBack = { navController.popBackStack() })
+                    SettingsScreen(
+                        assetRepository,
+                        reviewEntitlementStore,
+                        onBack = { navController.popBackStack() },
+                        onUnlockReview = { navController.navigate(Routes.PAYWALL) },
+                    )
+                }
+                composable(Routes.PAYWALL) {
+                    ReviewUnlockPaywallScreen(reviewEntitlementStore, onClose = { navController.popBackStack() })
                 }
             }
         }
