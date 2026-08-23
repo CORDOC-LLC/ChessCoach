@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -57,6 +59,7 @@ fun OpeningsScreen(viewModel: OpeningsViewModel) {
                     ThemedListRow(
                         title = line.name,
                         subtitle = "${line.eco} - ${line.sanMoves.joinToString(" ")}",
+                        icon = Icons.Filled.Book,
                         onClick = { viewModel.selectLine(line) },
                     )
                 }

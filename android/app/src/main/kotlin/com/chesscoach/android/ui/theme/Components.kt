@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -162,14 +163,29 @@ fun ThemedSecondaryButton(text: String, modifier: Modifier = Modifier, enabled: 
 }
 
 /** A row inside a list-style screen -- title + subtitle, matching the
- *  iOS `gameRow`/puzzle-theme-row shape used across Puzzles/Lessons/Openings. */
+ *  iOS `gameRow`/puzzle-theme-row shape used across Puzzles/Lessons/Openings.
+ *  An optional leading [icon] (from Material Symbols / material-icons-extended,
+ *  the same catalog as fonts.google.com/icons) gives the row a visual anchor
+ *  instead of reading as a plain block of text. */
 @Composable
-fun ThemedListRow(title: String, subtitle: String? = null, onClick: () -> Unit) {
+fun ThemedListRow(title: String, subtitle: String? = null, icon: ImageVector? = null, onClick: () -> Unit) {
     ThemedCard(onClick = onClick) {
-        Text(title, color = ChessCoachTheme.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        if (subtitle != null) {
-            Spacer(Modifier.padding(top = 2.dp))
-            Text(subtitle, color = ChessCoachTheme.mutedText, fontSize = 13.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = ChessCoachTheme.accent2,
+                    modifier = Modifier.size(22.dp).padding(end = 12.dp),
+                )
+            }
+            Column {
+                Text(title, color = ChessCoachTheme.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                if (subtitle != null) {
+                    Spacer(Modifier.padding(top = 2.dp))
+                    Text(subtitle, color = ChessCoachTheme.mutedText, fontSize = 13.sp)
+                }
+            }
         }
     }
 }
