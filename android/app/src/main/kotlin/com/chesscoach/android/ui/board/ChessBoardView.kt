@@ -18,9 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as UiColor
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import com.chesscoach.android.ui.theme.BoardDark
-import com.chesscoach.android.ui.theme.BoardHighlight
-import com.chesscoach.android.ui.theme.BoardLight
+import com.chesscoach.android.ui.theme.ChessCoachTheme
 import com.chesscoach.core.chess.Board
 import com.chesscoach.core.chess.Square
 
@@ -73,13 +71,14 @@ private fun BoardSquare(
     modifier: Modifier = Modifier,
 ) {
     val isLight = (square.file + square.rank) % 2 == 1
-    val base = if (isLight) BoardLight else BoardDark
+    val base = if (isLight) ChessCoachTheme.boardLight else ChessCoachTheme.boardDark
+    val highlight = ChessCoachTheme.accent2.copy(alpha = 0.5f)
     val piece = board.pieceAt(square)
 
     Box(
         modifier = modifier
             .background(base)
-            .then(if (isLastMove) Modifier.background(BoardHighlight) else Modifier)
+            .then(if (isLastMove) Modifier.background(highlight) else Modifier)
             .then(if (isCheck) Modifier.border(3.dp, UiColor(0xFFCC3333)) else Modifier)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -88,10 +87,10 @@ private fun BoardSquare(
             Image(
                 painter = painterResource(piece.drawableRes()),
                 contentDescription = "${piece.color} ${piece.type} on ${square.notation}",
-                modifier = Modifier.fillMaxSize().then(if (isSelected) Modifier.background(BoardHighlight) else Modifier),
+                modifier = Modifier.fillMaxSize().then(if (isSelected) Modifier.background(highlight) else Modifier),
             )
         } else if (isSelected) {
-            Box(Modifier.fillMaxSize().background(BoardHighlight))
+            Box(Modifier.fillMaxSize().background(highlight))
         }
         if (isLegalTarget) {
             val dotSize = if (piece == null) 0.28f else 0.85f
@@ -99,8 +98,8 @@ private fun BoardSquare(
                 Modifier
                     .fillMaxSize(dotSize)
                     .clip(CircleShape)
-                    .background(if (piece == null) UiColor(0x552E7D32) else UiColor(0x552E7D32))
-                    .let { if (piece != null) it.border(4.dp, UiColor(0x882E7D32), CircleShape) else it },
+                    .background(ChessCoachTheme.accent.copy(alpha = 0.33f))
+                    .let { if (piece != null) it.border(4.dp, ChessCoachTheme.accent.copy(alpha = 0.53f), CircleShape) else it },
             )
         }
     }

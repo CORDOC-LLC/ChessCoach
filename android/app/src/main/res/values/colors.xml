@@ -3,4 +3,9 @@
     <!-- Sampled from the iOS AppIcon's background gradient
          (Apps/GemmaChessiOS/Assets.xcassets/AppIcon.appiconset/icon_1024.png). -->
     <color name="ic_launcher_background">#131f1b</color>
+    <!-- Exact match for ChessCoachTheme.bg (the Gambit preset's `bg` token,
+         Theme.swift's Theme.gambit). Used only as the native window
+         background so cold start doesn't flash a mismatched color before
+         Compose draws its first frame. -->
+    <color name="window_background">#140F0A</color>
 </resources>

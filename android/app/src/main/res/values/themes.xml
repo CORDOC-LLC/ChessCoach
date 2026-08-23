@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.ChessCoach" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- android:Theme.Material.NoActionBar (dark base), not the Light variant.
+         Compose draws every pixel, but the window background shows briefly on
+         cold start before the first frame; matching it to the app's always-dark
+         Gambit theme avoids a white flash. -->
+    <style name="Theme.ChessCoach" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
 </resources>
