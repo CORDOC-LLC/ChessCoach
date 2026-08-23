@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -55,8 +56,10 @@ import com.chesscoach.android.ui.theme.ChessCoachTheme
 @Composable
 fun HomeScreen(
     onPlay: () -> Unit,
+    onResume: () -> Unit,
     onReview: () -> Unit,
     onSettings: () -> Unit,
+    hasInProgressGame: Boolean = false,
 ) {
     Box(modifier = Modifier.fillMaxSize().background(ChessCoachTheme.bg)) {
         // Soft radial glow behind the whole screen -- same role as iOS's
@@ -115,7 +118,13 @@ fun HomeScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            PrimaryButton(text = "Play a game", icon = Icons.Filled.PlayArrow, onClick = onPlay)
+            if (hasInProgressGame) {
+                PrimaryButton(text = "Resume game", icon = Icons.Filled.Refresh, onClick = onResume)
+                Spacer(Modifier.height(ChessCoachTheme.Space.s12.dp))
+                PrimaryButton(text = "Play a new game", icon = Icons.Filled.PlayArrow, onClick = onPlay, filled = false)
+            } else {
+                PrimaryButton(text = "Play a game", icon = Icons.Filled.PlayArrow, onClick = onPlay)
+            }
 
             Spacer(Modifier.height(ChessCoachTheme.Space.s12.dp))
 
@@ -177,20 +186,30 @@ private fun Emblem() {
     }
 }
 
+/** [filled] false renders the de-emphasized "there's a better next step than
+ *  this" variant -- used for "Play a new game" once a Resume option exists,
+ *  matching iOS's `theme.textColor.opacity(0.16)` muted tint. */
 @Composable
-private fun PrimaryButton(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun PrimaryButton(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    filled: Boolean = true,
+) {
+    val bg = if (filled) ChessCoachTheme.accent else ChessCoachTheme.text.copy(alpha = 0.16f)
+    val fg = if (filled) ChessCoachTheme.onAccent else ChessCoachTheme.text
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .background(ChessCoachTheme.accent, RoundedCornerShape(ChessCoachTheme.Radius.pill.dp))
+            .background(bg, RoundedCornerShape(ChessCoachTheme.Radius.pill.dp))
             .padding(vertical = 16.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = ChessCoachTheme.onAccent, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
-        Text(text, color = ChessCoachTheme.onAccent, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, color = fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

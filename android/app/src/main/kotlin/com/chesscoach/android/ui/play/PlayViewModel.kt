@@ -95,6 +95,7 @@ class PlayViewModel(
     private val engineProvider: EngineProvider,
     private val assetRepository: AssetRepository,
     private val savedGameStore: SavedGameStore? = null,
+    private val resumeGameId: String? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlayUiState())
@@ -126,6 +127,68 @@ class PlayViewModel(
         viewModelScope.launch {
             openings = assetRepository.openings()
         }
+        if (resumeGameId != null) {
+            viewModelScope.launch {
+                savedGameStore?.load(resumeGameId)?.let { resumeGame(it) }
+            }
+        }
+    }
+
+    /** Restores an in-progress [SavedGame] exactly where it was checkpointed --
+     *  the Home screen's "Resume game" entry point. Replays every stored ply
+     *  through [ChessLogic] to rebuild `history` (so undo/checkpoint keep
+     *  working normally afterward), and restores the accuracy/quality-tally
+     *  bookkeeping from the game's own `moveRecords` so a finished-from-here
+     *  game reports a full-game accuracy, not just the moves played after
+     *  resuming. */
+    private fun resumeGame(saved: SavedGame) {
+        moveGen++
+        history.clear()
+        playerMoveAccuracies.clear()
+        qualityTally.clear()
+        winAfterMoverByPly.clear()
+        moveRecords.clear()
+
+        gameId = saved.id
+        startedAt = saved.startedAt
+        startFen = saved.startFen
+        val playerColor = if (saved.playerIsWhite) Color.WHITE else Color.BLACK
+
+        var board = Board.fromFen(saved.startFen) ?: Board.starting()
+        val sanSoFar = mutableListOf<String>()
+        var lastMove: Pair<Square, Square>? = null
+        for (i in saved.moves.indices) {
+            val move = ChessLogic.parseUci(board, saved.moves[i]) ?: break
+            board = board.applyMove(move)
+            sanSoFar.add(saved.sanMoves.getOrElse(i) { San.of(board, move) })
+            lastMove = move.from to move.to
+            history.add(PlaySnapshot(board, sanSoFar.toList(), lastMove))
+        }
+
+        saved.moveRecords.forEach { record ->
+            moveRecords.add(record)
+            playerMoveAccuracies.add(Evaluation.moveAccuracy(record.winBefore, record.winAfter))
+            runCatching { MoveGrade.valueOf(record.classification.uppercase()) }.getOrNull()?.let { grade ->
+                qualityTally[grade] = (qualityTally[grade] ?: 0) + 1
+            }
+        }
+        saved.winAfterMover?.forEachIndexed { idx, v -> winAfterMoverByPly[idx] = v }
+
+        val status = GameStatus.of(board)
+        _state.value = PlayUiState(
+            board = board,
+            moveSan = sanSoFar,
+            lastMove = lastMove,
+            status = status,
+            playerColor = playerColor,
+            engineAvailable = _state.value.engineAvailable,
+            skillLevel = saved.skill,
+            openingName = saved.openingName,
+            openingEco = saved.openingEco,
+            capturedMaterial = CapturedMaterial.from(board),
+        )
+        updateCheckSquare()
+        if (!status.isTerminal && board.sideToMove != playerColor) requestEngineMove()
     }
 
     fun newGame(playerColor: Color, skillLevel: Int) {

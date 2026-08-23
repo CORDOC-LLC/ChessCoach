@@ -7,17 +7,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.chesscoach.android.data.AssetRepository
 import com.chesscoach.android.data.SavedGameStore
 import com.chesscoach.android.engine.EngineProvider
@@ -42,7 +48,7 @@ import com.chesscoach.core.data.LessonCatalog
 
 private object Routes {
     const val HOME = "home"
-    const val PLAY = "play"
+    const val PLAY = "play?resumeId={resumeId}"
     const val REVIEW = "review"
     const val SAVED_GAME_REVIEW = "savedGameReview/{gameId}"
     const val PUZZLES = "puzzles"
@@ -53,6 +59,7 @@ private object Routes {
     const val OPENINGS = "openings"
     const val SETTINGS = "settings"
 
+    fun play(resumeId: String? = null) = if (resumeId != null) "play?resumeId=$resumeId" else "play"
     fun puzzleSolve(theme: String) = "puzzleSolve/$theme"
     fun lessonDetail(id: String) = "lessonDetail/$id"
     fun lessonPractice(id: String) = "lessonPractice/$id"
@@ -109,17 +116,32 @@ fun ChessCoachNavHost(
                 modifier = Modifier.padding(padding),
             ) {
                 composable(Routes.HOME) {
+                    var inProgressGameId by remember { mutableStateOf<String?>(null) }
+                    LaunchedEffect(backStackEntry?.id) {
+                        inProgressGameId = savedGameStore.inProgressGameId()
+                            ?.takeIf { id -> savedGameStore.load(id)?.isGameOver == false }
+                    }
                     HomeScreen(
-                        onPlay = { navController.navigate(Routes.PLAY) },
+                        onPlay = { navController.navigate(Routes.play()) },
+                        onResume = { inProgressGameId?.let { navController.navigate(Routes.play(it)) } },
                         onReview = { navController.navigate(Routes.REVIEW) },
                         onSettings = { navController.navigate(Routes.SETTINGS) },
+                        hasInProgressGame = inProgressGameId != null,
                     )
                 }
-                composable(Routes.PLAY) {
+                composable(
+                    route = Routes.PLAY,
+                    arguments = listOf(navArgument("resumeId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }),
+                ) { entry ->
+                    val resumeId = entry.arguments?.getString("resumeId")
                     val vm: PlayViewModel = viewModel(factory = viewModelFactory {
-                        initializer { PlayViewModel(engineProvider, assetRepository, savedGameStore) }
+                        initializer { PlayViewModel(engineProvider, assetRepository, savedGameStore, resumeGameId = resumeId) }
                     })
-                    PlayScreen(vm, onBack = { navController.popBackStack() })
+                    PlayScreen(vm, resumeGameId = resumeId, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.REVIEW) {
                     val vm: ReviewViewModel = viewModel(factory = viewModelFactory {

@@ -70,9 +70,9 @@ private fun gradeColor(grade: MoveGrade): Color = when (grade) {
 }
 
 @Composable
-fun PlayScreen(viewModel: PlayViewModel, onBack: () -> Unit) {
+fun PlayScreen(viewModel: PlayViewModel, resumeGameId: String? = null, onBack: () -> Unit) {
     val state by viewModel.state.collectAsState()
-    var showSetup by remember { mutableStateOf(true) }
+    var showSetup by remember { mutableStateOf(resumeGameId == null) }
     var showMenu by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize().background(ChessCoachTheme.bg)) {
