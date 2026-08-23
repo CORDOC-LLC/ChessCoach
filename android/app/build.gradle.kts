@@ -1,6 +1,19 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     kotlin("plugin.compose")
+}
+
+// Release signing: android/keystore/keystore.properties (gitignored, not committed).
+// Absent on a fresh checkout -- the release build type falls back to no explicit
+// signingConfig (debug-signed) rather than failing the build, so CI/local builds
+// that only need :app:assembleDebug keep working unchanged.
+val keystorePropertiesFile = rootProject.file("keystore/keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
 android {
@@ -13,6 +26,30 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+    }
+
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Minification stays off for this first Play Console upload -- the
+            // goal is unblocking billing/in-app-product setup, not a fully
+            // proguard-verified production build. Revisit once a release is
+            // actually headed to production.
+            isMinifyEnabled = false
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     buildFeatures {

@@ -1,4 +1,7 @@
 *.iml
+*.keystore
+keystore/
+keystore.properties
 .gradle/
 .idea/
 .kotlin/
